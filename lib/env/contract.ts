@@ -27,7 +27,10 @@ export const CONVEX_ONLY_KEYS = [
 ] as const;
 
 /** Client-safe public keys — the only allowed NEXT_PUBLIC_* server-adjacent vars. */
-export const ALLOWED_PUBLIC_KEYS = ["NEXT_PUBLIC_CONVEX_URL"] as const;
+export const ALLOWED_PUBLIC_KEYS = [
+  "NEXT_PUBLIC_CONVEX_URL",
+  "NEXT_PUBLIC_PRIVY_APP_ID",
+] as const;
 
 export type EnvMap = Record<string, string | undefined>;
 
