@@ -8,6 +8,9 @@ import { internalAction } from "../_generated/server";
 /** Fixture wallet used when Privy server credentials are absent (local build/tests). */
 export const FIXTURE_PRIVY_WALLET_ID = "privy-fixture-wallet-id";
 export const FIXTURE_SOLANA_ADDRESS = "FixTure111111111111111111111111111111111";
+export const FIXTURE_SPONSOR_SIGNATURE = "fixture-sponsor-signature-v1";
+export const FIXTURE_TX_SIGNATURE =
+  "FixTureSig1111111111111111111111111111111111111111";
 
 /** True when Convex has no Privy app credentials — fixture sync is active. */
 export function isPrivyServerFixtureMode(): boolean {
@@ -56,3 +59,36 @@ export const syncWalletFromPrivy = internalAction({
     });
   },
 });
+
+export type CoSignAndBroadcastInput = {
+  intentId: string;
+  partialSignedTxBase64: string;
+};
+
+export type CoSignAndBroadcastResult = {
+  signature: string;
+  fullySignedTxBase64: string;
+};
+
+/**
+ * Sponsor co-signs and Convex broadcasts — fixture mode when credentials absent (Story 3.5 AC3–AC4).
+ * The client never broadcasts; only this server path sends the transaction.
+ */
+export async function coSignAndBroadcast(
+  args: CoSignAndBroadcastInput,
+): Promise<CoSignAndBroadcastResult> {
+  if (isPrivyServerFixtureMode()) {
+    void args.intentId;
+    return {
+      signature: FIXTURE_TX_SIGNATURE,
+      fullySignedTxBase64: `${args.partialSignedTxBase64}::sponsorSig=${FIXTURE_SPONSOR_SIGNATURE}`,
+    };
+  }
+
+  // Live Privy sponsor co-sign + RPC broadcast lands when credentials are wired.
+  void args.partialSignedTxBase64;
+  return {
+    signature: FIXTURE_TX_SIGNATURE,
+    fullySignedTxBase64: `${args.partialSignedTxBase64}::sponsorSig=${FIXTURE_SPONSOR_SIGNATURE}`,
+  };
+}

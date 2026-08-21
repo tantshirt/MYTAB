@@ -1,1 +1,2 @@
-// Placeholder — implemented in a later story.
+/** Obligation records — settlement offset applied via settlementLedger (Story 3.6 stub). */
+export {};
