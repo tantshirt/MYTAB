@@ -1,9 +1,72 @@
 import { httpRouter } from "convex/server";
+import { internal } from "./_generated/api";
+import { httpAction } from "./_generated/server";
+import {
+  buildDisplayName,
+  hashInitData,
+  resolveChatIds,
+  TELEGRAM_CONTEXT_TTL_MS,
+} from "../lib/telegram/verify";
+import { verifyTelegramInitData } from "./lib/telegramVerify";
 
-/**
- * Convex HTTP ingress stub (AD-14).
- * Telegram webhook, bootstrap, and receipt blob routes added in later stories.
- */
 const http = httpRouter();
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+http.route({
+  path: "/telegram/bootstrap",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.subject) {
+      return jsonResponse({ error: "UNAUTHORIZED" }, 401);
+    }
+
+    let body: { initData?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: "INVALID_BODY" }, 400);
+    }
+
+    if (typeof body.initData !== "string" || body.initData.trim().length === 0) {
+      return jsonResponse({ error: "INVALID_INIT_DATA" }, 400);
+    }
+
+    const initData = body.initData.trim();
+    const verification = verifyTelegramInitData(initData);
+    if (!verification.ok) {
+      return jsonResponse({ error: verification.code }, 400);
+    }
+
+    const { parsed } = verification;
+    const { chatId, groupId } = resolveChatIds(parsed.chat);
+    const initDataHash = hashInitData(initData);
+    const expiresAt = Date.now() + TELEGRAM_CONTEXT_TTL_MS;
+
+    const result = await ctx.runMutation(internal.internal.telegram.bindTelegramIdentity, {
+      privyDid: identity.subject,
+      telegramUserId: String(parsed.user.id),
+      displayName: buildDisplayName(parsed.user),
+      username: parsed.user.username,
+      avatarUrl: parsed.user.photo_url,
+      chatId,
+      groupId,
+      initDataHash,
+      expiresAt,
+    });
+
+    if (!result.ok) {
+      return jsonResponse({ error: result.code }, 409);
+    }
+
+    return jsonResponse({ ok: true, userId: result.userId });
+  }),
+});
 
 export default http;

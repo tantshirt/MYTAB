@@ -7,10 +7,17 @@
  * To regenerate, run `npx convex dev` or `npx convex codegen`.
  * This stub exists so builds succeed without a linked Convex deployment.
  */
-import type { AnyDataModel } from "convex/server";
+import type {
+  DataModelFromSchemaDefinition,
+  DocumentByName,
+  TableNamesInDataModel,
+} from "convex/server";
 import type { GenericId } from "convex/values";
+import schema from "../schema.js";
 
-export type TableNames = string;
-export type Doc = any;
+type SchemaDataModel = DataModelFromSchemaDefinition<typeof schema>;
+
+export type TableNames = TableNamesInDataModel<SchemaDataModel>;
+export type Doc<TableName extends TableNames> = DocumentByName<SchemaDataModel, TableName>;
 export type Id<TableName extends TableNames = TableNames> = GenericId<TableName>;
-export type DataModel = AnyDataModel;
+export type DataModel = SchemaDataModel;

@@ -91,7 +91,7 @@ development_status:
   1-4-zero-click-privy-telegram-login-with-an-embedded-solana-wallet: done
   1-5-a-privy-access-token-authenticates-a-convex-query: done
   1-6-token-bridge-fallback-for-convex-authentication: backlog
-  1-7-verified-telegram-identity-bound-to-the-privy-did: backlog
+  1-7-verified-telegram-identity-bound-to-the-privy-did: done
   1-8-wallet-record-synced-with-one-default-receiving-wallet: backlog
   1-9-opaque-session-tokens-that-resolve-expire-and-revoke: backlog
   1-10-external-solana-wallet-connection: backlog

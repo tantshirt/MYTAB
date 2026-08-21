@@ -1,0 +1,226 @@
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+
+/** Fixture bot token when TELEGRAM_BOT_TOKEN is absent (local build/tests). */
+export const FIXTURE_TELEGRAM_BOT_TOKEN = "fixture-telegram-bot-token";
+
+/** Maximum age for Telegram initData auth_date (5 minutes). */
+export const TELEGRAM_INIT_DATA_MAX_AGE_MS = 5 * 60 * 1000;
+
+/** Server-side Telegram context TTL (5 minutes). */
+export const TELEGRAM_CONTEXT_TTL_MS = 5 * 60 * 1000;
+
+export type TelegramInitDataUser = {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+};
+
+export type TelegramInitDataChat = {
+  id: number;
+  type: string;
+  title?: string;
+};
+
+export type ParsedTelegramInitData = {
+  authDate: number;
+  chatInstance: string | null;
+  user: TelegramInitDataUser;
+  chat: TelegramInitDataChat | null;
+};
+
+export type VerifyInitDataResult =
+  | { ok: true; parsed: ParsedTelegramInitData }
+  | { ok: false; code: "INVALID_INIT_DATA" | "EXPIRED_AUTH_DATE" | "MISSING_USER" };
+
+function buildDataCheckString(initData: string): { hash: string | null; dataCheckString: string } {
+  const pairs = initData
+    .split("&")
+    .filter((chunk) => chunk.length > 0 && !chunk.startsWith("hash="));
+
+  let hash: string | null = null;
+  const hashPair = initData
+    .split("&")
+    .find((chunk) => chunk.startsWith("hash="));
+  if (hashPair) {
+    hash = hashPair.slice("hash=".length);
+  }
+
+  const dataCheckString = pairs
+    .map((chunk) => {
+      const separator = chunk.indexOf("=");
+      if (separator === -1) {
+        return { key: chunk, entry: chunk };
+      }
+      const key = chunk.slice(0, separator);
+      const value = chunk.slice(separator + 1);
+      return { key, entry: `${key}=${decodeURIComponent(value)}` };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((item) => item.entry)
+    .join("\n");
+
+  return { hash, dataCheckString };
+}
+
+/** Computes the Telegram initData HMAC hex digest for a bot token. */
+export function computeInitDataHmac(dataCheckString: string, botToken: string): string {
+  const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest();
+  return createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+}
+
+function safeEqualHex(a: string, b: string): boolean {
+  try {
+    const left = Buffer.from(a, "hex");
+    const right = Buffer.from(b, "hex");
+    if (left.length !== right.length) {
+      return false;
+    }
+    return timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
+/** SHA-256 of raw initData for replay tracking. */
+export function hashInitData(initData: string): string {
+  return createHash("sha256").update(initData).digest("hex");
+}
+
+export function isAuthDateFresh(
+  authDateSeconds: number,
+  nowMs: number = Date.now(),
+  maxAgeMs: number = TELEGRAM_INIT_DATA_MAX_AGE_MS,
+): boolean {
+  const authDateMs = authDateSeconds * 1000;
+  return authDateMs <= nowMs && nowMs - authDateMs <= maxAgeMs;
+}
+
+function parseUser(raw: string | null): TelegramInitDataUser | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as TelegramInitDataUser;
+    if (typeof parsed.id !== "number" || typeof parsed.first_name !== "string") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function parseChat(raw: string | null): TelegramInitDataChat | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as TelegramInitDataChat;
+    if (typeof parsed.id !== "number" || typeof parsed.type !== "string") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Parses verified initData fields — call only after HMAC validation succeeds. */
+export function parseVerifiedInitData(initData: string): ParsedTelegramInitData | null {
+  const params = new URLSearchParams(initData);
+  const authDateRaw = params.get("auth_date");
+  if (!authDateRaw) {
+    return null;
+  }
+
+  const authDate = Number.parseInt(authDateRaw, 10);
+  if (!Number.isFinite(authDate)) {
+    return null;
+  }
+
+  const user = parseUser(params.get("user"));
+  if (!user) {
+    return null;
+  }
+
+  return {
+    authDate,
+    chatInstance: params.get("chat_instance"),
+    user,
+    chat: parseChat(params.get("chat")),
+  };
+}
+
+/**
+ * Validates raw Telegram initData HMAC and freshness before extracting any field.
+ * Pure function — pass bot token explicitly (fixture or production).
+ */
+export function verifyInitData(
+  initData: string,
+  botToken: string,
+  options?: { nowMs?: number; maxAgeMs?: number },
+): VerifyInitDataResult {
+  const trimmed = initData.trim();
+  if (!trimmed) {
+    return { ok: false, code: "INVALID_INIT_DATA" };
+  }
+
+  const { hash, dataCheckString } = buildDataCheckString(trimmed);
+  if (!hash) {
+    return { ok: false, code: "INVALID_INIT_DATA" };
+  }
+
+  const expectedHash = computeInitDataHmac(dataCheckString, botToken);
+  if (!safeEqualHex(expectedHash, hash)) {
+    return { ok: false, code: "INVALID_INIT_DATA" };
+  }
+
+  const parsed = parseVerifiedInitData(trimmed);
+  if (!parsed) {
+    return { ok: false, code: "MISSING_USER" };
+  }
+
+  const nowMs = options?.nowMs ?? Date.now();
+  const maxAgeMs = options?.maxAgeMs ?? TELEGRAM_INIT_DATA_MAX_AGE_MS;
+  if (!isAuthDateFresh(parsed.authDate, nowMs, maxAgeMs)) {
+    return { ok: false, code: "EXPIRED_AUTH_DATE" };
+  }
+
+  return { ok: true, parsed };
+}
+
+export function buildDisplayName(user: TelegramInitDataUser): string {
+  const parts = [user.first_name, user.last_name].filter(Boolean);
+  return parts.join(" ").trim() || "Telegram User";
+}
+
+export function resolveChatIds(chat: TelegramInitDataChat | null): {
+  chatId: string;
+  groupId: string;
+} {
+  if (!chat) {
+    return { chatId: "", groupId: "" };
+  }
+  const id = String(chat.id);
+  const isGroup = chat.type === "group" || chat.type === "supergroup";
+  return {
+    chatId: id,
+    groupId: isGroup ? id : "",
+  };
+}
+
+/** Builds a signed initData query string for tests and fixture mode. */
+export function signTestInitData(
+  fields: Record<string, string>,
+  botToken: string = FIXTURE_TELEGRAM_BOT_TOKEN,
+): string {
+  const sortedKeys = Object.keys(fields).sort((a, b) => a.localeCompare(b));
+  const dataCheckString = sortedKeys.map((key) => `${key}=${fields[key]}`).join("\n");
+  const hash = computeInitDataHmac(dataCheckString, botToken);
+  const query = sortedKeys
+    .map((key) => `${key}=${encodeURIComponent(fields[key])}`)
+    .join("&");
+  return `${query}&hash=${hash}`;
+}

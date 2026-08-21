@@ -3,6 +3,7 @@
 import { usePrivy } from "@privy-io/react-auth";
 import { useEffect, useState, type ReactNode } from "react";
 import { isPrivyFixtureMode } from "@/lib/privy/config";
+import { TelegramBootstrapGate } from "@/features/telegram/TelegramBootstrapGate";
 import { useFixtureAuth } from "./fixture-auth";
 import { LaunchSurface } from "./LaunchSurface";
 
@@ -77,7 +78,7 @@ function PrivyAuthGate({ children }: AuthGateProps) {
   return (
     <>
       {(isReconnecting || error) && <ReconnectingBar />}
-      {children}
+      <TelegramBootstrapGate>{children}</TelegramBootstrapGate>
     </>
   );
 }
