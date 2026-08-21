@@ -4,6 +4,7 @@ import { getViewerSubject } from "./identity";
 
 export const UNAUTHORIZED = "UNAUTHORIZED";
 export const TELEGRAM_CONTEXT_REQUIRED = "TELEGRAM_CONTEXT_REQUIRED";
+export const NOT_GROUP_MEMBER = "NOT_GROUP_MEMBER";
 
 type AuthCtx = QueryCtx | MutationCtx;
 
@@ -52,3 +53,27 @@ export async function requireTelegramContext(ctx: AuthCtx): Promise<Doc<"telegra
 }
 
 export type CurrentUserId = Id<"users">;
+
+/** Requires an active group membership resolved from groupMembers — never client claims. */
+export async function requireGroupMember(
+  ctx: AuthCtx,
+  groupId: Id<"groups">,
+): Promise<Doc<"groupMembers">> {
+  const user = await getCurrentUser(ctx);
+  if (!user) {
+    throw new AuthError(UNAUTHORIZED);
+  }
+
+  const membership = await ctx.db
+    .query("groupMembers")
+    .withIndex("by_group_and_telegram_user_id", (q) =>
+      q.eq("groupId", groupId).eq("telegramUserId", user.telegramUserId),
+    )
+    .unique();
+
+  if (!membership || membership.membershipStatus !== "active") {
+    throw new AuthError(NOT_GROUP_MEMBER);
+  }
+
+  return membership;
+}

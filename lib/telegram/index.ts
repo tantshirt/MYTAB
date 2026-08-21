@@ -20,3 +20,17 @@ export type {
 } from "./verify";
 
 export { getConvexSiteUrl } from "./client";
+
+export {
+  FIXTURE_TELEGRAM_WEBHOOK_SECRET,
+  extractBotIdFromToken,
+  normalizeTelegramUpdate,
+  verifyWebhookSecret,
+} from "./webhook";
+
+export type {
+  NormalizedTelegramUpdate,
+  NormalizeUpdateResult,
+  TelegramWebhookChat,
+  TelegramWebhookUser,
+} from "./webhook";

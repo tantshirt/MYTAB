@@ -1,5 +1,57 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { processTelegramUpdate } from "../lib/telegramUpdateSync";
+
+const normalizedUpdateValidator = v.union(
+  v.object({
+    kind: v.literal("message"),
+    updateId: v.number(),
+    chatId: v.string(),
+    fromId: v.string(),
+    messageId: v.number(),
+    command: v.union(v.string(), v.null()),
+    chatTitle: v.optional(v.string()),
+    fromDisplayName: v.string(),
+    fromUsername: v.optional(v.string()),
+    fromAvatarUrl: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("chat_member"),
+    updateId: v.number(),
+    chatId: v.string(),
+    userId: v.string(),
+    chatTitle: v.optional(v.string()),
+    displayName: v.string(),
+    username: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    role: v.union(
+      v.literal("creator"),
+      v.literal("administrator"),
+      v.literal("member"),
+      v.literal("restricted"),
+      v.literal("left"),
+      v.literal("kicked"),
+      v.literal("unknown"),
+    ),
+    membershipStatus: v.union(
+      v.literal("active"),
+      v.literal("left"),
+      v.literal("kicked"),
+      v.literal("restricted"),
+    ),
+  }),
+  v.object({
+    kind: v.literal("my_chat_member"),
+    updateId: v.number(),
+    chatId: v.string(),
+    chatTitle: v.optional(v.string()),
+    botIsAdmin: v.boolean(),
+  }),
+  v.object({
+    kind: v.literal("unsupported"),
+    updateId: v.number(),
+  }),
+);
 
 export const bindTelegramIdentity = internalMutation({
   args: {
@@ -74,3 +126,15 @@ export const bindTelegramIdentity = internalMutation({
     return { ok: true as const, userId };
   },
 });
+
+export const processUpdate = internalMutation({
+  args: {
+    botId: v.string(),
+    update: normalizedUpdateValidator,
+  },
+  handler: async (ctx, args) => {
+    return processTelegramUpdate(ctx, args.botId, args.update);
+  },
+});
+
+export { resolveGroupFromChat } from "../lib/groupSync";

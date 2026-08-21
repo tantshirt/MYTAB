@@ -8,6 +8,12 @@ import {
   TELEGRAM_CONTEXT_TTL_MS,
 } from "../lib/telegram/verify";
 import { verifyTelegramInitData } from "./lib/telegramVerify";
+import {
+  getTelegramBotId,
+  getTelegramWebhookSecret,
+  verifyWebhookSecret,
+} from "./lib/telegramWebhook";
+import { normalizeTelegramUpdate } from "../lib/telegram/webhook";
 
 const http = httpRouter();
 
@@ -66,6 +72,39 @@ http.route({
     }
 
     return jsonResponse({ ok: true, userId: result.userId });
+  }),
+});
+
+http.route({
+  path: "/telegram/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const secretHeader = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
+    if (!verifyWebhookSecret(secretHeader, getTelegramWebhookSecret())) {
+      return new Response(null, { status: 401 });
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+
+    const normalized = normalizeTelegramUpdate(body);
+    if (!normalized.ok) {
+      return new Response(null, { status: 400 });
+    }
+
+    await ctx.runMutation(internal.internal.telegram.processUpdate, {
+      botId: getTelegramBotId(),
+      update: normalized.update,
+    });
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }),
 });
 
