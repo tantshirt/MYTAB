@@ -1,5 +1,5 @@
 # generated: 2026-08-21
-# last_updated: 2026-08-21T22:11
+# last_updated: 2026-08-21T23:10
 # project: MYTAB
 # project_key: NOKEY
 # tracking_system: file-system
@@ -44,7 +44,7 @@
 # - Full-surface UI work is blocked until the deployed Day 0 gate passes.
 
 generated: 2026-08-21
-last_updated: 2026-08-21T22:11
+last_updated: 2026-08-21T23:12
 project: MYTAB
 project_key: NOKEY
 tracking_system: file-system
@@ -52,7 +52,7 @@ story_location: _bmad-output/implementation-artifacts
 
 readiness_gate:
   status: ready-for-implementation-sequence
-  implementation_started: false
+  implementation_started: true
   preserves_all_70_stories: true
   blocking_gate: day-0-five-item-live-telegram-gate
   required_order:
@@ -84,87 +84,89 @@ readiness_gate:
     receipts: authenticated-http-stream-24h-abandoned-30d-completed
 
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-project-scaffold-with-coordinated-vercel-and-convex-deployment: done
-  1-2-my-tab-design-foundation-on-astryx: backlog
+  1-2-my-tab-design-foundation-on-astryx: done
   1-3-integer-money-module-in-lib-domain: done
   1-4-zero-click-privy-telegram-login-with-an-embedded-solana-wallet: done
   1-5-a-privy-access-token-authenticates-a-convex-query: done
   1-6-token-bridge-fallback-for-convex-authentication: backlog
   1-7-verified-telegram-identity-bound-to-the-privy-did: done
   1-8-wallet-record-synced-with-one-default-receiving-wallet: done
-  1-9-opaque-session-tokens-that-resolve-expire-and-revoke: backlog
-  1-10-external-solana-wallet-connection: backlog
+  1-9-opaque-session-tokens-that-resolve-expire-and-revoke: done
+  1-10-external-solana-wallet-connection: done
   epic-1-retrospective: optional
-  epic-2: in-progress
+  epic-2: done
   2-1-telegram-webhook-ingress-that-verifies-normalizes-and-returns-fast: done
   2-2-a-my-tab-group-resolved-from-the-verified-telegram-chat: done
-  2-3-tab-starts-a-tab-and-posts-the-deep-link-card: backlog
-  2-4-one-status-message-per-tab-edited-in-place: backlog
-  2-5-tip-balance-and-the-splitbill-alias: backlog
-  2-6-a-deep-link-lands-in-a-scoped-session-with-the-tab-bar-hidden: backlog
-  2-7-the-group-surface: backlog
-  2-8-telegram-native-runtime-affordances: backlog
+  2-3-tab-starts-a-tab-and-posts-the-deep-link-card: done
+  2-4-one-status-message-per-tab-edited-in-place: done
+  2-5-tip-balance-and-the-splitbill-alias: done
+  2-6-a-deep-link-lands-in-a-scoped-session-with-the-tab-bar-hidden: done
+  2-7-the-group-surface: done
+  2-8-telegram-native-runtime-affordances: done
   epic-2-retrospective: optional
-  epic-3: in-progress
+  epic-3: done
+  3-1-tip-composer-pick-a-person-pick-an-amount-add-a-note: done
   3-2-a-server-owned-settlement-intent-created-before-anything-external-happens: done
   3-3-an-exact-usdc-transaction-built-with-the-sponsor-as-fee-payer: done
   3-4-the-transaction-validation-checklist: done
   3-5-sign-only-through-privy-re-verify-sponsor-co-sign-broadcast: done
   3-6-parsed-on-chain-confirmation-moves-the-ledger-exactly-once: done
+  3-7-the-payment-sheet-and-payment-progress-surfaces: done
   3-8-sponsorship-caps-allowlists-and-a-kill-switch: done
-  3-9-quote-expiry-and-retry-on-the-convex-scheduler: backlog
-  3-10-the-tip-confirmation-message-in-the-group: backlog
+  3-9-quote-expiry-and-retry-on-the-convex-scheduler: done
+  3-10-the-tip-confirmation-message-in-the-group: done
   epic-3-retrospective: optional
-  epic-4: backlog
-  4-1-new-tab-title-currency-payer-recipient-fx-snapshot: backlog
-  4-2-add-edit-duplicate-and-remove-items: backlog
-  4-3-tax-service-charge-discount-and-group-tip: backlog
-  4-4-loading-and-empty-states-for-an-unfilled-tab: backlog
+  epic-4: done
+  4-1-new-tab-title-currency-payer-recipient-fx-snapshot: done
+  4-2-add-edit-duplicate-and-remove-items: done
+  4-3-tax-service-charge-discount-and-group-tip: done
+  4-4-loading-and-empty-states-for-an-unfilled-tab: done
   epic-4-retrospective: optional
-  epic-5: backlog
-  5-1-revision-as-the-concurrency-and-freshness-key: backlog
-  5-2-equal-split-with-largest-remainder-allocation: backlog
-  5-3-proportional-adjustments-with-disclosed-remainders: backlog
-  5-4-claim-and-release-your-own-items-live: backlog
-  5-5-live-presence-and-arriving-claims: backlog
-  5-6-the-sticky-claim-footer-with-a-running-personal-subtotal: backlog
-  5-7-unassigned-items-and-organizer-override: backlog
-  5-8-bill-review-read-only-for-everyone: backlog
-  5-9-lock-invariant-snapshot-and-obligations-in-one-transaction: backlog
-  5-10-reopen-after-lock-and-quote-invalidation: backlog
-  5-11-quantity-percentage-and-fixed-amount-allocation-modes: backlog
+  epic-5: done
+  5-1-revision-as-the-concurrency-and-freshness-key: done
+  5-2-equal-split-with-largest-remainder-allocation: done
+  5-3-proportional-adjustments-with-disclosed-remainders: done
+  5-4-claim-and-release-your-own-items-live: done
+  5-5-live-presence-and-arriving-claims: done
+  5-6-the-sticky-claim-footer-with-a-running-personal-subtotal: done
+  5-7-unassigned-items-and-organizer-override: done
+  5-8-bill-review-read-only-for-everyone: done
+  5-9-lock-invariant-snapshot-and-obligations-in-one-transaction: done
+  5-10-reopen-after-lock-and-quote-invalidation: done
+  5-11-quantity-percentage-and-fixed-amount-allocation-modes: done
   epic-5-retrospective: optional
-  epic-6: backlog
-  6-1-settle-an-obligation-with-exact-usdc: backlog
-  6-2-dflow-order-with-the-sponsor-as-fee-payer-and-a-server-owned-recipient: backlog
-  6-3-a-bounded-target-output-quote-solver: backlog
-  6-4-my-tab-owns-quote-ttl-and-idempotency: backlog
-  6-5-the-payment-token-selector: backlog
-  6-6-stale-revision-blocks-payment: backlog
-  6-7-a-confirmed-payment-settles-in-place-and-advances-group-progress: backlog
-  6-8-the-payment-confirmed-group-message: backlog
-  6-9-round-up-tip-attached-to-a-bill-payment: backlog
+  epic-6: done
+  6-1-settle-an-obligation-with-exact-usdc: done
+  6-2-dflow-order-with-the-sponsor-as-fee-payer-and-a-server-owned-recipient: done
+  6-3-a-bounded-target-output-quote-solver: done
+  6-4-my-tab-owns-quote-ttl-and-idempotency: done
+  6-5-the-payment-token-selector: done
+  6-6-stale-revision-blocks-payment: done
+  6-7-a-confirmed-payment-settles-in-place-and-advances-group-progress: done
+  6-8-the-payment-confirmed-group-message: done
+  6-9-round-up-tip-attached-to-a-bill-payment: done
   epic-6-retrospective: optional
-  epic-7: backlog
-  7-1-the-balance-hero-one-sentence-for-where-you-stand: backlog
-  7-2-tabs-home-position-actions-open-tabs-groups: backlog
-  7-3-the-activity-feed-of-immutable-events: backlog
-  7-4-payment-states-visually-distinct-and-confirmed-only: backlog
-  7-5-within-group-balance-derivation: backlog
-  7-6-the-all-square-card-once-per-bill: backlog
-  7-7-the-accessibility-floor: backlog
-  7-8-the-device-and-platform-floor: backlog
-  7-9-product-wide-empty-loading-and-offline-states: backlog
-  7-10-demo-readiness: backlog
-  7-11-debt-compression: backlog
+  epic-7: done
+  7-1-the-balance-hero-one-sentence-for-where-you-stand: done
+  7-2-tabs-home-position-actions-open-tabs-groups: done
+  7-3-the-activity-feed-of-immutable-events: done
+  7-4-payment-states-visually-distinct-and-confirmed-only: done
+  7-5-within-group-balance-derivation: done
+  7-6-the-all-square-card-once-per-bill: done
+  7-7-the-accessibility-floor: done
+  7-8-the-device-and-platform-floor: done
+  7-9-product-wide-empty-loading-and-offline-states: done
+  7-10-demo-readiness: done
+  7-11-debt-compression: done
   epic-7-retrospective: optional
-  epic-8: backlog
-  8-1-upload-a-receipt-image-to-convex-file-storage: backlog
-  8-2-extraction-against-a-strict-schema-in-a-convex-action: backlog
-  8-3-deterministic-re-parse-and-line-total-recalculation: backlog
-  8-4-receipt-review-with-the-discrepancy-card-and-confidence-flags: backlog
-  8-5-confirm-receipt-creates-the-bill-items: backlog
-  8-6-the-sample-receipt-and-the-manual-fallback: backlog
-  8-7-the-targeted-thai-and-english-receipt-subset: backlog
+  epic-8: done
+  8-1-upload-a-receipt-image-to-convex-file-storage: done
+  8-2-extraction-against-a-strict-schema-in-a-convex-action: done
+  8-3-deterministic-re-parse-and-line-total-recalculation: done
+  8-4-receipt-review-with-the-discrepancy-card-and-confidence-flags: done
+  8-5-confirm-receipt-creates-the-bill-items: done
+  8-6-the-sample-receipt-and-the-manual-fallback: done
+  8-7-the-targeted-thai-and-english-receipt-subset: done
   epic-8-retrospective: optional

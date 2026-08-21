@@ -103,25 +103,42 @@ export default defineSchema({
 
   obligations: defineTable({
     groupId: v.id("groups"),
+    tabId: v.id("tabs"),
+    tabRevision: v.number(),
     debtorUserId: v.id("users"),
+    creditorUserId: v.id("users"),
+    displayAmountThbMinor: v.int64(),
+    billSnapshotHash: v.string(),
     amountAtomic: v.int64(),
     outputMint: v.string(),
-    status: v.union(v.literal("open"), v.literal("settled")),
+    status: v.union(v.literal("open"), v.literal("settled"), v.literal("superseded")),
     settledAt: v.optional(v.number()),
+    supersededAt: v.optional(v.number()),
     settlementIntentId: v.optional(v.id("settlementIntents")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_group_id", ["groupId"])
-    .index("by_debtor_user_id", ["debtorUserId"]),
+    .index("by_debtor_user_id", ["debtorUserId"])
+    .index("by_tab_id", ["tabId"]),
 
   settlementIntents: defineTable({
     userId: v.id("users"),
     walletId: v.id("wallets"),
     groupId: v.id("groups"),
+    tabId: v.optional(v.id("tabs")),
+    tabRevision: v.optional(v.number()),
     targetKind: v.union(v.literal("tip"), v.literal("obligation")),
     tipId: v.optional(v.id("tips")),
     obligationId: v.optional(v.id("obligations")),
+    billSnapshotHash: v.optional(v.string()),
+    roundUpAtomic: v.optional(v.int64()),
+    excessOutputAtomic: v.optional(v.int64()),
+    dflowContextSlot: v.optional(v.number()),
+    quotedOtherAmountThreshold: v.optional(v.int64()),
+    routingKind: v.optional(
+      v.union(v.literal("exact_usdc"), v.literal("dflow_sync")),
+    ),
     recipientUserId: v.id("users"),
     recipientAddress: v.string(),
     inputMint: v.string(),
@@ -159,7 +176,8 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotencyKey"])
     .index("by_user_id", ["userId"])
     .index("by_status", ["status"])
-    .index("by_tip_id", ["tipId"]),
+    .index("by_tip_id", ["tipId"])
+    .index("by_obligation_id", ["obligationId"]),
 
   sponsorUsageBuckets: defineTable({
     policyVersion: v.string(),
@@ -195,10 +213,43 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_intent_id", ["intentId"]),
 
+  providerUsageBuckets: defineTable({
+    operation: v.literal("dflow_quote"),
+    dimension: v.union(
+      v.literal("user_hour"),
+      v.literal("group_hour"),
+      v.literal("global_hour"),
+    ),
+    scopeKey: v.string(),
+    windowKey: v.string(),
+    reservedAttempts: v.number(),
+    settledAttempts: v.number(),
+    updatedAt: v.number(),
+  }).index("by_operation_dimension_scope_window", [
+    "operation",
+    "dimension",
+    "scopeKey",
+    "windowKey",
+  ]),
+
+  providerConcurrencyLeases: defineTable({
+    operation: v.literal("dflow_solver"),
+    scopeKey: v.string(),
+    intentId: v.id("settlementIntents"),
+    status: v.union(v.literal("active"), v.literal("released")),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_intent_id", ["intentId"])
+    .index("by_operation_scope", ["operation", "scopeKey"]),
+
   settlements: defineTable({
     intentId: v.id("settlementIntents"),
     transactionSignature: v.string(),
     messageHash: v.string(),
+    billSnapshotHash: v.optional(v.string()),
+    excessOutputAtomic: v.optional(v.int64()),
     sponsorDebitLamports: v.int64(),
     confirmedAt: v.number(),
   })
@@ -254,10 +305,25 @@ export default defineSchema({
     .index("by_status_and_expires", ["status", "expiresAt"])
     .index("by_subject", ["subjectKind", "subjectId"]),
 
+  fxSnapshots: defineTable({
+    baseCurrency: v.literal("THB"),
+    quoteMint: v.string(),
+    direction: v.literal("USDC_ATOMIC_PER_THB_MINOR"),
+    numeratorAtomic: v.int64(),
+    denominatorMinor: v.int64(),
+    provider: v.string(),
+    providerAsOf: v.number(),
+    fetchedAt: v.number(),
+    expiresAt: v.number(),
+    policyVersion: v.string(),
+    isFixture: v.boolean(),
+  }).index("by_provider_as_of", ["provider", "providerAsOf"]),
+
   tabs: defineTable({
     groupId: v.id("groups"),
     organizerTelegramUserId: v.string(),
     name: v.string(),
+    merchantName: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("open"),
@@ -267,12 +333,155 @@ export default defineSchema({
     ),
     defaultCurrency: v.optional(v.string()),
     recipientAsset: v.optional(v.string()),
+    payerUserId: v.optional(v.id("users")),
+    recipientUserId: v.optional(v.id("users")),
+    fxSnapshotId: v.optional(v.id("fxSnapshots")),
+    revision: v.optional(v.number()),
+    itemSubtotalMinor: v.optional(v.int64()),
+    taxMinor: v.optional(v.int64()),
+    serviceMinor: v.optional(v.int64()),
+    discountMinor: v.optional(v.int64()),
+    groupTipMinor: v.optional(v.int64()),
+    billTotalMinor: v.optional(v.int64()),
+    lockedRevision: v.optional(v.number()),
+    lockSnapshotId: v.optional(v.id("billLockSnapshots")),
+    lockedAt: v.optional(v.number()),
+    adjustmentOrderPolicy: v.optional(
+      v.array(
+        v.union(
+          v.literal("service"),
+          v.literal("tax"),
+          v.literal("discount"),
+          v.literal("group_tip"),
+        ),
+      ),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_group_id", ["groupId"])
     .index("by_group_and_status", ["groupId", "status"])
     .index("by_group_and_organizer", ["groupId", "organizerTelegramUserId"]),
+
+  items: defineTable({
+    tabId: v.id("tabs"),
+    name: v.string(),
+    quantity: v.number(),
+    unitPriceMinor: v.number(),
+    lineTotalMinor: v.number(),
+    allocationMode: v.optional(
+      v.union(
+        v.literal("full"),
+        v.literal("equal"),
+        v.literal("quantity"),
+        v.literal("percentage"),
+        v.literal("fixed"),
+      ),
+    ),
+    sortOrder: v.number(),
+    source: v.union(v.literal("manual"), v.literal("receipt")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tab_id", ["tabId"])
+    .index("by_tab_and_sort", ["tabId", "sortOrder"]),
+
+  adjustments: defineTable({
+    tabId: v.id("tabs"),
+    kind: v.union(
+      v.literal("service"),
+      v.literal("tax"),
+      v.literal("discount"),
+      v.literal("group_tip"),
+    ),
+    calculation: v.union(v.literal("fixed"), v.literal("percentage")),
+    valueMinorOrBps: v.number(),
+    percentageBase: v.optional(
+      v.union(
+        v.literal("item_subtotal"),
+        v.literal("after_service_charge"),
+        v.literal("after_tax"),
+        v.literal("pre_discount_total"),
+        v.literal("after_discount"),
+      ),
+    ),
+    position: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tab_id", ["tabId"]),
+
+  allocations: defineTable({
+    tabId: v.id("tabs"),
+    itemId: v.id("items"),
+    userId: v.id("users"),
+    revision: v.number(),
+    mode: v.union(
+      v.literal("full"),
+      v.literal("equal"),
+      v.literal("quantity"),
+      v.literal("percentage"),
+      v.literal("fixed"),
+    ),
+    shareNumerator: v.optional(v.number()),
+    shareDenominator: v.optional(v.number()),
+    quantity: v.optional(v.number()),
+    percentageBps: v.optional(v.number()),
+    fixedMinor: v.optional(v.int64()),
+    amountMinor: v.int64(),
+    roundingMinor: v.int64(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tab_id", ["tabId"])
+    .index("by_item_id", ["itemId"])
+    .index("by_tab_and_user", ["tabId", "userId"]),
+
+  adjustmentAllocations: defineTable({
+    tabId: v.id("tabs"),
+    adjustmentId: v.id("adjustments"),
+    userId: v.id("users"),
+    revision: v.number(),
+    kind: v.union(
+      v.literal("service"),
+      v.literal("tax"),
+      v.literal("discount"),
+      v.literal("group_tip"),
+    ),
+    amountMinor: v.int64(),
+    roundingMinor: v.int64(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tab_id", ["tabId"])
+    .index("by_adjustment_id", ["adjustmentId"]),
+
+  billLockSnapshots: defineTable({
+    tabId: v.id("tabs"),
+    revision: v.number(),
+    payloadJson: v.string(),
+    billTotalMinor: v.int64(),
+    recipientUserId: v.id("users"),
+    recipientAsset: v.string(),
+    fxNumeratorAtomic: v.int64(),
+    fxDenominatorMinor: v.int64(),
+    fxProvider: v.string(),
+    fxPolicyVersion: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_tab_id", ["tabId"])
+    .index("by_tab_and_revision", ["tabId", "revision"]),
+
+  obligationEvents: defineTable({
+    obligationId: v.id("obligations"),
+    tabId: v.id("tabs"),
+    tabRevision: v.number(),
+    eventKind: v.union(v.literal("superseded"), v.literal("settlement_offset")),
+    actorUserId: v.optional(v.id("users")),
+    settlementIntentId: v.optional(v.id("settlementIntents")),
+    createdAt: v.number(),
+  })
+    .index("by_obligation_id", ["obligationId"])
+    .index("by_tab_id", ["tabId"]),
 
   tabParticipants: defineTable({
     tabId: v.id("tabs"),
@@ -288,6 +497,8 @@ export default defineSchema({
     chatId: v.string(),
     messageId: v.number(),
     eventVersion: v.number(),
+    settledObligationCount: v.optional(v.number()),
+    totalObligationCount: v.optional(v.number()),
     lastEditedAt: v.number(),
   }).index("by_tab_id", ["tabId"]),
 
@@ -298,4 +509,67 @@ export default defineSchema({
     count: v.number(),
     updatedAt: v.number(),
   }).index("by_scope_day", ["scopeKind", "scopeKey", "dayKey"]),
+
+  activityEvents: defineTable({
+    groupId: v.id("groups"),
+    tabId: v.optional(v.id("tabs")),
+    actorUserId: v.optional(v.id("users")),
+    type: v.string(),
+    payload: v.any(),
+    createdAt: v.number(),
+  })
+    .index("by_group_id", ["groupId"])
+    .index("by_group_and_created", ["groupId", "createdAt"]),
+
+  obligationLedgerEvents: defineTable({
+    groupId: v.id("groups"),
+    tabId: v.id("tabs"),
+    obligationId: v.string(),
+    billId: v.string(),
+    debtorUserId: v.id("users"),
+    creditorUserId: v.id("users"),
+    amountMinor: v.int64(),
+    eventKind: v.union(
+      v.literal("settlement_offset"),
+      v.literal("waiver_offset"),
+      v.literal("cash_offset"),
+      v.literal("cash_proposed"),
+    ),
+    confirmed: v.boolean(),
+    actorUserId: v.optional(v.id("users")),
+    reason: v.optional(v.string()),
+    linkedProposalId: v.optional(v.id("obligationLedgerEvents")),
+    createdAt: v.number(),
+  })
+    .index("by_group_id", ["groupId"])
+    .index("by_obligation_id", ["obligationId"]),
+
+  receiptImports: defineTable({
+    tabId: v.id("tabs"),
+    uploadedBy: v.id("users"),
+    storageId: v.optional(v.id("_storage")),
+    status: v.union(
+      v.literal("ticketed"),
+      v.literal("uploaded"),
+      v.literal("extracting"),
+      v.literal("needs_review"),
+      v.literal("confirmed"),
+      v.literal("failed"),
+      v.literal("rejected"),
+      v.literal("deleted"),
+    ),
+    uploadTicketHash: v.optional(v.string()),
+    ticketExpiresAt: v.optional(v.number()),
+    extraction: v.optional(v.any()),
+    rawExtraction: v.optional(v.any()),
+    fieldConfidence: v.optional(v.any()),
+    reconciliation: v.optional(v.any()),
+    modelMetadata: v.optional(v.any()),
+    failureCode: v.optional(v.string()),
+    warnings: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tab_id", ["tabId"])
+    .index("by_status", ["status"]),
 });

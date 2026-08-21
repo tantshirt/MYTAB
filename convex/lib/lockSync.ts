@@ -1,0 +1,292 @@
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
+import { buildObligationSnapshots } from "../../lib/domain/obligations";
+import { verifyLockInvariant } from "../../lib/domain/allocation";
+import { fiatMinorFromInteger, type FiatMinor } from "../../lib/domain/money";
+import { computeBillSnapshotForObligation } from "./billSnapshot";
+import { USDC_MINT } from "../../lib/solana/constants";
+import {
+  computeTabBreakdowns,
+  countUnassignedItems,
+  fixtureFxFields,
+  loadItemClaimRows,
+  persistComputedAllocations,
+} from "./allocationSync";
+import { getDefaultReceivingWalletForUser } from "./walletSync";
+import { SETTLEMENT_STATUS } from "./settlementState";
+import { AuthError } from "./auth";
+
+export const LOCK_FAILURE = {
+  UNASSIGNED_ITEMS: "UNASSIGNED_ITEMS",
+  INVARIANT_FAILED: "INVARIANT_FAILED",
+  RECIPIENT_WALLET_REQUIRED: "RECIPIENT_WALLET_REQUIRED",
+  PAYER_IS_RECIPIENT: "PAYER_IS_RECIPIENT",
+  TAB_NOT_OPEN: "TAB_NOT_OPEN",
+} as const;
+
+export const REOPEN_FAILURE = {
+  CONFIRMED_SETTLEMENT_EXISTS: "CONFIRMED_SETTLEMENT_EXISTS",
+  IN_FLIGHT_INTENT: "IN_FLIGHT_INTENT",
+  TAB_NOT_LOCKED: "TAB_NOT_LOCKED",
+} as const;
+
+function toFiatMinor(value: number | bigint | undefined): FiatMinor {
+  return fiatMinorFromInteger(Number(value ?? 0));
+}
+
+/** Locks the bill in one transaction (Story 5.9). */
+export async function lockBillCore(
+  ctx: MutationCtx,
+  args: {
+    tabId: Id<"tabs">;
+    organizerUserId: Id<"users">;
+    clientRevision: number;
+    now: number;
+  },
+): Promise<{ snapshotId: Id<"billLockSnapshots">; revision: number; obligationIds: Id<"obligations">[] }> {
+  const tab = await ctx.db.get(args.tabId);
+  if (!tab) {
+    throw new AuthError(LOCK_FAILURE.TAB_NOT_OPEN);
+  }
+  if (tab.status !== "open" && tab.status !== "draft") {
+    throw new AuthError(LOCK_FAILURE.TAB_NOT_OPEN);
+  }
+
+  const revision = tab.revision ?? 1;
+  if (revision !== args.clientRevision) {
+    throw new AuthError("STALE_REVISION");
+  }
+
+  const items = await ctx.db
+    .query("items")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
+    .collect();
+  const adjustments = await ctx.db
+    .query("adjustments")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
+    .collect();
+
+  const itemRows = await loadItemClaimRows(ctx, args.tabId, items);
+  const unassignedCount = countUnassignedItems(itemRows);
+  if (unassignedCount > 0) {
+    throw new AuthError(LOCK_FAILURE.UNASSIGNED_ITEMS);
+  }
+
+  const totals = await persistComputedAllocations(ctx, {
+    tabId: args.tabId,
+    revision,
+    itemRows,
+    adjustments,
+    now: args.now,
+  });
+
+  const { breakdowns, itemSharesTotalMinor } = computeTabBreakdowns(itemRows, adjustments);
+  const invariant = verifyLockInvariant({
+    itemSharesTotalMinor,
+    taxMinor: totals.taxMinor,
+    serviceMinor: totals.serviceMinor,
+    tipMinor: totals.groupTipMinor,
+    discountMinor: totals.discountMinor,
+    billTotalMinor: totals.billTotalMinor,
+  });
+
+  if (!invariant.valid) {
+    throw new AuthError(LOCK_FAILURE.INVARIANT_FAILED);
+  }
+
+  const recipientUserId = tab.recipientUserId;
+  if (!recipientUserId) {
+    throw new AuthError(LOCK_FAILURE.RECIPIENT_WALLET_REQUIRED);
+  }
+
+  if (tab.payerUserId && tab.payerUserId === recipientUserId) {
+    throw new AuthError(LOCK_FAILURE.PAYER_IS_RECIPIENT);
+  }
+
+  const recipientWallet = await getDefaultReceivingWalletForUser(ctx, recipientUserId);
+  if (!recipientWallet) {
+    throw new AuthError(LOCK_FAILURE.RECIPIENT_WALLET_REQUIRED);
+  }
+
+  const fx = fixtureFxFields();
+  const obligations = buildObligationSnapshots(breakdowns);
+  const payload = {
+    revision,
+    totals,
+    breakdowns,
+    recipientUserId,
+    recipientAsset: tab.recipientAsset ?? "USDC",
+    fx,
+  };
+
+  const snapshotId = await ctx.db.insert("billLockSnapshots", {
+    tabId: args.tabId,
+    revision,
+    payloadJson: JSON.stringify(payload),
+    billTotalMinor: BigInt(totals.billTotalMinor),
+    recipientUserId,
+    recipientAsset: tab.recipientAsset ?? "USDC",
+    fxNumeratorAtomic: fx.fxNumeratorAtomic,
+    fxDenominatorMinor: fx.fxDenominatorMinor,
+    fxProvider: fx.fxProvider,
+    fxPolicyVersion: fx.fxPolicyVersion,
+    createdAt: args.now,
+  });
+
+  const obligationIds: Id<"obligations">[] = [];
+  for (const obligation of obligations) {
+    const billSnapshotHash = computeBillSnapshotForObligation({
+      tabId: args.tabId,
+      lockedRevision: revision,
+      obligationAmountAtomic: obligation.settlementAmountAtomic,
+      outputMint: USDC_MINT,
+    });
+
+    const obligationId = await ctx.db.insert("obligations", {
+      groupId: tab.groupId,
+      tabId: args.tabId,
+      tabRevision: revision,
+      debtorUserId: obligation.participantId as Id<"users">,
+      creditorUserId: recipientUserId,
+      displayAmountThbMinor: BigInt(obligation.displayAmountThbMinor),
+      billSnapshotHash,
+      amountAtomic: obligation.settlementAmountAtomic,
+      outputMint: USDC_MINT,
+      status: "open",
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    obligationIds.push(obligationId);
+  }
+
+  await ctx.db.patch(args.tabId, {
+    status: "locked",
+    lockedRevision: revision,
+    lockSnapshotId: snapshotId,
+    lockedAt: args.now,
+    billTotalMinor: BigInt(totals.billTotalMinor),
+    updatedAt: args.now,
+  });
+
+  return { snapshotId, revision, obligationIds };
+}
+
+const BLOCKING_INTENT_STATUSES = new Set<string>([
+  SETTLEMENT_STATUS.USER_SIGNED,
+  SETTLEMENT_STATUS.SUBMITTED,
+  SETTLEMENT_STATUS.UNKNOWN,
+  SETTLEMENT_STATUS.CONFIRMED,
+]);
+
+const SUPERSEDABLE_INTENT_STATUSES = new Set<string>([
+  SETTLEMENT_STATUS.CREATED,
+  SETTLEMENT_STATUS.QUOTING,
+  SETTLEMENT_STATUS.READY_FOR_SIGNATURE,
+]);
+
+/** Reopens a locked bill (Story 5.10). */
+export async function reopenBillCore(
+  ctx: MutationCtx,
+  args: {
+    tabId: Id<"tabs">;
+    organizerUserId: Id<"users">;
+    now: number;
+  },
+): Promise<{ revision: number }> {
+  const tab = await ctx.db.get(args.tabId);
+  if (!tab || tab.status !== "locked") {
+    throw new AuthError(REOPEN_FAILURE.TAB_NOT_LOCKED);
+  }
+
+  const lockedRevision = tab.lockedRevision ?? tab.revision ?? 1;
+
+  const obligations = await ctx.db
+    .query("obligations")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
+    .collect();
+
+  for (const obligation of obligations) {
+    if (obligation.status === "settled") {
+      throw new AuthError(REOPEN_FAILURE.CONFIRMED_SETTLEMENT_EXISTS);
+    }
+  }
+
+  const intents = await ctx.db
+    .query("settlementIntents")
+    .withIndex("by_user_id")
+    .collect();
+
+  const tabIntents = intents.filter(
+    (intent) => intent.tabId === args.tabId && intent.tabRevision === lockedRevision,
+  );
+
+  for (const intent of tabIntents) {
+    if ((BLOCKING_INTENT_STATUSES as Set<string>).has(intent.status)) {
+      throw new AuthError(REOPEN_FAILURE.IN_FLIGHT_INTENT);
+    }
+  }
+
+  for (const intent of tabIntents) {
+    if (SUPERSEDABLE_INTENT_STATUSES.has(intent.status)) {
+      await ctx.db.patch(intent._id, {
+        status: SETTLEMENT_STATUS.SUPERSEDED,
+        updatedAt: args.now,
+      });
+    }
+  }
+
+  for (const obligation of obligations) {
+    if (obligation.status === "open") {
+      await ctx.db.insert("obligationEvents", {
+        obligationId: obligation._id,
+        tabId: args.tabId,
+        tabRevision: lockedRevision,
+        eventKind: "superseded",
+        actorUserId: args.organizerUserId,
+        createdAt: args.now,
+      });
+      await ctx.db.patch(obligation._id, {
+        status: "superseded",
+        supersededAt: args.now,
+        updatedAt: args.now,
+      });
+    }
+  }
+
+  const nextRev = (tab.revision ?? 1) + 1;
+  await ctx.db.patch(args.tabId, {
+    status: "open",
+    revision: nextRev,
+    lockedRevision: undefined,
+    lockSnapshotId: undefined,
+    lockedAt: undefined,
+    updatedAt: args.now,
+  });
+
+  return { revision: nextRev };
+}
+
+/** Reads persisted snapshot for bill review. */
+export async function readLockSnapshot(
+  ctx: MutationCtx,
+  tab: Doc<"tabs">,
+): Promise<Record<string, unknown> | null> {
+  if (!tab.lockSnapshotId) {
+    return null;
+  }
+  const snapshot = await ctx.db.get(tab.lockSnapshotId);
+  if (!snapshot) {
+    return null;
+  }
+  return JSON.parse(snapshot.payloadJson) as Record<string, unknown>;
+}
+
+export function personalSubtotalForUser(
+  breakdowns: Array<{ participantId: string; totalMinor: FiatMinor }>,
+  userId: string,
+): FiatMinor {
+  const row = breakdowns.find((candidate) => candidate.participantId === userId);
+  return row?.totalMinor ?? fiatMinorFromInteger(0);
+}
+
+export { toFiatMinor };

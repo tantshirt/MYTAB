@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
+import { BillAuthoringSurface } from "@/features/bills/BillAuthoringSurface";
 import { useTelegramBackButton } from "@/features/telegram/useTelegramBackButton";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { isConvexAuthFixtureMode } from "@/lib/privy/config";
@@ -37,14 +38,17 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
 
   useEffect(() => {
     if (isConvexAuthFixtureMode()) {
-      setSession(publicToken === "invalid" ? {
-        status: "invalid",
-        message: "This link is no longer valid.",
-      } : FIXTURE_TAB);
+      setSession(
+        publicToken === "invalid"
+          ? {
+              status: "invalid",
+              message: "This link is no longer valid.",
+            }
+          : FIXTURE_TAB,
+      );
       return;
     }
 
-    // Live Convex resolution lands in Story integration — stub invalid tokens locally.
     if (!publicToken || publicToken.length < 8) {
       setSession({
         status: "invalid",
@@ -86,44 +90,36 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
 
   return (
     <AuthGate>
-      <AppShell hideTabBar>
-        <header style={{ paddingTop: "8px", paddingBottom: "16px" }}>
-          {!isTelegramWebApp ? (
-            <button
-              type="button"
-              onClick={handleBack}
-              style={{
-                background: "none",
-                border: "none",
-                color: MYTAB_COLORS.primary,
-                fontSize: "15px",
-                fontWeight: 500,
-                padding: 0,
-                cursor: "pointer",
-                marginBottom: "12px",
-              }}
-            >
-              ← Tabs
-            </button>
-          ) : null}
-          <h1 className="mytab-type-title" style={{ margin: 0 }}>
-            {session.tabName}
-          </h1>
-          <p className="mytab-type-meta" style={{ marginTop: "8px" }}>
-            Scoped session · tab bar hidden
-          </p>
-        </header>
-
-        <section className="mytab-card" style={{ padding: "20px" }}>
-          <p className="mytab-type-micro-label">Total</p>
-          <p className="mytab-type-amount-md mytab-tabular" data-mytab-amount style={{ margin: "8px 0 0" }}>
-            ฿1,840.00
-          </p>
-          <p className="mytab-type-meta" style={{ marginTop: "12px" }}>
-            Fixture mode — Sukhumvit Dinner, five people.
-          </p>
-        </section>
-      </AppShell>
+      {!isTelegramWebApp ? (
+        <div
+          style={{
+            maxWidth: 480,
+            margin: "0 auto",
+            padding: "8px 16px 0",
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleBack}
+            style={{
+              background: "none",
+              border: "none",
+              color: MYTAB_COLORS.primary,
+              fontSize: "15px",
+              fontWeight: 500,
+              padding: 0,
+              cursor: "pointer",
+            }}
+          >
+            ← Tabs
+          </button>
+        </div>
+      ) : null}
+      <BillAuthoringSurface
+        tabId={session.tabId}
+        tabTitle={session.tabName}
+        viewerUserId={isConvexAuthFixtureMode() ? "users:andre" : undefined}
+      />
     </AuthGate>
   );
 }

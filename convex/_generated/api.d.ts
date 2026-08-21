@@ -17,6 +17,10 @@ import type * as internal_settlementScheduler from "../internal/settlementSchedu
 import type * as internal_sessionTokens from "../internal/sessionTokens.js";
 import type * as internal_telegram from "../internal/telegram.js";
 import type * as sessionTokens from "../sessionTokens.js";
+import type * as adjustments from "../adjustments.js";
+import type * as allocations from "../allocations.js";
+import type * as fxSnapshots from "../fxSnapshots.js";
+import type * as items from "../items.js";
 import type * as tabs from "../tabs.js";
 import type * as settlements from "../settlements.js";
 import type * as sponsorPolicy from "../sponsorPolicy.js";
@@ -29,6 +33,10 @@ declare const fullApi: ApiFromModules<{
   settlements: typeof settlements;
   sessionTokens: typeof sessionTokens;
   tabs: typeof tabs;
+  items: typeof items;
+  adjustments: typeof adjustments;
+  allocations: typeof allocations;
+  fxSnapshots: typeof fxSnapshots;
   sponsorPolicy: typeof sponsorPolicy;
   "internal/sessionTokens": typeof internal_sessionTokens;
   "internal/settlementScheduler": typeof internal_settlementScheduler;
@@ -41,4 +49,6 @@ declare const fullApi: ApiFromModules<{
 }>;
 
 export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;
-export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">>;
+export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">> & {
+  internal?: Record<string, Record<string, FunctionReference<any, "internal">>>;
+};

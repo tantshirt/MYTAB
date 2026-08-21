@@ -17,16 +17,25 @@ import {
   USDC_MINT,
 } from "./constants";
 import { resolveFixtureBlockhash } from "./fixture";
-import { computeTipIntentCommitmentHash } from "./memoHash";
+import {
+  computeObligationCommitmentHash,
+  computeTipIntentCommitmentHash,
+} from "./memoHash";
 
 export type BuildExactUsdcTransferInput = {
   payerAddress: string;
   recipientAddress: string;
   sponsorAddress: string;
   amountAtomic: bigint;
-  tipId: string;
+  /** Tip target — mutually exclusive with obligation fields. */
+  tipId?: string;
+  /** Obligation target with bill snapshot binding (Story 6.1 AC6). */
+  obligationId?: string;
+  billSnapshotHash?: string;
   /** When true, include a create-ATA instruction for the recipient. */
   recipientAtaExists: boolean;
+  /** DFlow-routed settlements must not include memo instructions (Story 6.2 AC6). */
+  skipMemo?: boolean;
   blockhash?: string;
   lastValidBlockHeight?: number;
 };
@@ -110,18 +119,29 @@ export function buildExactUsdcTransfer(
     ),
   );
 
-  const memoText = computeTipIntentCommitmentHash({
-    tipId: input.tipId,
-    targetOutputAtomic: input.amountAtomic.toString(),
-    outputMint: USDC_MINT,
-    outputDecimals: 6,
-  });
+  const memoText =
+    input.obligationId && input.billSnapshotHash
+      ? computeObligationCommitmentHash({
+          obligationId: input.obligationId,
+          billSnapshotHash: input.billSnapshotHash,
+          targetOutputAtomic: input.amountAtomic.toString(),
+          outputMint: USDC_MINT,
+          outputDecimals: 6,
+        })
+      : computeTipIntentCommitmentHash({
+          tipId: input.tipId ?? input.obligationId ?? "unknown",
+          targetOutputAtomic: input.amountAtomic.toString(),
+          outputMint: USDC_MINT,
+          outputDecimals: 6,
+        });
 
-  instructions.push({
-    programId: new PublicKey(MEMO_PROGRAM_ID),
-    keys: [],
-    data: Buffer.from(memoText, "utf8"),
-  });
+  if (!input.skipMemo) {
+    instructions.push({
+      programId: new PublicKey(MEMO_PROGRAM_ID),
+      keys: [],
+      data: Buffer.from(memoText, "utf8"),
+    });
+  }
 
   const message = new TransactionMessage({
     payerKey: sponsor,

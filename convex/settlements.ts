@@ -10,6 +10,14 @@ import {
 import { AuthError } from "./lib/auth";
 import { requireIntentOwner } from "./lib/intentAuth";
 import { createTipIntentCore, refreshTipIntentCore } from "./lib/settlementIntentSync";
+import { USDC_MINT } from "../lib/solana/constants";
+import { createObligationIntentCore, refreshObligationIntentCore, normalizeInputMint } from "./lib/settlementObligationSync";
+import {
+  countTabSettlementProgress,
+  emitObligationSettlementActivity,
+  queuePaymentProgressUpdate,
+} from "./lib/paymentConfirmationNotify";
+import { reserveDflowBudget, settleDflowBudget } from "./lib/providerBudget";
 import {
   SETTLEMENT_FAILURE,
   SETTLEMENT_STATUS,
@@ -80,7 +88,6 @@ export const getIntent = query({
   handler: async (ctx, args) => {
     const { intent: ownedIntent } = await requireIntentOwner(ctx, args.intentId);
 
-    // Expire on read (Story 3.9 AC2) — queries cannot mutate, so reflect expiry in response only.
     const now = Date.now();
     const intent =
       ownedIntent.expiresAt <= now &&
@@ -125,6 +132,68 @@ export const refreshTipIntent = mutation({
 
     if (result.created) {
       await ctx.scheduler.runAfter(0, internal.internal.solana.buildExactUsdcTransferAction, {
+        intentId: result.intentId,
+      });
+    }
+
+    return result;
+  },
+});
+
+/** Creates a server-owned obligation settlement intent (Story 6.1). */
+export const createObligationIntent = mutation({
+  args: {
+    obligationId: v.id("obligations"),
+    inputMint: v.string(),
+    idempotencyKey: v.string(),
+    roundUpAtomic: v.optional(v.int64()),
+  },
+  handler: async (ctx, args) => {
+    const normalizedMint = normalizeInputMint(args.inputMint);
+    const result = await createObligationIntentCore(ctx, {
+      obligationId: args.obligationId,
+      inputMint: normalizedMint,
+      idempotencyKey: args.idempotencyKey,
+      roundUpAtomic: args.roundUpAtomic,
+    });
+
+    if (result.created) {
+      const buildAction =
+        normalizedMint === USDC_MINT
+          ? internal.internal.solana.buildExactUsdcTransferAction
+          : internal.internal.dflow.buildDflowSettlementAction;
+      await ctx.scheduler.runAfter(0, buildAction, {
+        intentId: result.intentId,
+      });
+    }
+
+    return result;
+  },
+});
+
+/** Refreshes an obligation intent after expiry, failure, or stale revision (Story 6.6 AC4). */
+export const refreshObligationIntent = mutation({
+  args: {
+    obligationId: v.id("obligations"),
+    inputMint: v.string(),
+    idempotencyKey: v.string(),
+    roundUpAtomic: v.optional(v.int64()),
+  },
+  handler: async (ctx, args) => {
+    const normalizedMint = normalizeInputMint(args.inputMint);
+    const result = await refreshObligationIntentCore(ctx, {
+      obligationId: args.obligationId,
+      inputMint: normalizedMint,
+      idempotencyKey: args.idempotencyKey,
+      roundUpAtomic: args.roundUpAtomic,
+    });
+
+    if (result.created) {
+      const buildAction =
+        normalizedMint === USDC_MINT
+          ? internal.internal.solana.buildExactUsdcTransferAction
+          : internal.internal.dflow.buildDflowSettlementAction;
+      await ctx.scheduler.runAfter(0, buildAction, {
         intentId: result.intentId,
       });
     }
@@ -324,6 +393,7 @@ export const applyConfirmedInternal = internalMutation({
       intentId: intent._id,
       transactionSignature: args.transactionSignature,
       messageHash: intent.messageHash ?? FIXTURE_MESSAGE_HASH,
+      billSnapshotHash: intent.billSnapshotHash,
       sponsorDebitLamports: args.sponsorDebitLamports,
       confirmedAt: now,
     });
@@ -372,7 +442,131 @@ export const applyConfirmedInternal = internalMutation({
       }
     }
 
+    if (intent.targetKind === "obligation" && intent.obligationId && intent.tabId) {
+      await emitObligationSettlementActivity(ctx, {
+        groupId: intent.groupId,
+        tabId: intent.tabId,
+        obligationId: intent.obligationId,
+        intentId: intent._id,
+        transactionSignature: args.transactionSignature,
+        now,
+      });
+
+      const progress = await countTabSettlementProgress(ctx, intent.tabId);
+      await queuePaymentProgressUpdate(ctx, {
+        tabId: intent.tabId,
+        groupId: intent.groupId,
+        settledCount: progress.settledCount,
+        totalCount: progress.totalCount,
+        billCompleted: progress.billCompleted,
+      });
+
+      if (progress.billCompleted) {
+        const tab = await ctx.db.get(intent.tabId);
+        if (tab && tab.status === "locked") {
+          await ctx.db.patch(intent.tabId, {
+            status: "settled",
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
     return { intentId: intent._id, status: SETTLEMENT_STATUS.CONFIRMED, alreadyConfirmed: false };
+  },
+});
+
+export const getTabInternal = internalQuery({
+  args: { tabId: v.id("tabs") },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.tabId);
+  },
+});
+
+export const reserveDflowBudgetInternal = internalMutation({
+  args: {
+    intentId: v.id("settlementIntents"),
+    userId: v.id("users"),
+    groupId: v.id("groups"),
+  },
+  handler: async (ctx, args) => {
+    return reserveDflowBudget(ctx, args);
+  },
+});
+
+export const settleDflowBudgetInternal = internalMutation({
+  args: {
+    intentId: v.id("settlementIntents"),
+    userId: v.id("users"),
+    groupId: v.id("groups"),
+    windowKey: v.string(),
+    reservedAttempts: v.number(),
+    usedAttempts: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await settleDflowBudget(ctx, args);
+    return { ok: true as const };
+  },
+});
+
+/** Persists a validated DFlow quote (Story 6.2 AC3). */
+export const applyDflowQuoteInternal = internalMutation({
+  args: {
+    intentId: v.id("settlementIntents"),
+    serializedMessage: v.string(),
+    messageHash: v.string(),
+    blockhash: v.string(),
+    lastValidBlockHeight: v.number(),
+    sponsorExposureLamports: v.int64(),
+    quotedOtherAmountThreshold: v.int64(),
+    dflowContextSlot: v.number(),
+    maximumInputAtomic: v.int64(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (!intent || intent.status !== SETTLEMENT_STATUS.QUOTING) {
+      throw new AuthError(SETTLEMENT_FAILURE.INVALID_STATUS);
+    }
+
+    const reservation = await reserveSponsorBudget(ctx, {
+      intentId: intent._id,
+      userId: intent.userId,
+      walletId: intent.walletId,
+      groupId: intent.groupId,
+      environment: resolveSponsorEnvironment(),
+      recipientAddress: intent.recipientAddress,
+      outputMint: intent.outputMint,
+      reservedLamports: args.sponsorExposureLamports,
+      paused: isSponsorPaused(),
+    });
+
+    if (!reservation.ok) {
+      await ctx.db.patch(intent._id, {
+        status: SETTLEMENT_STATUS.FAILED,
+        failureCode: reservation.failureCode,
+        updatedAt: Date.now(),
+      });
+      return { ok: false as const, failureCode: reservation.failureCode };
+    }
+
+    const now = Date.now();
+    assertSettlementTransition(intent.status, SETTLEMENT_STATUS.READY_FOR_SIGNATURE);
+
+    await ctx.db.patch(intent._id, {
+      status: SETTLEMENT_STATUS.READY_FOR_SIGNATURE,
+      messageHash: args.messageHash,
+      serializedMessage: args.serializedMessage,
+      blockhash: args.blockhash,
+      lastValidBlockHeight: args.lastValidBlockHeight,
+      quotedOtherAmountThreshold: args.quotedOtherAmountThreshold,
+      dflowContextSlot: args.dflowContextSlot,
+      maximumInputAtomic: args.maximumInputAtomic,
+      sponsorReservationLamports: reservation.reservedLamports,
+      policyVersion: SPONSOR_POLICY_VERSION,
+      updatedAt: now,
+    });
+
+    return { ok: true as const, status: SETTLEMENT_STATUS.READY_FOR_SIGNATURE };
   },
 });
 

@@ -8,6 +8,7 @@ export type ValidationGate = "pre_client" | "pre_sponsor";
 
 export type SettlementIntentValidationContext = {
   gate: ValidationGate;
+  routingKind?: "exact_usdc" | "dflow_sync";
   intent: {
     payerAddress: string;
     recipientAddress: string;
@@ -16,9 +17,13 @@ export type SettlementIntentValidationContext = {
     targetOutputAtomic: string;
     maxInputAtomic?: string;
     minimumOutputAtomic?: string;
+    quotedOtherAmountThreshold?: string;
     messageHash?: string;
     status: string;
+    lockedRevision?: number;
+    expiresAt?: number;
   };
+  currentTabRevision?: number;
   sponsorAddress: string;
   blockhash: string;
   lastValidBlockHeight: number;
@@ -156,6 +161,17 @@ export function validateTransactionMessage(
     return { ok: false, code: "TARGET_SUPERSEDED" };
   }
 
+  if (
+    context.intent.lockedRevision !== undefined &&
+    context.currentTabRevision !== undefined &&
+    context.intent.lockedRevision !== context.currentTabRevision
+  ) {
+    return { ok: false, code: "TARGET_SUPERSEDED" };
+  }
+
+  const routingKind = context.routingKind ?? "exact_usdc";
+  const isDflow = routingKind === "dflow_sync";
+
   if (context.intent.payerAddress === context.intent.recipientAddress) {
     return { ok: false, code: "SELF_PAYMENT" };
   }
@@ -174,6 +190,14 @@ export function validateTransactionMessage(
       context.reservationOwnerIntentId !== context.intentId
     ) {
       return { ok: false, code: "RESERVATION_OWNER_MISMATCH" };
+    }
+
+    if (
+      context.intent.expiresAt !== undefined &&
+      context.nowMs !== undefined &&
+      context.intent.expiresAt <= context.nowMs
+    ) {
+      return { ok: false, code: "INTENT_STATUS_INVALID" };
     }
   }
 
@@ -223,33 +247,56 @@ export function validateTransactionMessage(
     }
   }
 
-  if (
+  if (isDflow) {
+    if (context.intent.outputMint !== USDC_MINT) {
+      return { ok: false, code: "MINT_MISMATCH" };
+    }
+    const threshold = BigInt(
+      context.intent.quotedOtherAmountThreshold ??
+        context.intent.minimumOutputAtomic ??
+        context.intent.targetOutputAtomic,
+    );
+    const minimumOutput = BigInt(
+      context.intent.minimumOutputAtomic ?? context.intent.targetOutputAtomic,
+    );
+    if (threshold < minimumOutput) {
+      return { ok: false, code: "AMOUNT_BELOW_MINIMUM" };
+    }
+    const hasMemo = decompiled.some((ix) => ix.programId === MEMO_PROGRAM_ID);
+    if (hasMemo) {
+      return { ok: false, code: "INSTRUCTION_DISCRIMINATOR_INVALID" };
+    }
+  } else if (
     context.intent.inputMint !== context.intent.outputMint ||
     context.intent.outputMint !== USDC_MINT
   ) {
     return { ok: false, code: "MINT_MISMATCH" };
   }
 
-  const transferIx = decompiled.find(
-    (ix) =>
-      ix.programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
-      ix.data.length > 0 &&
-      ix.data[0] === 3,
-  );
-  if (!transferIx) {
-    return { ok: false, code: "AMOUNT_BELOW_MINIMUM" };
-  }
+  if (!isDflow) {
+    const transferIx = decompiled.find(
+      (ix) =>
+        ix.programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
+        ix.data.length > 0 &&
+        ix.data[0] === 3,
+    );
+    if (!transferIx) {
+      return { ok: false, code: "AMOUNT_BELOW_MINIMUM" };
+    }
 
-  const transferAmount = Buffer.from(transferIx.data).readBigUInt64LE(1);
-  const minimumOutput = BigInt(context.intent.minimumOutputAtomic ?? context.intent.targetOutputAtomic);
-  if (transferAmount < minimumOutput) {
-    return { ok: false, code: "AMOUNT_BELOW_MINIMUM" };
-  }
+    const transferAmount = Buffer.from(transferIx.data).readBigUInt64LE(1);
+    const minimumOutput = BigInt(
+      context.intent.minimumOutputAtomic ?? context.intent.targetOutputAtomic,
+    );
+    if (transferAmount < minimumOutput) {
+      return { ok: false, code: "AMOUNT_BELOW_MINIMUM" };
+    }
 
-  if (context.intent.maxInputAtomic) {
-    const maxInput = BigInt(context.intent.maxInputAtomic);
-    if (transferAmount > maxInput) {
-      return { ok: false, code: "MAX_INPUT_EXCEEDED" };
+    if (context.intent.maxInputAtomic) {
+      const maxInput = BigInt(context.intent.maxInputAtomic);
+      if (transferAmount > maxInput) {
+        return { ok: false, code: "MAX_INPUT_EXCEEDED" };
+      }
     }
   }
 

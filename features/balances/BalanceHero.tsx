@@ -1,0 +1,46 @@
+import type { BalanceHeroState } from "@/lib/domain/balance";
+import { formatBalanceHeroText } from "@/lib/domain/balance";
+import { formatThbMinorForA11y, formatUsdcAtomicForA11y } from "@/lib/domain/a11yAmount";
+import { MYTAB_COLORS } from "@/lib/theme/tokens";
+
+export type BalanceHeroProps = {
+  state: BalanceHeroState;
+};
+
+/** One-line position summary — display only, not interactive (Story 7.1). */
+export function BalanceHero({ state }: BalanceHeroProps) {
+  const text = formatBalanceHeroText(state);
+
+  const color =
+    state.kind === "owed"
+      ? MYTAB_COLORS.owed
+      : state.kind === "settled"
+        ? MYTAB_COLORS.settled
+        : MYTAB_COLORS.ink;
+
+  const ariaLabel =
+    state.kind === "owed"
+      ? `You owe ${formatThbMinorForA11y(state.amountMinor)}`
+      : state.kind === "settled"
+        ? `You are owed ${formatUsdcAtomicForA11y(state.amountAtomic)}`
+        : "All square";
+
+  return (
+    <p
+      className="mytab-type-amount-hero mytab-tabular"
+      data-mytab-amount
+      aria-label={ariaLabel}
+      style={{
+        margin: 0,
+        color,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "clip",
+        fontSize: "clamp(28px, 8vw, 42px)",
+        lineHeight: 1.1,
+      }}
+    >
+      {text}
+    </p>
+  );
+}

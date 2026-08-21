@@ -7,6 +7,7 @@ import {
   buildExactUsdcTransfer,
   isSolanaFixtureMode,
 } from "../../lib/solana";
+import { USDC_MINT } from "../../lib/solana/constants";
 import { resolveSponsorWalletAddress } from "../../lib/solana/fixture";
 import { SETTLEMENT_STATUS } from "../lib/settlementState";
 import { validateBeforeClientExposure } from "../../lib/solana/validateTransactionMessage";
@@ -72,7 +73,9 @@ export const buildExactUsdcTransferAction = internalAction({
       recipientAddress: intent.recipientAddress,
       sponsorAddress,
       amountAtomic: intent.minimumOutputAtomic,
-      tipId: intent.tipId ?? args.intentId,
+      tipId: intent.tipId,
+      obligationId: intent.obligationId,
+      billSnapshotHash: intent.billSnapshotHash,
       recipientAtaExists,
     });
 
@@ -92,13 +95,31 @@ export const buildExactUsdcTransferAction = internalAction({
       return { ok: false, failureCode: "ATA_LIMIT_EXCEEDED" };
     }
 
+    const tab = intent.tabId
+      ? await ctx.runQuery(internal.settlements.getTabInternal, { tabId: intent.tabId })
+      : null;
+
     const validation = validateBeforeClientExposure(built.serializedBase64, {
       ...buildValidationContext(intent, wallet.solanaAddress, sponsorAddress, {
         blockhash: built.blockhash,
         lastValidBlockHeight: built.lastValidBlockHeight,
         status: SETTLEMENT_STATUS.QUOTING,
       }),
+      routingKind: "exact_usdc",
       intentId: args.intentId,
+      currentTabRevision: tab?.lockedRevision ?? tab?.revision,
+      intent: {
+        payerAddress: wallet.solanaAddress,
+        recipientAddress: intent.recipientAddress,
+        inputMint: intent.inputMint,
+        outputMint: intent.outputMint,
+        targetOutputAtomic: intent.minimumOutputAtomic.toString(),
+        maxInputAtomic: intent.maximumInputAtomic.toString(),
+        minimumOutputAtomic: intent.minimumOutputAtomic.toString(),
+        status: SETTLEMENT_STATUS.QUOTING,
+        lockedRevision: intent.tabRevision,
+        expiresAt: intent.expiresAt,
+      },
     });
 
     if (!validation.ok) {

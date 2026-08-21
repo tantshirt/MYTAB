@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 /** Mainnet USDC mint — locked for P0 settlement (AD-22). */
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
+/** Wrapped SOL mint at the DFlow router boundary (FR-T4). */
+export const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const ASSOCIATED_TOKEN_PROGRAM_ID =
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";

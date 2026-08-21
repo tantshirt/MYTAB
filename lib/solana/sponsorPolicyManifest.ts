@@ -11,7 +11,9 @@ import {
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   USDC_MINT,
+  WRAPPED_SOL_MINT,
 } from "./constants";
+import { DFLOW_FIXTURE_PROGRAM_ID } from "../dflow/constants";
 
 export type SponsorPolicyManifest = {
   version: typeof SPONSOR_V1_POLICY_VERSION;
@@ -36,8 +38,9 @@ export const SPONSOR_POLICY_V1: SponsorPolicyManifest = {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     COMPUTE_BUDGET_PROGRAM_ID,
     MEMO_PROGRAM_ID,
+    DFLOW_FIXTURE_PROGRAM_ID,
   ],
-  allowedMints: [USDC_MINT],
+  allowedMints: [USDC_MINT, WRAPPED_SOL_MINT],
   allowedInstructionDiscriminators: {
     [COMPUTE_BUDGET_PROGRAM_ID]: [2, 3],
     [TOKEN_PROGRAM_ID]: [3, 12],
