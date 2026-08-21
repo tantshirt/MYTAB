@@ -22,4 +22,16 @@ export default defineSchema({
   })
     .index("by_privy_did", ["privyDid"])
     .index("by_init_data_hash", ["initDataHash"]),
+
+  wallets: defineTable({
+    userId: v.id("users"),
+    privyWalletId: v.string(),
+    solanaAddress: v.string(),
+    isEmbedded: v.boolean(),
+    isDefaultReceiving: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_and_default", ["userId", "isDefaultReceiving"]),
 });
