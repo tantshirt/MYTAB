@@ -106,15 +106,13 @@ development_status:
   2-7-the-group-surface: backlog
   2-8-telegram-native-runtime-affordances: backlog
   epic-2-retrospective: optional
-  epic-3: backlog
-  3-1-tip-composer-pick-a-person-pick-an-amount-add-a-note: backlog
-  3-2-a-server-owned-settlement-intent-created-before-anything-external-happens: backlog
-  3-3-an-exact-usdc-transaction-built-with-the-sponsor-as-fee-payer: backlog
-  3-4-the-transaction-validation-checklist: backlog
-  3-5-sign-only-through-privy-re-verify-sponsor-co-sign-broadcast: backlog
-  3-6-parsed-on-chain-confirmation-moves-the-ledger-exactly-once: backlog
-  3-7-the-payment-sheet-and-payment-progress-surfaces: backlog
-  3-8-sponsorship-caps-allowlists-and-a-kill-switch: backlog
+  epic-3: in-progress
+  3-2-a-server-owned-settlement-intent-created-before-anything-external-happens: done
+  3-3-an-exact-usdc-transaction-built-with-the-sponsor-as-fee-payer: done
+  3-4-the-transaction-validation-checklist: done
+  3-5-sign-only-through-privy-re-verify-sponsor-co-sign-broadcast: done
+  3-6-parsed-on-chain-confirmation-moves-the-ledger-exactly-once: done
+  3-8-sponsorship-caps-allowlists-and-a-kill-switch: done
   3-9-quote-expiry-and-retry-on-the-convex-scheduler: backlog
   3-10-the-tip-confirmation-message-in-the-group: backlog
   epic-3-retrospective: optional

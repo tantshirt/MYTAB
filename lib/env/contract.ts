@@ -33,6 +33,7 @@ export const CONVEX_ONLY_KEYS = [
 export const ALLOWED_PUBLIC_KEYS = [
   "NEXT_PUBLIC_CONVEX_URL",
   "NEXT_PUBLIC_PRIVY_APP_ID",
+  "NEXT_PUBLIC_FEATURE_EXTERNAL_WALLET",
 ] as const;
 
 export type EnvMap = Record<string, string | undefined>;

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { shouldShowNonProductionBadge } from "@/lib/env/preview-guard";
 import { NonProductionBadge } from "@/components/primitives/non-production-badge";
+import { instrumentSans } from "@/lib/theme/fonts";
 import { Providers } from "./providers";
 
 export const metadata = {
@@ -12,8 +13,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const showBadge = shouldShowNonProductionBadge();
 
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" className={instrumentSans.variable}>
+      <body className={instrumentSans.className}>
         {showBadge ? <NonProductionBadge /> : null}
         <Providers>{children}</Providers>
       </body>

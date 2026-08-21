@@ -1,6 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { resolveGroupFromChat } from "./groupSync";
+import { normalizeBotCommand, routeBotCommand, TabCommandError } from "./tabCommandSync";
 
 type NormalizedUpdate =
   | {
@@ -86,5 +87,33 @@ export async function processTelegramUpdate(
   }
 
   const groupResult = await resolveGroupFromChat(ctx, update, now);
+
+  if (update.kind === "message" && groupResult.groupId) {
+    const command = normalizeBotCommand(update.command);
+    if (command) {
+      try {
+        await routeBotCommand(ctx, {
+          command,
+          groupId: groupResult.groupId,
+          chatId: update.chatId,
+          fromId: update.fromId,
+          chatTitle: update.chatTitle,
+          now,
+        });
+      } catch (error) {
+        if (error instanceof TabCommandError) {
+          console.info("[telegram/processUpdate] command rejected", {
+            command,
+            code: error.code,
+            chatId: update.chatId,
+            fromId: update.fromId,
+          });
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+
   return { ok: true, duplicate: false, outcome, groupId: groupResult.groupId };
 }

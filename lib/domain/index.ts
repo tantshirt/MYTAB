@@ -44,6 +44,12 @@ export {
 } from "./crypto";
 
 export {
+  thbMinorToUsdcAtomicFixture,
+  FIXTURE_USDC_ATOMIC_NUMERATOR,
+  FIXTURE_USDC_ATOMIC_DENOMINATOR,
+} from "./fxFixture";
+
+export {
   MAX_BILL_TOTAL_MINOR,
   MAX_PERCENTAGE_BPS,
   MAX_TIP_MINOR,

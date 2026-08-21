@@ -25,6 +25,7 @@ const TEST_USER = {
 };
 
 function buildMessageUpdate(overrides: Record<string, unknown> = {}) {
+  const { message: messageOverrides, ...rest } = overrides;
   return {
     update_id: 9001,
     message: {
@@ -33,9 +34,9 @@ function buildMessageUpdate(overrides: Record<string, unknown> = {}) {
       chat: GROUP_CHAT,
       from: TEST_USER,
       text: "/tab",
-      ...((overrides.message as Record<string, unknown>) ?? {}),
+      ...((messageOverrides as Record<string, unknown>) ?? {}),
     },
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -251,7 +252,9 @@ describe("Story 2.1 — idempotency by update id (AC4)", () => {
 
   it("persists exactly one telegramUpdates row when the same payload is replayed", async () => {
     const { ctx, telegramUpdates, groups, groupMembers } = createProcessUpdateStore();
-    const normalized = normalizeTelegramUpdate(buildMessageUpdate());
+    const normalized = normalizeTelegramUpdate(
+      buildMessageUpdate({ message: { text: "hello everyone" } }),
+    );
     expect(normalized.ok).toBe(true);
     if (!normalized.ok) {
       return;

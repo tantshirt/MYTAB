@@ -40,6 +40,7 @@ export const getGroup = query({
 
         return {
           telegramUserId: member.telegramUserId,
+          userId: user?._id ?? null,
           displayName: member.displayName,
           username: member.username,
           avatarUrl: member.avatarUrl,

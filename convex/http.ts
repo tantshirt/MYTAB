@@ -14,6 +14,8 @@ import {
   verifyWebhookSecret,
 } from "./lib/telegramWebhook";
 import { normalizeTelegramUpdate } from "../lib/telegram/webhook";
+import { buildTelegramDeepLink } from "./lib/telegramDeepLink";
+import { mintSessionToken } from "./lib/sessionTokenOps";
 
 const http = httpRouter();
 
@@ -104,6 +106,48 @@ http.route({
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+/**
+ * Fixture stub for deep-link token generation (Story 1.9).
+ * Creates a tab_session token for an existing tab when authenticated.
+ */
+http.route({
+  path: "/telegram/deep-link",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.subject) {
+      return jsonResponse({ error: "UNAUTHORIZED" }, 401);
+    }
+
+    let body: { tabId?: unknown; groupId?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: "INVALID_BODY" }, 400);
+    }
+
+    if (typeof body.tabId !== "string" || typeof body.groupId !== "string") {
+      return jsonResponse({ error: "INVALID_ARGS" }, 400);
+    }
+
+    const result = await ctx.runMutation(internal.internal.sessionTokens.mintDeepLinkToken, {
+      tabId: body.tabId,
+      groupId: body.groupId,
+    });
+
+    if (!result.ok) {
+      return jsonResponse({ error: result.code }, 400);
+    }
+
+    return jsonResponse({
+      ok: true,
+      token: result.token,
+      deepLinkUrl: buildTelegramDeepLink(result.token),
+      expiresAt: result.expiresAt,
     });
   }),
 });

@@ -88,7 +88,10 @@ export default defineSchema({
     senderUserId: v.id("users"),
     recipientUserId: v.id("users"),
     amountAtomic: v.int64(),
+    displayAmountThbMinor: v.optional(v.int64()),
     outputMint: v.string(),
+    note: v.optional(v.string()),
+    reaction: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("settled")),
     settledAt: v.optional(v.number()),
     settlementIntentId: v.optional(v.id("settlementIntents")),
@@ -202,6 +205,21 @@ export default defineSchema({
     .index("by_intent_id", ["intentId"])
     .index("by_transaction_signature", ["transactionSignature"]),
 
+  telegramOutboundMessages: defineTable({
+    tipId: v.id("tips"),
+    groupId: v.id("groups"),
+    kind: v.literal("tip_confirmation"),
+    messageText: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("posted"),
+      v.literal("failed"),
+    ),
+    postedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tip_id", ["tipId"]),
+
   settlementLedgerEvents: defineTable({
     intentId: v.id("settlementIntents"),
     targetKind: v.union(v.literal("tip"), v.literal("obligation")),
@@ -214,4 +232,70 @@ export default defineSchema({
     .index("by_tip_id", ["tipId"])
     .index("by_obligation_id", ["obligationId"])
     .index("by_transaction_signature", ["transactionSignature"]),
+
+  sessionTokens: defineTable({
+    tokenHash: v.string(),
+    tokenType: v.union(v.literal("tab_session"), v.literal("action_token")),
+    subjectKind: v.union(v.literal("tab"), v.literal("tip"), v.literal("balance")),
+    subjectId: v.string(),
+    groupId: v.id("groups"),
+    status: v.union(
+      v.literal("active"),
+      v.literal("consumed"),
+      v.literal("revoked"),
+      v.literal("expired"),
+    ),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_status_and_expires", ["status", "expiresAt"])
+    .index("by_subject", ["subjectKind", "subjectId"]),
+
+  tabs: defineTable({
+    groupId: v.id("groups"),
+    organizerTelegramUserId: v.string(),
+    name: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("open"),
+      v.literal("locked"),
+      v.literal("settled"),
+      v.literal("closed"),
+    ),
+    defaultCurrency: v.optional(v.string()),
+    recipientAsset: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_group_id", ["groupId"])
+    .index("by_group_and_status", ["groupId", "status"])
+    .index("by_group_and_organizer", ["groupId", "organizerTelegramUserId"]),
+
+  tabParticipants: defineTable({
+    tabId: v.id("tabs"),
+    userId: v.id("users"),
+    telegramUserId: v.string(),
+    joinedAt: v.number(),
+  })
+    .index("by_tab_id", ["tabId"])
+    .index("by_tab_and_user", ["tabId", "userId"]),
+
+  telegramStatusMessages: defineTable({
+    tabId: v.id("tabs"),
+    chatId: v.string(),
+    messageId: v.number(),
+    eventVersion: v.number(),
+    lastEditedAt: v.number(),
+  }).index("by_tab_id", ["tabId"]),
+
+  tabCreationCounts: defineTable({
+    scopeKind: v.union(v.literal("user"), v.literal("group")),
+    scopeKey: v.string(),
+    dayKey: v.string(),
+    count: v.number(),
+    updatedAt: v.number(),
+  }).index("by_scope_day", ["scopeKind", "scopeKey", "dayKey"]),
 });

@@ -9,12 +9,13 @@ import {
 } from "./_generated/server";
 import { AuthError } from "./lib/auth";
 import { requireIntentOwner } from "./lib/intentAuth";
-import { createTipIntentCore } from "./lib/settlementIntentSync";
+import { createTipIntentCore, refreshTipIntentCore } from "./lib/settlementIntentSync";
 import {
   SETTLEMENT_FAILURE,
   SETTLEMENT_STATUS,
   assertSettlementTransition,
 } from "./lib/settlementState";
+import { expireIntentIfPastDue } from "./lib/intentExpiry";
 import { applySettlementOffset, isTargetAlreadySettled } from "./lib/settlementLedger";
 import {
   releaseSponsorReservation,
@@ -47,6 +48,9 @@ export const createTipIntent = mutation({
     groupId: v.id("groups"),
     recipientUserId: v.id("users"),
     amountAtomic: v.int64(),
+    displayAmountThbMinor: v.optional(v.int64()),
+    note: v.optional(v.string()),
+    reaction: v.optional(v.string()),
     idempotencyKey: v.string(),
   },
   handler: async (ctx, args) => {
@@ -54,6 +58,9 @@ export const createTipIntent = mutation({
       groupId: args.groupId,
       recipientUserId: args.recipientUserId,
       amountAtomic: args.amountAtomic,
+      displayAmountThbMinor: args.displayAmountThbMinor,
+      note: args.note,
+      reaction: args.reaction,
       idempotencyKey: args.idempotencyKey,
     });
 
@@ -71,13 +78,58 @@ export const createTipIntent = mutation({
 export const getIntent = query({
   args: { intentId: v.id("settlementIntents") },
   handler: async (ctx, args) => {
-    const { intent } = await requireIntentOwner(ctx, args.intentId);
+    const { intent: ownedIntent } = await requireIntentOwner(ctx, args.intentId);
+
+    // Expire on read (Story 3.9 AC2) — queries cannot mutate, so reflect expiry in response only.
+    const now = Date.now();
+    const intent =
+      ownedIntent.expiresAt <= now &&
+      (ownedIntent.status === SETTLEMENT_STATUS.CREATED ||
+        ownedIntent.status === SETTLEMENT_STATUS.QUOTING ||
+        ownedIntent.status === SETTLEMENT_STATUS.READY_FOR_SIGNATURE)
+        ? { ...ownedIntent, status: SETTLEMENT_STATUS.EXPIRED as typeof ownedIntent.status }
+        : ownedIntent;
+
     return {
       intentId: intent._id,
       status: intent.status,
       failureCode: intent.failureCode ?? null,
       transactionSignature: intent.transactionSignature ?? null,
+      expiresAt: intent.expiresAt,
     };
+  },
+});
+
+/** Persists expiry transition on read paths that mutate (Story 3.9 AC2). */
+export const syncIntentExpiry = mutation({
+  args: { intentId: v.id("settlementIntents") },
+  handler: async (ctx, args) => {
+    const { intent } = await requireIntentOwner(ctx, args.intentId);
+    const updated = await expireIntentIfPastDue(ctx, intent);
+    return {
+      intentId: updated._id,
+      status: updated.status,
+      expiresAt: updated.expiresAt,
+    };
+  },
+});
+
+/** Recreates a quote against the same tip after expiry or failure (Story 3.9 AC4). */
+export const refreshTipIntent = mutation({
+  args: {
+    tipId: v.id("tips"),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const result = await refreshTipIntentCore(ctx, args);
+
+    if (result.created) {
+      await ctx.scheduler.runAfter(0, internal.internal.solana.buildExactUsdcTransferAction, {
+        intentId: result.intentId,
+      });
+    }
+
+    return result;
   },
 });
 
@@ -91,7 +143,12 @@ export const recordUserSigned = mutation({
     partialSignedTxBase64: v.string(),
   },
   handler: async (ctx, args) => {
-    const { intent } = await requireIntentOwner(ctx, args.intentId);
+    const { intent: ownedIntent } = await requireIntentOwner(ctx, args.intentId);
+    const intent = await expireIntentIfPastDue(ctx, ownedIntent);
+
+    if (intent.status === SETTLEMENT_STATUS.EXPIRED) {
+      throw new AuthError(SETTLEMENT_FAILURE.INVALID_STATUS);
+    }
 
     if (intent.status !== SETTLEMENT_STATUS.READY_FOR_SIGNATURE) {
       throw new AuthError(SETTLEMENT_FAILURE.INVALID_STATUS);
@@ -297,6 +354,23 @@ export const applyConfirmedInternal = internalMutation({
       transactionSignature: args.transactionSignature,
       updatedAt: now,
     });
+
+    if (intent.targetKind === "tip" && intent.tipId) {
+      const tip = await ctx.db.get(intent.tipId);
+      if (tip) {
+        const sender = await ctx.db.get(tip.senderUserId);
+        const recipient = await ctx.db.get(tip.recipientUserId);
+        const displayAmountThbMinor = tip.displayAmountThbMinor ?? tip.amountAtomic;
+
+        await ctx.scheduler.runAfter(0, internal.internal.settlementScheduler.enqueueTipConfirmation, {
+          tipId: tip._id,
+          groupId: tip.groupId,
+          senderDisplayName: sender?.displayName ?? "Someone",
+          recipientDisplayName: recipient?.displayName ?? "Someone",
+          displayAmountThbMinor,
+        });
+      }
+    }
 
     return { intentId: intent._id, status: SETTLEMENT_STATUS.CONFIRMED, alreadyConfirmed: false };
   },

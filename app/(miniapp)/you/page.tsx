@@ -1,8 +1,19 @@
+"use client";
+
+import { AuthGate } from "@/features/auth/AuthGate";
+import { AppShell } from "@/components/layout/AppShell";
+
 export default function YouPage() {
   return (
-    <main style={{ padding: "24px 16px", fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ fontSize: "20px", fontWeight: 600 }}>You</h1>
-      <p style={{ color: "#57534e" }}>Coming soon.</p>
-    </main>
+    <AuthGate>
+      <AppShell>
+        <main style={{ paddingTop: "8px" }}>
+          <h1 className="mytab-type-title">You</h1>
+          <p className="mytab-type-meta" style={{ marginTop: "8px" }}>
+            Your receiving preference and profile.
+          </p>
+        </main>
+      </AppShell>
+    </AuthGate>
   );
 }
