@@ -11,6 +11,22 @@ export function isPrivyFixtureMode(): boolean {
   return getPrivyAppId() === null;
 }
 
+/** Convex deployment URL for the browser client, or null when unset. */
+export function getConvexUrl(): string | null {
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL?.trim();
+  return url && url.length > 0 ? url : null;
+}
+
+/** True when NEXT_PUBLIC_CONVEX_URL is absent — local dev skips the Convex client. */
+export function isConvexFixtureMode(): boolean {
+  return getConvexUrl() === null;
+}
+
+/** True when Privy or Convex fixture mode is active (mock viewer, no JWT bridge). */
+export function isConvexAuthFixtureMode(): boolean {
+  return isPrivyFixtureMode() || isConvexFixtureMode();
+}
+
 /**
  * Privy client config for zero-click Telegram login with an embedded Solana wallet.
  * No external wallet connectors in P0 (FR-A1, FR-W1).

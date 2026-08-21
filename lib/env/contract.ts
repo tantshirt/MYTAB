@@ -15,6 +15,8 @@ export const VERCEL_ONLY_KEYS = [
 /** Keys that must only exist in the Convex Cloud runtime. */
 export const CONVEX_ONLY_KEYS = [
   "DFLOW_API_KEY",
+  "PRIVY_APP_ID",
+  "PRIVY_VERIFICATION_KEY",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_WEBHOOK_SECRET",
   "OPENAI_API_KEY",
