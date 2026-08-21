@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Instrument Sans", "Noto Sans Thai", ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: -0.006em; background: #F4F7FA; color: #0A2038; -webkit-font-smoothing: antialiased; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    a { color: #1E51D2; } a:hover { color: #17409F; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #F4F7FA; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0A2038" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+    <div>
+      <div style="font-size: 20px; font-weight: 600; letter-spacing: -0.018em">Check the receipt</div>
+      <div style="font-size: 13px; color: #55677D; margin-top: 1px">Fix anything we got wrong.</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; padding: 0 16px 190px">
+
+    <sc-if value="{{mismatch}}" hint-placeholder-val="{{ true }}">
+      <div style="background: #FBF1E0; border: 1px solid #9A6209; border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; display: flex; gap: 12px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9A6209" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px"><path d="M12 9v5M12 17.5h.01"></path><path d="M10.3 3.9L2.5 17.4A2 2 0 004.2 20.4h15.6a2 2 0 001.7-3l-7.8-13.5a2 2 0 00-3.4 0z"></path></svg>
+        <div class="num" style="font-size: 14px; color: #9A6209; line-height: 1.45; font-weight: 500">{{mismatchText}}</div>
+      </div>
+    </sc-if>
+
+    <div style="background: #FFFFFF; border: 1px solid #DFE7EF; border-radius: 12px; box-shadow: 0 1px 2px rgba(10, 32, 56, 0.045); overflow: hidden">
+      <div style="display: flex; align-items: center; padding: 13px 16px; border-bottom: 1px solid #DFE7EF; background: #F4F7FA">
+        <span style="flex-grow: 1; font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase">Krua Sukhumvit 31</span>
+        <span style="font-size: 13px; color: #55677D">21 Aug, 20:14</span>
+      </div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+        <div onClick="{{r.tap}}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #DFE7EF; cursor: {{r.cursor}}">
+          <div class="num" style="width: 26px; font-size: 14px; color: #55677D; font-weight: 500">{{r.qty}}</div>
+          <div style="flex-grow: 1; font-size: 15px; padding: 5px 8px; margin: -5px -8px; border-radius: 7px; border: 1px solid {{r.nameBorder}}; background: {{r.nameBg}}">{{r.name}}</div>
+          <div class="num" style="font-size: 15px; font-weight: 500; padding: 5px 8px; margin: -5px -8px; border-radius: 7px; border: 1px solid {{r.priceBorder}}; background: {{r.priceBg}}; color: {{r.priceColor}}">{{r.price}}</div>
+        </div>
+      </sc-for>
+
+      <div style="padding: 16px; display: flex; flex-direction: column; gap: 11px">
+        <div style="display: flex"><span style="flex-grow: 1; font-size: 14px; color: #55677D">Subtotal</span><span class="num" style="font-size: 14px; font-weight: 500">฿1,540.00</span></div>
+        <div style="display: flex"><span style="flex-grow: 1; font-size: 14px; color: #55677D">Service charge 10%</span><span class="num" style="font-size: 14px; font-weight: 500">฿154.00</span></div>
+        <div style="display: flex"><span style="flex-grow: 1; font-size: 14px; color: #55677D">VAT 7%</span><span class="num" style="font-size: 14px; font-weight: 500">฿118.58</span></div>
+        <div style="display: flex; border-top: 1px solid #DFE7EF; padding-top: 11px"><span style="flex-grow: 1; font-size: 15px; font-weight: 600">Total</span><span class="num" style="font-size: 15px; font-weight: 600">฿1,812.58</span></div>
+      </div>
+    </div>
+
+    <div style="margin-top: 14px; padding: 0 4px; font-size: 13px; color: #55677D; line-height: 1.5">{{helper}}</div>
+
+  </div>
+
+  <div style="position: sticky; bottom: 0; background: #FFFFFF; border-top: 1px solid #DFE7EF; padding: 14px 16px 22px">
+    <div style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: {{ctaBg}}; color: {{ctaColor}}; border: 1px solid {{ctaBorder}}; font-size: 16px; font-weight: 600">Confirm receipt</div>
+    <div style="text-align: center; margin-top: 12px; font-size: 13px"><a href="#">Use sample receipt</a></div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { fixed: {} };
+    this.rows = [
+      { id: 'somtam',   qty: '1×', name: 'Som Tam',            read: 12000, truth: 12000, low: false },
+      { id: 'padthai',  qty: '2×', name: 'ผัดไทยกุ้งสด',           read: 24000, truth: 24000, low: true },
+      { id: 'curry',    qty: '1×', name: 'Green Curry',        read: 18000, truth: 18000, low: false },
+      { id: 'tomyum',   qty: '1×', name: 'Tom Yum Goong',      read: 28000, truth: 28000, low: false },
+      { id: 'massaman', qty: '1×', name: 'Massaman Beef',      read: 27200, truth: 30000, low: true },
+      { id: 'mango',    qty: '1×', name: 'Mango Sticky Rice',  read: 18000, truth: 18000, low: false },
+      { id: 'rice',     qty: '4×', name: 'Coconut rice',       read: 12000, truth: 12000, low: false },
+      { id: 'singha',   qty: '4×', name: 'Singha',             read: 12000, truth: 12000, low: false }
+    ];
+  }
+  baht(m) { return '฿' + (m / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  renderVals() {
+    const self = this;
+    let sum = 0;
+    const rows = this.rows.map(function (r) {
+      const fixed = !!self.state.fixed[r.id];
+      const value = fixed ? r.truth : r.read;
+      sum += value;
+      const flag = r.low && !fixed;
+      return {
+        qty: r.qty,
+        name: r.name,
+        price: self.baht(value),
+        cursor: r.low ? 'pointer' : 'default',
+        nameBorder: flag ? '#9A6209' : 'transparent',
+        nameBg: flag ? '#FBF1E0' : 'transparent',
+        priceBorder: flag ? '#9A6209' : 'transparent',
+        priceBg: flag ? '#FBF1E0' : 'transparent',
+        priceColor: flag ? '#9A6209' : '#0A2038',
+        tap: r.low ? function () {
+          const next = Object.assign({}, self.state.fixed);
+          next[r.id] = !next[r.id];
+          self.setState({ fixed: next });
+        } : function () {}
+      };
+    });
+
+    const stated = 154000;
+    const off = sum !== stated;
+
+    return {
+      rows: rows,
+      mismatch: off,
+      mismatchText: 'Items add up to ' + this.baht(sum) + ' but the subtotal says ฿1,540.00. Check the highlighted rows.',
+      helper: off
+        ? 'Two rows were hard to read. Tap either one to correct it.'
+        : 'Everything reconciles. Confirm to turn these into claimable items.',
+      ctaBg: off ? '#F4F7FA' : '#1E51D2',
+      ctaColor: off ? '#55677D' : '#FFFFFF',
+      ctaBorder: off ? '#DFE7EF' : '#1E51D2'
+    };
+  }
+}
+</script>
+</body>
+</html>

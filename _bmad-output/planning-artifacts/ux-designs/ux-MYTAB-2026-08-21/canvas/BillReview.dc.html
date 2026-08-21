@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: -0.006em; background: #F4F7FA; color: #0A2038; -webkit-font-smoothing: antialiased; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    a { color: #1E51D2; } a:hover { color: #17409F; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #F4F7FA; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0A2038" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+    <div>
+      <div style="font-size: 20px; font-weight: 600; letter-spacing: -0.018em">Review bill</div>
+      <div class="num" style="font-size: 13px; color: #55677D; margin-top: 1px">Sukhumvit Dinner · 5 people</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; padding: 0 16px 190px">
+
+    <div style="font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px">Who owes what</div>
+    <div style="background: #FFFFFF; border: 1px solid #DFE7EF; border-radius: 12px; box-shadow: 0 1px 2px rgba(10, 32, 56, 0.045); overflow: hidden">
+      <sc-for list="{{people}}" as="p" hint-placeholder-count="5">
+        <div style="border-bottom: 1px solid #DFE7EF">
+          <div onClick="{{p.tap}}" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; background: {{p.bg}}">
+            <div style="width: 32px; height: 32px; border-radius: 999px; background: {{p.tint}}; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{p.initial}}</div>
+            <div style="flex-grow: 1; font-size: 15px; font-weight: 500">{{p.name}}</div>
+            <div class="num" style="font-size: 15px; font-weight: 600">{{p.total}}</div>
+            <span style="transform: rotate({{p.rotate}}); display: inline-flex; transition: transform 140ms ease">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#55677D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+            </span>
+          </div>
+          <sc-if value="{{p.open}}" hint-placeholder-val="{{ true }}">
+            <div style="padding: 4px 16px 16px 60px; display: flex; flex-direction: column; gap: 8px; background: {{p.bg}}">
+              <sc-for list="{{p.lines}}" as="l" hint-placeholder-count="4">
+                <div style="display: flex; align-items: baseline; gap: 10px">
+                  <span style="flex-grow: 1; font-size: 13px; color: {{l.color}}">{{l.label}}</span>
+                  <span class="num" style="font-size: 13px; color: {{l.color}}">{{l.value}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase; margin: 26px 0 10px">Applied to everyone</div>
+    <div style="background: #FFFFFF; border: 1px solid #DFE7EF; border-radius: 12px; box-shadow: 0 1px 2px rgba(10, 32, 56, 0.045); padding: 18px 20px; display: flex; flex-direction: column; gap: 13px">
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="flex-grow: 1; font-size: 14px">Subtotal</span>
+        <span class="num" style="font-size: 14px; font-weight: 500">฿1,540.00</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="flex-grow: 1; font-size: 14px">Service charge 10%<span style="font-size: 12px; color: #55677D; margin-left: 6px">proportional</span></span>
+        <span class="num" style="font-size: 14px; font-weight: 500">฿154.00</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="flex-grow: 1; font-size: 14px">VAT 7%<span style="font-size: 12px; color: #55677D; margin-left: 6px">proportional</span></span>
+        <span class="num" style="font-size: 14px; font-weight: 500">฿118.58</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="flex-grow: 1; font-size: 14px">Group tip<span style="font-size: 12px; color: #55677D; margin-left: 6px">proportional</span></span>
+        <span class="num" style="font-size: 14px; font-weight: 500">฿59.34</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 10px; border-top: 1px solid #DFE7EF; padding-top: 13px">
+        <span style="flex-grow: 1; font-size: 15px; font-weight: 600">Total</span>
+        <span class="num" style="font-size: 15px; font-weight: 600">฿1,840.00</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 18px; display: flex; align-items: center; gap: 9px; padding: 0 4px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0B7561" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+      <span class="num" style="font-size: 14px; font-weight: 500; color: #0B7561">Everyone's shares add up to ฿1,840.00</span>
+    </div>
+
+  </div>
+
+  <div style="position: sticky; bottom: 0; background: #FFFFFF; border-top: 1px solid #DFE7EF; padding: 14px 16px 22px">
+    <div style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: {{ctaBg}}; color: {{ctaColor}}; border: 1px solid {{ctaBorder}}; font-size: 16px; font-weight: 600">{{ctaLabel}}</div>
+    <div style="font-size: 13px; color: #55677D; margin-top: 10px; text-align: center; line-height: 1.45">{{ctaNote}}</div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "role": {"editor": "enum", "options": ["organizer", "participant before lock", "participant after lock"], "default": "organizer", "section": "State"},
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: 'andre' };
+    this.rows = [
+      { id: 'andre', name: 'Andre', initial: 'A', tint: '#1E51D2', total: '฿291.74', items: '฿240.00', service: '฿24.00', vat: '฿18.48', tip: '฿9.25', round: '+฿0.01' },
+      { id: 'maya',  name: 'Maya',  initial: 'M', tint: '#B0603E', total: '฿559.15', items: '฿460.00', service: '฿46.00', vat: '฿35.42', tip: '฿17.72', round: '+฿0.01' },
+      { id: 'noi',   name: 'Noi',   initial: 'N', tint: '#0B7561', total: '฿255.26', items: '฿210.00', service: '฿21.00', vat: '฿16.17', tip: '฿8.09', round: null },
+      { id: 'ploy',  name: 'Ploy',  initial: 'P', tint: '#9A6209', total: '฿328.19', items: '฿270.00', service: '฿27.00', vat: '฿20.79', tip: '฿10.40', round: null },
+      { id: 'tim',   name: 'Tim',   initial: 'T', tint: '#55677D', total: '฿437.59', items: '฿360.00', service: '฿36.00', vat: '฿27.72', tip: '฿13.87', round: null }
+    ];
+  }
+  renderVals() {
+    const self = this;
+    const role = this.props.role ?? 'organizer';
+
+    const people = this.rows.map(function (r) {
+      const open = self.state.open === r.id;
+      const lines = [
+        { label: 'Items', value: r.items, color: '#55677D' },
+        { label: 'Service charge 10%', value: r.service, color: '#55677D' },
+        { label: 'VAT 7%', value: r.vat, color: '#55677D' },
+        { label: 'Group tip', value: r.tip, color: '#55677D' }
+      ];
+      if (r.round) { lines.push({ label: 'Rounding', value: r.round, color: '#9A6209' }); }
+      lines.push({ label: 'Their share', value: r.total, color: '#0A2038' });
+      return {
+        name: r.name, initial: r.initial, tint: r.tint, total: r.total,
+        open: open, rotate: open ? '90deg' : '0deg',
+        bg: r.id === 'andre' ? '#E7EDFC' : '#FFFFFF',
+        lines: lines,
+        tap: function () { self.setState({ open: open ? null : r.id }); }
+      };
+    });
+
+    const cta = {
+      'organizer':               { label: 'Lock bill',  bg: '#1E51D2', color: '#FFFFFF', border: '#1E51D2', note: 'Locking creates each person’s final amount. Editing after this needs a reopen.' },
+      'participant before lock': { label: 'Settle up',  bg: '#F4F7FA', color: '#55677D', border: '#DFE7EF', note: 'Waiting on Maya to lock.' },
+      'participant after lock':  { label: 'Settle up',  bg: '#1E51D2', color: '#FFFFFF', border: '#1E51D2', note: 'Maya locked this bill. Your amount is final.' }
+    }[role];
+
+    return {
+      people: people,
+      ctaLabel: cta.label, ctaBg: cta.bg, ctaColor: cta.color, ctaBorder: cta.border, ctaNote: cta.note
+    };
+  }
+}
+</script>
+</body>
+</html>

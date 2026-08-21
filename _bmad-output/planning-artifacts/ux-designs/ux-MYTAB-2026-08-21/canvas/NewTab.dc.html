@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: -0.006em; background: #F4F7FA; color: #0A2038; -webkit-font-smoothing: antialiased; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    a { color: #1E51D2; } a:hover { color: #17409F; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #F4F7FA; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 16px">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0A2038" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+    <div style="font-size: 20px; font-weight: 600; letter-spacing: -0.018em">Start a tab</div>
+  </div>
+
+  <div style="flex-grow: 1; padding: 12px 16px 24px">
+
+    <div style="font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 9px">What's this tab for?</div>
+    <div style="background: #FFFFFF; border: 1px solid #1E51D2; border-radius: 10px; padding: 15px 16px; font-size: 16px; font-weight: 500; margin-bottom: 28px">Sukhumvit Dinner</div>
+
+    <div style="font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 9px">Currency</div>
+    <div style="display: flex; gap: 10px; margin-bottom: 28px">
+      <sc-for list="{{currencies}}" as="c" hint-placeholder-count="2">
+        <div onClick="{{c.pick}}" style="min-height: 44px; display: flex; align-items: center; padding: 0 22px; border-radius: 999px; font-size: 15px; font-weight: 600; background: {{c.bg}}; color: {{c.color}}; border: 1px solid {{c.border}}; cursor: pointer">{{c.label}}</div>
+      </sc-for>
+    </div>
+
+    <div style="font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 12px">Who paid?</div>
+    <div style="display: flex; gap: 16px; margin-bottom: 34px">
+      <sc-for list="{{payers}}" as="p" hint-placeholder-count="5">
+        <div onClick="{{p.pick}}" style="display: flex; flex-direction: column; align-items: center; gap: 7px; cursor: pointer; width: 52px">
+          <div style="width: 48px; height: 48px; border-radius: 999px; background: {{p.tint}}; color: #fff; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 {{p.ring}}">{{p.initial}}</div>
+          <span style="font-size: 12px; font-weight: {{p.weight}}; color: {{p.nameColor}}">{{p.name}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="font-size: 11px; font-weight: 600; color: #61748B; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 12px">Add the items</div>
+    <div style="display: flex; gap: 12px">
+      <div style="flex-grow: 1; background: #FFFFFF; border: 1px solid #DFE7EF; border-radius: 12px; box-shadow: 0 1px 2px rgba(10, 32, 56, 0.045); padding: 24px 18px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1E51D2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8a2 2 0 012-2h2l1.5-2h7L17 6h2a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"></path>
+          <circle cx="12" cy="12.5" r="3.4"></circle>
+        </svg>
+        <div>
+          <div style="font-size: 15px; font-weight: 600">Scan receipt</div>
+          <div style="font-size: 12px; color: #55677D; margin-top: 4px; line-height: 1.4">Photograph it, then fix anything wrong</div>
+        </div>
+      </div>
+      <div style="flex-grow: 1; background: #FFFFFF; border: 1px solid #DFE7EF; border-radius: 12px; box-shadow: 0 1px 2px rgba(10, 32, 56, 0.045); padding: 24px 18px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0A2038" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 6h13M8 12h13M8 18h13"></path><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"></path>
+        </svg>
+        <div>
+          <div style="font-size: 15px; font-weight: 600">Add manually</div>
+          <div style="font-size: 12px; color: #55677D; margin-top: 4px; line-height: 1.4">Type each dish and price</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="position: sticky; bottom: 0; background: #FFFFFF; border-top: 1px solid #DFE7EF; padding: 14px 16px 22px">
+    <div style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #1E51D2; color: #FFFFFF; box-shadow: inset 0 -1px 0 rgba(10, 32, 56, 0.24); font-size: 16px; font-weight: 600">Add items</div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { currency: 'THB', payer: 'maya' };
+    this.roster = [
+      { id: 'maya', name: 'Maya', initial: 'M', tint: '#B0603E' },
+      { id: 'andre', name: 'You', initial: 'A', tint: '#1E51D2' },
+      { id: 'noi',  name: 'Noi',  initial: 'N', tint: '#0B7561' },
+      { id: 'ploy', name: 'Ploy', initial: 'P', tint: '#9A6209' },
+      { id: 'tim',  name: 'Tim',  initial: 'T', tint: '#55677D' }
+    ];
+  }
+  renderVals() {
+    const self = this;
+    return {
+      currencies: ['THB', 'USDC'].map(function (c) {
+        const on = self.state.currency === c;
+        return {
+          label: c,
+          bg: on ? '#E7EDFC' : '#FFFFFF',
+          color: on ? '#1E51D2' : '#0A2038',
+          border: on ? '#1E51D2' : '#DFE7EF',
+          pick: function () { self.setState({ currency: c }); }
+        };
+      }),
+      payers: this.roster.map(function (p) {
+        const on = self.state.payer === p.id;
+        return {
+          name: p.name, initial: p.initial, tint: p.tint,
+          ring: on ? '2px #1E51D2' : '0 transparent',
+          weight: on ? '600' : '400',
+          nameColor: on ? '#0A2038' : '#55677D',
+          pick: function () { self.setState({ payer: p.id }); }
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

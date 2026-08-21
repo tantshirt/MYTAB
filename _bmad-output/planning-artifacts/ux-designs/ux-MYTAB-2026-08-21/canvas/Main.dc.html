@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: -0.006em; background: #F4F7FA; color: #0A2038; -webkit-font-smoothing: antialiased; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    a { color: #1E51D2; } a:hover { color: #17409F; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #F4F7FA; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 16px 16px 12px">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0A2038" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+    <div style="flex-grow: 1; min-width: 0">
+      <div style="font-size: 20px; font-weight: 600; letter-spacing: -0.018em">Sukhumvit Dinner</div>
+      <div style="font-size: 13px; color: #55677D; margin-top: 1px">{{statusLine}}</div>
+    </div>
+    <sc-if value="{{showPresence}}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <div style="display: flex">
+          <div style="width: 24px; height: 24px; border-radius: 999px; background: #B0603E; color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; border: 2px solid #F4F7FA">M</div>
+          <div style="width: 24px; height: 24px; border-radius: 999px; background: #0B7561; color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; border: 2px solid #F4F7FA; margin-left: -8px">N</div>
+          <div style="width: 24px; height: 24px; border-radius: 999px; background: #9A6209; color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; border: 2px solid #F4F7FA; margin-left: -8px">P</div>
+        </div>
+        <div style="width: 6px; height: 6px; border-radius: 999px; background: #0B7561"></div>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="flex-grow: 1; padding: 0 16px 200px">
+    <div style="background: #FFFFFF; border: 1px solid #DFE7EF; border-radius: 12px; box-shadow: 0 1px 2px rgba(10, 32, 56, 0.045); overflow: hidden">
+      <sc-for list="{{rows}}" as="row" hint-placeholder-count="8">
+        <div onClick="{{row.tap}}" style="display: flex; align-items: flex-start; gap: 12px; padding: 13px 14px 13px {{row.padLeft}}; border-bottom: 1px solid #DFE7EF; border-left: {{row.accent}}; background: {{row.bg}}; cursor: pointer">
+          <div style="flex-grow: 1; min-width: 0">
+            <div style="display: flex; align-items: baseline; gap: 6px">
+              <span class="num" style="font-size: 13px; color: #55677D; font-weight: 500">{{row.qty}}</span>
+              <span style="font-size: 15px; font-weight: 500; letter-spacing: -0.005em">{{row.name}}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 7px; min-height: 22px">
+              <sc-for list="{{row.people}}" as="p" hint-placeholder-count="2">
+                <div style="width: 22px; height: 22px; border-radius: 999px; background: {{p.tint}}; color: #fff; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-right: -6px; border: 2px solid {{row.bg}}">{{p.initial}}</div>
+              </sc-for>
+              <span style="font-size: 13px; color: {{row.captionColor}}; margin-left: 12px">{{row.caption}}</span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 7px">
+            <span class="num" style="font-size: 15px; font-weight: 500">{{row.price}}</span>
+            <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.01em; padding: 4px 10px; border-radius: 999px; color: {{row.tagColor}}; background: {{row.tagBg}}; border: 1px solid {{row.tagBorder}}">{{row.tag}}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top: 12px; padding: 0 4px; font-size: 13px; color: #55677D; line-height: 1.5">{{helperLine}}</div>
+  </div>
+
+  <div style="position: sticky; bottom: 0; background: #FFFFFF; border-top: 1px solid #DFE7EF; padding: 12px 16px 22px">
+    <div style="font-size: 13px; color: #55677D; margin-bottom: 10px">
+      <span class="num">{{assignedLine}}</span><span style="color: {{unassignedColor}}; font-weight: 600"> {{unassignedLine}}</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px">
+      <div style="flex-grow: 1">
+        <div style="font-size: 13px; color: #55677D; margin-bottom: 1px">Your share</div>
+        <div class="num" style="font-size: 24px; font-weight: 600; letter-spacing: -0.02em">{{myShare}}</div>
+      </div>
+      <div style="min-height: 48px; display: flex; align-items: center; justify-content: center; padding: 0 22px; border-radius: 10px; font-size: 15px; font-weight: 600; background: {{ctaBg}}; color: {{ctaColor}}; border: 1px solid {{ctaBorder}}">{{ctaLabel}}</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "locked": {"editor": "boolean", "default": false, "section": "State"},
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.people = {
+      andre: { initial: 'A', name: 'You',  tint: '#1E51D2' },
+      maya:  { initial: 'M', name: 'Maya', tint: '#B0603E' },
+      noi:   { initial: 'N', name: 'Noi',  tint: '#0B7561' },
+      ploy:  { initial: 'P', name: 'Ploy', tint: '#9A6209' },
+      tim:   { initial: 'T', name: 'Tim',  tint: '#55677D' }
+    };
+    this.items = [
+      { id: 'somtam',  name: 'Som Tam',           qty: '1×', price: 12000, who: ['noi', 'ploy'] },
+      { id: 'padthai', name: 'Pad Thai',          qty: '2×', price: 24000, who: ['maya', 'noi'] },
+      { id: 'curry',   name: 'Green Curry',       qty: '1×', price: 18000, who: ['andre'] },
+      { id: 'tomyum',  name: 'Tom Yum Goong',     qty: '1×', price: 28000, who: ['maya'] },
+      { id: 'massaman',name: 'Massaman Beef',     qty: '1×', price: 30000, who: ['tim'] },
+      { id: 'mango',   name: 'Mango Sticky Rice', qty: '1×', price: 18000, who: [] },
+      { id: 'rice',    name: 'Coconut rice',      qty: '4×', price: 12000, who: ['andre', 'maya', 'noi', 'tim'] },
+      { id: 'singha',  name: 'Singha',            qty: '4×', price: 12000, who: ['andre', 'maya', 'ploy', 'tim'] }
+    ];
+    this.state = { claims: this.items.reduce((a, i) => (a[i.id] = i.who.slice(), a), {}) };
+  }
+
+  baht(minor) {
+    return '฿' + (minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  toggle(id) {
+    const claims = Object.assign({}, this.state.claims);
+    const who = claims[id].slice();
+    const at = who.indexOf('andre');
+    if (at >= 0) { who.splice(at, 1); } else { who.push('andre'); }
+    claims[id] = who;
+    this.setState({ claims: claims });
+  }
+
+  renderVals() {
+    const locked = this.props.locked ?? false;
+    const claims = this.state.claims;
+    const self = this;
+    let mine = 0, assigned = 0, unassigned = 0;
+
+    const rows = this.items.map(function (item) {
+      const who = claims[item.id];
+      const isMine = who.indexOf('andre') >= 0;
+      const isOrphan = who.length === 0;
+      if (isOrphan) { unassigned++; } else { assigned += item.price; }
+      if (isMine) { mine += Math.floor(item.price / who.length); }
+
+      let caption = '', captionColor = '#55677D';
+      if (isOrphan) { caption = 'Needs an owner'; captionColor = '#9A6209'; }
+      else if (who.length > 1) { caption = 'Split ' + who.length + ' ways · ' + self.baht(Math.floor(item.price / who.length)) + ' each'; }
+      else if (!isMine) { caption = self.people[who[0]].name; }
+
+      let tag = 'Claim', tagColor = '#1E51D2', tagBg = '#FFFFFF', tagBorder = '#DFE7EF';
+      if (isMine) { tag = 'Yours'; tagColor = '#1E51D2'; tagBg = '#E7EDFC'; tagBorder = '#E7EDFC'; }
+      else if (!isOrphan) { tag = 'Taken'; tagColor = '#55677D'; tagBg = '#FFFFFF'; tagBorder = '#DFE7EF'; }
+      if (locked) { tag = isMine ? 'Yours' : ''; tagBg = isMine ? '#E7EDFC' : 'transparent'; tagBorder = isMine ? '#E7EDFC' : 'transparent'; }
+
+      return {
+        name: item.name,
+        qty: item.qty,
+        price: self.baht(item.price),
+        people: who.map(function (u) { return { initial: self.people[u].initial, tint: self.people[u].tint }; }),
+        caption: caption,
+        captionColor: captionColor,
+        tag: tag, tagColor: tagColor, tagBg: tagBg, tagBorder: tagBorder,
+        bg: isMine ? '#E7EDFC' : '#FFFFFF',
+        accent: isOrphan ? '3px solid #9A6209' : '0px solid transparent',
+        padLeft: isOrphan ? '11px' : '14px',
+        tap: locked ? function () {} : function () { self.toggle(item.id); }
+      };
+    });
+
+    const subtotal = this.items.reduce(function (a, i) { return a + i.price; }, 0);
+    const ctaReady = unassigned === 0;
+
+    return {
+      rows: rows,
+      statusLine: locked ? 'Locked · 5 people' : '5 people · tap what you had',
+      showPresence: !locked,
+      assignedLine: this.baht(assigned) + ' of ' + this.baht(subtotal) + ' assigned',
+      unassignedLine: unassigned === 0 ? '· all assigned' : '· ' + unassigned + (unassigned === 1 ? ' item needs an owner' : ' items need an owner'),
+      unassignedColor: unassigned === 0 ? '#0B7561' : '#9A6209',
+      myShare: this.baht(mine),
+      helperLine: locked
+        ? 'Maya locked this bill. Amounts are final.'
+        : 'Tap a dish to claim it. Two people on the same dish split it — nobody gets bumped.',
+      ctaLabel: locked ? 'Settle up' : (mine === 0 ? 'Claim yours' : 'Finish claiming'),
+      ctaBg: locked ? '#1E51D2' : (ctaReady ? '#1E51D2' : '#F4F7FA'),
+      ctaColor: locked ? '#FFFFFF' : (ctaReady ? '#FFFFFF' : '#55677D'),
+      ctaBorder: locked ? '#1E51D2' : (ctaReady ? '#1E51D2' : '#DFE7EF')
+    };
+  }
+}
+</script>
+</body>
+</html>

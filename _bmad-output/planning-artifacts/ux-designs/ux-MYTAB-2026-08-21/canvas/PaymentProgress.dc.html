@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: -0.006em; background: #F4F7FA; color: #0A2038; -webkit-font-smoothing: antialiased; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    a { color: #1E51D2; } a:hover { color: #17409F; }
+    @keyframes mt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #F4F7FA; display: flex; flex-direction: column; padding: 0 16px 24px">
+
+  <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center">
+
+    <div style="text-align: center; margin-bottom: 44px">
+      <div class="num" style="font-size: 34px; font-weight: 600; letter-spacing: -0.028em">฿291.74</div>
+      <div style="font-size: 15px; color: #55677D; margin-top: 8px">to Maya</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column">
+      <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+        <div style="display: flex; gap: 14px">
+          <div style="display: flex; flex-direction: column; align-items: center; width: 26px">
+            <div style="width: 26px; height: 26px; border-radius: 999px; background: {{s.dotBg}}; border: 2px solid {{s.dotBorder}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; animation: {{s.anim}}">
+              <sc-if value="{{s.showCheck}}" hint-placeholder-val="{{ true }}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+              </sc-if>
+              <sc-if value="{{s.showCross}}" hint-placeholder-val="{{ false }}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+              </sc-if>
+            </div>
+            <div style="width: 2px; flex-grow: 1; min-height: {{s.barHeight}}; background: {{s.barColor}}"></div>
+          </div>
+          <div style="padding-bottom: 22px; flex-grow: 1">
+            <div style="font-size: 15px; font-weight: {{s.weight}}; color: {{s.labelColor}}; line-height: 1.3">{{s.label}}</div>
+            <div style="font-size: 13px; color: #55677D; margin-top: 4px">{{s.note}}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+  </div>
+
+  <div style="text-align: center; font-size: 13px; color: #55677D; line-height: 1.5; margin-bottom: 16px">{{footNote}}</div>
+
+  <sc-if value="{{failed}}" hint-placeholder-val="{{ false }}">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #1E51D2; color: #FFFFFF; box-shadow: inset 0 -1px 0 rgba(10, 32, 56, 0.24); font-size: 16px; font-weight: 600">Try again</div>
+      <div style="min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 500; color: #55677D">Back to tab</div>
+    </div>
+  </sc-if>
+  <sc-if value="{{done}}" hint-placeholder-val="{{ false }}">
+    <div style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #FFFFFF; border: 1px solid #DFE7EF; color: #0A2038; font-size: 16px; font-weight: 600">Back to tab</div>
+  </sc-if>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "stage": {"editor": "enum", "options": ["approving", "verifying", "sending", "confirmed", "failed"], "default": "sending", "section": "State"},
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stage = this.props.stage ?? 'sending';
+    const order = ['approving', 'verifying', 'sending', 'confirmed'];
+    const failed = stage === 'failed';
+    const active = failed ? 2 : order.indexOf(stage);
+
+    const defs = [
+      { label: 'Approved in your wallet', doneNote: '', activeNote: 'Waiting for you to approve' },
+      { label: 'Verifying', doneNote: '', activeNote: 'Checking the amount and who it goes to' },
+      { label: 'Sending to Maya', doneNote: '', activeNote: 'Usually takes a few seconds' },
+      { label: 'Confirmed', doneNote: 'Maya received 8.25 USDC', activeNote: '' }
+    ];
+
+    const steps = defs.map(function (d, i) {
+      const isDone = i < active || (stage === 'confirmed' && i <= 3);
+      const isActive = i === active && stage !== 'confirmed';
+      const isFail = failed && i === 2;
+      const last = i === 3;
+
+      let dotBg = '#F4F7FA', dotBorder = '#DFE7EF', labelColor = '#55677D', weight = '400', note = '', anim = 'none';
+      if (isDone) { dotBg = '#0B7561'; dotBorder = '#0B7561'; labelColor = '#0A2038'; weight = '500'; note = d.doneNote; }
+      if (isActive) { dotBg = '#FFFFFF'; dotBorder = '#1E51D2'; labelColor = '#0A2038'; weight = '600'; note = d.activeNote; anim = 'mt-pulse 1.4s ease-in-out infinite'; }
+      if (isFail) { dotBg = '#B32B44'; dotBorder = '#B32B44'; labelColor = '#B32B44'; weight = '600'; note = 'Quote expired. Refresh it.'; anim = 'none'; }
+
+      return {
+        label: isFail ? 'Could not send' : d.label,
+        note: note,
+        dotBg: dotBg, dotBorder: dotBorder, labelColor: labelColor, weight: weight, anim: anim,
+        showCheck: isDone && !isFail,
+        showCross: isFail,
+        barHeight: last ? '0px' : '18px',
+        barColor: (i < active) ? '#0B7561' : '#DFE7EF'
+      };
+    });
+
+    return {
+      steps: steps,
+      failed: failed,
+      done: stage === 'confirmed',
+      footNote: failed
+        ? 'Nothing left your wallet. Your share is unchanged.'
+        : (stage === 'confirmed' ? 'Your share of Sukhumvit Dinner is settled.' : 'You can close this — we’ll update the tab either way.')
+    };
+  }
+}
+</script>
+</body>
+</html>

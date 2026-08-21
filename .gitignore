@@ -1,0 +1,40 @@
+# Operating-system and editor files
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Locally installed agent/workflow frameworks. Project-owned outputs stay tracked.
+.agents/
+.claude/
+_bmad/
+
+# Generated UX bundle; regenerate from the reviewed canvas sources before publishing it.
+_bmad-output/planning-artifacts/ux-designs/ux-MYTAB-2026-08-21/canvas/my-tab-mini-app.html
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# JavaScript and Next.js output
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Convex local state
+.convex/
+
+# Logs and temporary files
+*.log
+tmp/
+.tmp/
