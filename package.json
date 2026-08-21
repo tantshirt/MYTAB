@@ -1,0 +1,33 @@
+{
+  "name": "my-tab",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:forbidden-deps": "node scripts/check-forbidden-deps.mjs",
+    "check:env-contract": "vitest run tests/convex/env-contract.test.ts"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "0.4.5",
+    "@astryxdesign/theme-neutral": "0.4.5",
+    "@stylexjs/stylex": "0.19.0",
+    "convex": "1.44.0",
+    "next": "15.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.4",
+    "@types/react": "19.0.10",
+    "@types/react-dom": "19.0.4",
+    "eslint": "9.20.1",
+    "eslint-config-next": "15.2.4",
+    "typescript": "5.7.3",
+    "vitest": "3.0.5"
+  }
+}
