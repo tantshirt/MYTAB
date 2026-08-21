@@ -87,7 +87,7 @@ development_status:
   epic-1: in-progress
   1-1-project-scaffold-with-coordinated-vercel-and-convex-deployment: done
   1-2-my-tab-design-foundation-on-astryx: backlog
-  1-3-integer-money-module-in-lib-domain: backlog
+  1-3-integer-money-module-in-lib-domain: done
   1-4-zero-click-privy-telegram-login-with-an-embedded-solana-wallet: backlog
   1-5-a-privy-access-token-authenticates-a-convex-query: backlog
   1-6-token-bridge-fallback-for-convex-authentication: backlog
