@@ -18,7 +18,7 @@
     "@astryxdesign/theme-neutral": "0.4.5",
     "@noble/hashes": "^1.8.0",
     "@privy-io/react-auth": "3.37.4",
-    "@solana-program/memo": "^0.13.0",
+    "@solana-program/memo": "^0.10.0",
     "@solana/kit": "5.5.1",
     "@solana/spl-token": "0.4.13",
     "@solana/web3.js": "1.98.4",
