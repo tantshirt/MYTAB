@@ -1,4 +1,9 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  randomBase64Url,
+  sha256Hex,
+  timingSafeEqual,
+  utf8ToBytes,
+} from "../../lib/crypto/convexCrypto";
 
 export const TAB_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 export const ACTION_TOKEN_TTL_MS = 10 * 60 * 1000;
@@ -31,23 +36,18 @@ export class SessionTokenError extends Error {
 
 /** Generates a cryptographically random opaque token (FR-N3). */
 export function generateOpaqueToken(byteLength = 32): string {
-  return randomBytes(byteLength).toString("base64url");
+  return randomBase64Url(byteLength);
 }
 
 /** Hashes a token for at-rest storage — DB reads never yield usable tokens (AC1). */
 export function hashSessionToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
+  return sha256Hex(token);
 }
 
 /** Constant-time token comparison for verification paths. */
 export function tokensMatch(presented: string, expectedHash: string): boolean {
   const presentedHash = hashSessionToken(presented);
-  const left = Buffer.from(presentedHash);
-  const right = Buffer.from(expectedHash);
-  if (left.length !== right.length) {
-    return false;
-  }
-  return timingSafeEqual(left, right);
+  return timingSafeEqual(utf8ToBytes(presentedHash), utf8ToBytes(expectedHash));
 }
 
 export function ttlForTokenType(tokenType: SessionTokenType): number {

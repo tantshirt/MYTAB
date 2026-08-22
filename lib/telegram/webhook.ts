@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, utf8ToBytes } from "../crypto/convexCrypto";
 import { buildDisplayName } from "./verify";
 
 /** Fixture webhook secret when TELEGRAM_WEBHOOK_SECRET is absent (local/tests). */
@@ -70,12 +70,7 @@ export type NormalizeUpdateResult =
   | { ok: false; code: "INVALID_BODY" | "MISSING_UPDATE_ID" };
 
 function safeEqualUtf8(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  if (left.length !== right.length) {
-    return false;
-  }
-  return timingSafeEqual(left, right);
+  return timingSafeEqual(utf8ToBytes(a), utf8ToBytes(b));
 }
 
 /** Constant-time comparison for X-Telegram-Bot-Api-Secret-Token. */

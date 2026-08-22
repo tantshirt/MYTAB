@@ -1,11 +1,9 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../../lib/crypto/convexCrypto";
 
 export const FIXTURE_USDC_MINT =
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const FIXTURE_MESSAGE_BYTES = "fixture-settlement-message-v1";
-export const FIXTURE_MESSAGE_HASH = createHash("sha256")
-  .update(FIXTURE_MESSAGE_BYTES)
-  .digest("hex");
+export const FIXTURE_MESSAGE_HASH = sha256Hex(FIXTURE_MESSAGE_BYTES);
 export const FIXTURE_PARTIAL_SIGNED_TX = "fixture-partial-signed-tx-v1";
 export const FIXTURE_FULL_SIGNED_TX = "fixture-full-signed-tx-v1";
 export const FIXTURE_USER_SIGNATURE = "fixture-user-signature-v1";
@@ -27,7 +25,7 @@ function readFixtureSegment(payload: string, key: string): string | null {
 
 /** Deterministic hash for fixture message bytes (Story 3.5 AC2). */
 export function hashMessageBytes(messageBytes: string): string {
-  return createHash("sha256").update(messageBytes).digest("hex");
+  return sha256Hex(messageBytes);
 }
 
 /** Re-parses partially signed bytes and rejects message changes (AD-10 stub). */

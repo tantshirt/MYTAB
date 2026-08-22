@@ -1,5 +1,5 @@
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../crypto/convexCrypto";
 import { MEMO_PROGRAM_ID, USDC_MINT } from "./constants";
 import { parseVersionedTransactionBase64 } from "./buildExactUsdcTransfer";
 import { SPONSOR_POLICY_V1 } from "./sponsorPolicyManifest";
@@ -74,7 +74,7 @@ const ALLOWED_STATUSES_BY_GATE: Record<ValidationGate, Set<string>> = {
 };
 
 function hashMessageBytes(messageBytes: Uint8Array): string {
-  return createHash("sha256").update(messageBytes).digest("hex");
+  return sha256Hex(messageBytes);
 }
 
 function readComputeBudgetLimits(instructions: {

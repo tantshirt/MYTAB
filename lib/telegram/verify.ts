@@ -1,4 +1,9 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import {
+  hmacSha256Hex,
+  sha256Hex,
+  timingSafeEqualHex,
+  utf8ToBytes,
+} from "../crypto/convexCrypto";
 
 /** Fixture bot token when TELEGRAM_BOT_TOKEN is absent (local build/tests). */
 export const FIXTURE_TELEGRAM_BOT_TOKEN = "fixture-telegram-bot-token";
@@ -66,26 +71,25 @@ function buildDataCheckString(initData: string): { hash: string | null; dataChec
 
 /** Computes the Telegram initData HMAC hex digest for a bot token. */
 export function computeInitDataHmac(dataCheckString: string, botToken: string): string {
-  const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest();
-  return createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+  const secretKey = hmacSha256Hex(utf8ToBytes("WebAppData"), botToken);
+  return hmacSha256Hex(hexToHmacKey(secretKey), dataCheckString);
+}
+
+function hexToHmacKey(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
 }
 
 function safeEqualHex(a: string, b: string): boolean {
-  try {
-    const left = Buffer.from(a, "hex");
-    const right = Buffer.from(b, "hex");
-    if (left.length !== right.length) {
-      return false;
-    }
-    return timingSafeEqual(left, right);
-  } catch {
-    return false;
-  }
+  return timingSafeEqualHex(a, b);
 }
 
 /** SHA-256 of raw initData for replay tracking. */
 export function hashInitData(initData: string): string {
-  return createHash("sha256").update(initData).digest("hex");
+  return sha256Hex(initData);
 }
 
 export function isAuthDateFresh(

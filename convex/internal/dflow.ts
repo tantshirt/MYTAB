@@ -13,6 +13,7 @@ import {
 } from "../../lib/dflow/fixture";
 import { parseDflowOrderResponse } from "../../lib/dflow/schema";
 import { solveTargetOutputQuote } from "../../lib/dflow/quoteSolver";
+import { sha256Hex } from "../../lib/crypto/convexCrypto";
 import { SETTLEMENT_STATUS } from "../lib/settlementState";
 import { validateBeforeClientExposure } from "../../lib/solana/validateTransactionMessage";
 import { resolveSponsorWalletAddress } from "../../lib/solana/fixture";
@@ -269,8 +270,7 @@ export function verifyDflowBytePreservation(
   storedMessageHash: string,
 ): { ok: true } | { ok: false; failureCode: "MESSAGE_HASH_MISMATCH" } {
   const bytes = Buffer.from(partialSignedTxBase64.split("::")[0] ?? partialSignedTxBase64, "base64");
-  const { createHash } = require("node:crypto") as typeof import("node:crypto");
-  const hash = createHash("sha256").update(bytes).digest("hex");
+  const hash = sha256Hex(bytes);
   if (hash !== storedMessageHash) {
     return { ok: false, failureCode: "MESSAGE_HASH_MISMATCH" };
   }

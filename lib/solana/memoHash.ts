@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../crypto/convexCrypto";
 
 /**
  * Hash-only memo commitment for a tip intent (Story 3.3 AC6, NFR-7).
@@ -17,7 +17,7 @@ export function computeTipIntentCommitmentHash(input: {
     input.outputMint,
     String(input.outputDecimals),
   ].join("|");
-  return createHash("sha256").update(payload).digest("hex");
+  return sha256Hex(payload);
 }
 
 /** Hash-only memo commitment for a bill obligation (Story 6.1 AC6). */
@@ -36,7 +36,7 @@ export function computeObligationCommitmentHash(input: {
     input.outputMint,
     String(input.outputDecimals),
   ].join("|");
-  return createHash("sha256").update(payload).digest("hex");
+  return sha256Hex(payload);
 }
 
 /** Deterministic bill snapshot hash from locked revision data (Story 6.1 AC6). */
@@ -52,5 +52,5 @@ export function computeBillSnapshotHash(input: {
     input.obligationAmountAtomic,
     input.outputMint,
   ].join("|");
-  return createHash("sha256").update(payload).digest("hex");
+  return sha256Hex(payload);
 }

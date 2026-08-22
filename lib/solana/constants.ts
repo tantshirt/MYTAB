@@ -1,5 +1,5 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { createHash } from "node:crypto";
+import { sha256Bytes } from "../crypto/convexCrypto";
 
 /** Mainnet USDC mint — locked for P0 settlement (AD-22). */
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -32,7 +32,7 @@ export const FIXTURE_BLOCKHASH = "11111111111111111111111111111111";
 export const FIXTURE_LAST_VALID_BLOCK_HEIGHT = 999_999_999;
 
 function fixtureAddress(label: string): string {
-  const seed = createHash("sha256").update(`mytab-fixture:${label}`).digest().subarray(0, 32);
+  const seed = sha256Bytes(`mytab-fixture:${label}`).slice(0, 32);
   return Keypair.fromSeed(seed).publicKey.toBase58();
 }
 

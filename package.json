@@ -15,6 +15,7 @@
   "dependencies": {
     "@astryxdesign/core": "0.4.5",
     "@astryxdesign/theme-neutral": "0.4.5",
+    "@noble/hashes": "^1.8.0",
     "@privy-io/react-auth": "3.37.4",
     "@solana/kit": "5.5.1",
     "@solana/spl-token": "0.4.13",

@@ -9,7 +9,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../crypto/convexCrypto";
 import {
   FIXTURE_ATA_RENT_LAMPORTS,
   MEMO_PROGRAM_ID,
@@ -55,7 +55,7 @@ const DEFAULT_COMPUTE_UNITS = 200_000;
 const DEFAULT_PRIORITY_FEE_LAMPORTS = 10_000;
 
 function hashSerializedMessage(serializedMessage: Uint8Array): string {
-  return createHash("sha256").update(serializedMessage).digest("hex");
+  return sha256Hex(serializedMessage);
 }
 
 /**
