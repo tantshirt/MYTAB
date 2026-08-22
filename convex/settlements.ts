@@ -30,20 +30,18 @@ import {
   reserveSponsorBudget,
 } from "./lib/sponsorReservation";
 import {
+  SPONSOR_FAILURE,
   SPONSOR_POLICY_VERSION,
   isSponsorPaused,
   resolveSponsorEnvironment,
 } from "./sponsorPolicy";
 import {
-  FIXTURE_MESSAGE_BYTES,
-  FIXTURE_MESSAGE_HASH,
-  FIXTURE_PARTIAL_SIGNED_TX,
-  extractFixtureUserSignature,
+  fixtureMessageBytes,
+  fixtureMessageHash,
   verifyPartialSignedMessage,
 } from "./lib/solanaFixture";
-import {
-  FIXTURE_TX_SIGNATURE,
-} from "./internal/confirmations";
+import { assertFixturePathAllowed } from "../lib/solana/runtimeGuard";
+import { resolveSponsorWalletAddress } from "../lib/solana/fixture";
 
 export {
   SETTLEMENT_FAILURE,
@@ -227,15 +225,28 @@ export const recordUserSigned = mutation({
       throw new AuthError(SETTLEMENT_FAILURE.MESSAGE_HASH_MISMATCH);
     }
 
-    const verification = verifyPartialSignedMessage(
-      args.partialSignedTxBase64,
-      intent.messageHash,
-    );
+    // The payer public key is read from the server-owned wallet record, never
+    // from the submitted payload: verifying a signature against a key the client
+    // supplies proves nothing.
+    const wallet = await ctx.db.get(intent.walletId);
+    if (!wallet) {
+      throw new AuthError("PAYER_WALLET_REQUIRED");
+    }
+
+    const sponsorAddress = resolveSponsorWalletAddress();
+
+    const verification = verifyPartialSignedMessage({
+      partialSignedTxBase64: args.partialSignedTxBase64,
+      expectedMessageHash: intent.messageHash,
+      payerAddress: wallet.solanaAddress,
+      sponsorAddress,
+      expectedSerializedMessageBase64: intent.serializedMessage,
+    });
     if (!verification.ok) {
       throw new AuthError(verification.failureCode);
     }
 
-    const userSignature = extractFixtureUserSignature(args.partialSignedTxBase64);
+    const userSignature = verification.userSignature;
     if (intent.userSignature && intent.userSignature === userSignature) {
       throw new AuthError(SETTLEMENT_FAILURE.DUPLICATE_USER_SIGNATURE);
     }
@@ -264,6 +275,11 @@ export const markReadyForSignatureInternal = internalMutation({
     intentId: v.id("settlementIntents"),
   },
   handler: async (ctx, args) => {
+    // This helper writes fixture message bytes onto a real intent. It must never
+    // run on a deployment — a fixture hash there would make every later
+    // verification compare against a value no wallet ever signed.
+    assertFixturePathAllowed("settlements.markReadyForSignatureInternal");
+
     const intent = await ctx.db.get(args.intentId);
     if (!intent) {
       throw new AuthError("INTENT_NOT_FOUND");
@@ -298,8 +314,8 @@ export const markReadyForSignatureInternal = internalMutation({
 
     await ctx.db.patch(intent._id, {
       status: SETTLEMENT_STATUS.READY_FOR_SIGNATURE,
-      messageHash: FIXTURE_MESSAGE_HASH,
-      serializedMessage: FIXTURE_MESSAGE_BYTES,
+      messageHash: fixtureMessageHash(),
+      serializedMessage: fixtureMessageBytes(),
       sponsorReservationLamports: reservation.reservedLamports,
       policyVersion: SPONSOR_POLICY_VERSION,
       updatedAt: now,
@@ -386,13 +402,20 @@ export const applyConfirmedInternal = internalMutation({
       return { intentId: intent._id, status: SETTLEMENT_STATUS.CONFIRMED, alreadyConfirmed: true };
     }
 
+    // A confirmed settlement must carry the hash of the message that was
+    // actually signed. Substituting a fixture hash here would let a settlement
+    // row exist that no transaction can be reconciled against.
+    if (!intent.messageHash) {
+      throw new AuthError(SETTLEMENT_FAILURE.MESSAGE_HASH_MISMATCH);
+    }
+
     assertSettlementTransition(intent.status, SETTLEMENT_STATUS.CONFIRMED);
 
     const now = Date.now();
     await ctx.db.insert("settlements", {
       intentId: intent._id,
       transactionSignature: args.transactionSignature,
-      messageHash: intent.messageHash ?? FIXTURE_MESSAGE_HASH,
+      messageHash: intent.messageHash,
       billSnapshotHash: intent.billSnapshotHash,
       sponsorDebitLamports: args.sponsorDebitLamports,
       confirmedAt: now,
@@ -660,7 +683,15 @@ export const applyQuotedTransactionInternal = internalMutation({
   },
 });
 
-/** Ensures sponsor reservation immediately before co-sign (Story 3.8 AC6). */
+/**
+ * Ensures the sponsor reservation immediately before co-sign (Story 3.8 AC6, AD-17).
+ *
+ * Rechecks, in this order and all fail-closed: the kill switch, the policy
+ * version the reservation was made under, and every budget dimension. The kill
+ * switch is rechecked here as well as in the calling action because an operator
+ * may flip it between the two, and this mutation is the last transactional point
+ * before the sponsor key is used.
+ */
 export const ensureSponsorReservationInternal = internalMutation({
   args: { intentId: v.id("settlementIntents") },
   handler: async (ctx, args) => {
@@ -669,7 +700,15 @@ export const ensureSponsorReservationInternal = internalMutation({
       return { ok: false as const, failureCode: "INTENT_NOT_FOUND" };
     }
 
-    return reserveSponsorBudget(ctx, {
+    if (isSponsorPaused()) {
+      return { ok: false as const, failureCode: SPONSOR_FAILURE.PAUSED };
+    }
+
+    if (intent.policyVersion !== SPONSOR_POLICY_VERSION) {
+      return { ok: false as const, failureCode: "SPONSOR_POLICY_VERSION_MISMATCH" };
+    }
+
+    const reservation = await reserveSponsorBudget(ctx, {
       intentId: intent._id,
       userId: intent.userId,
       walletId: intent.walletId,
@@ -677,8 +716,19 @@ export const ensureSponsorReservationInternal = internalMutation({
       environment: resolveSponsorEnvironment(),
       recipientAddress: intent.recipientAddress,
       outputMint: intent.outputMint,
+      reservedLamports: intent.sponsorReservationLamports,
       paused: isSponsorPaused(),
     });
+
+    if (!reservation.ok) {
+      return reservation;
+    }
+
+    return {
+      ok: true as const,
+      reservedLamports: reservation.reservedLamports,
+      reservationOwnerIntentId: intent._id as string,
+    };
   },
 });
 
@@ -733,6 +783,7 @@ export const seedFixtureIntentInternal = internalMutation({
     maximumInputAtomic: v.int64(),
   },
   handler: async (ctx, args): Promise<Id<"settlementIntents">> => {
+    assertFixturePathAllowed("settlements.seedFixtureIntentInternal");
     const now = Date.now();
 
     const existing = await ctx.db
@@ -764,8 +815,8 @@ export const seedFixtureIntentInternal = internalMutation({
       tipId: args.tipId,
       recipientUserId: args.recipientUserId,
       recipientAddress: args.recipientAddress,
-      inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      inputMint: USDC_MINT,
+      outputMint: USDC_MINT,
       maximumInputAtomic: args.maximumInputAtomic,
       minimumOutputAtomic: args.minimumOutputAtomic,
       idempotencyKey: args.idempotencyKey,
@@ -778,5 +829,3 @@ export const seedFixtureIntentInternal = internalMutation({
   },
 });
 
-export const FIXTURE_PARTIAL_TX = FIXTURE_PARTIAL_SIGNED_TX;
-export const FIXTURE_BROADCAST_SIGNATURE = FIXTURE_TX_SIGNATURE;

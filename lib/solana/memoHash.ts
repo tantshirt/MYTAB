@@ -54,3 +54,34 @@ export function computeBillSnapshotHash(input: {
   ].join("|");
   return sha256Hex(payload);
 }
+
+/**
+ * The single source of truth for the memo an intent must carry.
+ *
+ * Used by the builder to emit it and by the pre-sponsor gate to assert it, so a
+ * memo can never be repointed at a different obligation than the one being paid.
+ */
+export function computeSettlementMemo(input: {
+  tipId?: string;
+  obligationId?: string;
+  billSnapshotHash?: string;
+  targetOutputAtomic: string;
+  outputMint: string;
+  outputDecimals: number;
+}): string {
+  if (input.obligationId && input.billSnapshotHash) {
+    return computeObligationCommitmentHash({
+      obligationId: input.obligationId,
+      billSnapshotHash: input.billSnapshotHash,
+      targetOutputAtomic: input.targetOutputAtomic,
+      outputMint: input.outputMint,
+      outputDecimals: input.outputDecimals,
+    });
+  }
+  return computeTipIntentCommitmentHash({
+    tipId: input.tipId ?? input.obligationId ?? "unknown",
+    targetOutputAtomic: input.targetOutputAtomic,
+    outputMint: input.outputMint,
+    outputDecimals: input.outputDecimals,
+  });
+}

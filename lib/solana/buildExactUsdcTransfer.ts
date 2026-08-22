@@ -11,16 +11,14 @@ import {
 } from "@solana/web3.js";
 import { sha256Hex } from "../crypto/convexCrypto";
 import {
-  FIXTURE_ATA_RENT_LAMPORTS,
+  ATA_RENT_LAMPORTS,
   MEMO_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  USDC_DECIMALS,
   USDC_MINT,
 } from "./constants";
 import { resolveFixtureBlockhash } from "./fixture";
-import {
-  computeObligationCommitmentHash,
-  computeTipIntentCommitmentHash,
-} from "./memoHash";
+import { computeSettlementMemo } from "./memoHash";
 
 export type BuildExactUsdcTransferInput = {
   payerAddress: string;
@@ -43,6 +41,8 @@ export type BuildExactUsdcTransferInput = {
 export type BuildExactUsdcTransferResult = {
   serializedBase64: string;
   messageHash: string;
+  /** Exact memo text the validator must find, or undefined when skipMemo. */
+  expectedMemo?: string;
   blockhash: string;
   lastValidBlockHeight: number;
   ataCreates: number;
@@ -70,7 +70,14 @@ export function buildExactUsdcTransfer(
   new PublicKey(input.recipientAddress);
   new PublicKey(input.sponsorAddress);
 
-  const fixture = resolveFixtureBlockhash();
+  // Fail closed: a build with no caller-supplied blockhash is a fixture build,
+  // and resolveFixtureBlockhash throws unless fixtures are explicitly enabled
+  // on a non-deployed runtime.
+  const needsFixtureBlockhash =
+    input.blockhash === undefined || input.lastValidBlockHeight === undefined;
+  const fixture = needsFixtureBlockhash
+    ? resolveFixtureBlockhash()
+    : { blockhash: input.blockhash!, lastValidBlockHeight: input.lastValidBlockHeight! };
   const blockhash = input.blockhash ?? fixture.blockhash;
   const lastValidBlockHeight =
     input.lastValidBlockHeight ?? fixture.lastValidBlockHeight;
@@ -86,8 +93,10 @@ export function buildExactUsdcTransfer(
   const instructions = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: DEFAULT_COMPUTE_UNITS }),
     ComputeBudgetProgram.setComputeUnitPrice({
-      microLamports: Math.floor(
-        (DEFAULT_PRIORITY_FEE_LAMPORTS * 1_000_000) / DEFAULT_COMPUTE_UNITS,
+      // Integer division only — never a float near a lamport amount.
+      microLamports: Number(
+        (BigInt(DEFAULT_PRIORITY_FEE_LAMPORTS) * 1_000_000n) /
+          BigInt(DEFAULT_COMPUTE_UNITS),
       ),
     }),
   ];
@@ -105,7 +114,7 @@ export function buildExactUsdcTransfer(
       ),
     );
     ataCreates = 1;
-    sponsorExposureLamports += FIXTURE_ATA_RENT_LAMPORTS;
+    sponsorExposureLamports += ATA_RENT_LAMPORTS;
   }
 
   instructions.push(
@@ -119,21 +128,14 @@ export function buildExactUsdcTransfer(
     ),
   );
 
-  const memoText =
-    input.obligationId && input.billSnapshotHash
-      ? computeObligationCommitmentHash({
-          obligationId: input.obligationId,
-          billSnapshotHash: input.billSnapshotHash,
-          targetOutputAtomic: input.amountAtomic.toString(),
-          outputMint: USDC_MINT,
-          outputDecimals: 6,
-        })
-      : computeTipIntentCommitmentHash({
-          tipId: input.tipId ?? input.obligationId ?? "unknown",
-          targetOutputAtomic: input.amountAtomic.toString(),
-          outputMint: USDC_MINT,
-          outputDecimals: 6,
-        });
+  const memoText = computeSettlementMemo({
+    tipId: input.tipId,
+    obligationId: input.obligationId,
+    billSnapshotHash: input.billSnapshotHash,
+    targetOutputAtomic: input.amountAtomic.toString(),
+    outputMint: USDC_MINT,
+    outputDecimals: USDC_DECIMALS,
+  });
 
   if (!input.skipMemo) {
     instructions.push({
@@ -157,6 +159,7 @@ export function buildExactUsdcTransfer(
   return {
     serializedBase64,
     messageHash,
+    expectedMemo: input.skipMemo ? undefined : memoText,
     blockhash,
     lastValidBlockHeight,
     ataCreates,

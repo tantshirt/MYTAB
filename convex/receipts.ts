@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { assertFixturePathAllowed } from "../lib/solana/runtimeGuard";
 import { mutation, query } from "./_generated/server";
 import {
   runFixtureExtraction,
@@ -99,6 +100,9 @@ export const finalizeUpload = mutation({
       updatedAt: Date.now(),
     });
 
+    // Fixture extraction stands in for the model call; on a deployment it must
+    // fail closed rather than write invented line items onto a real bill.
+    assertFixturePathAllowed("receipts.runFixtureExtraction");
     const result = runFixtureExtraction();
     await ctx.db.patch(args.importId, {
       status: "needs_review",
@@ -216,6 +220,7 @@ export const useSampleReceipt = mutation({
       throw new Error("ORGANIZER_REQUIRED");
     }
 
+    assertFixturePathAllowed("receipts.importFixtureExtraction");
     const now = Date.now();
     const result = validateAndParseExtraction(FIXTURE_SAMPLE_EXTRACTION);
 
@@ -237,4 +242,7 @@ export const useSampleReceipt = mutation({
   },
 });
 
-export { FIXTURE_SAMPLE_EXTRACTION, runFixtureExtraction };
+// FIXTURE_SAMPLE_EXTRACTION / runFixtureExtraction are deliberately NOT
+// re-exported from this deployed Convex module. Import them from
+// convex/lib/receiptExtraction in tests; a deployed function module should not
+// carry fixture data in its public surface.

@@ -1,3 +1,4 @@
+import bundleAnalyzer from "@next/bundle-analyzer";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -48,4 +49,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/*
+ * `npm run analyze` opens a treemap of every client chunk. It is the only
+ * honest way to argue about First Load JS — the build table tells you a route
+ * is 400 kB, the treemap tells you which package put it there.
+ */
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+  openAnalyzer: false,
+});
+
+export default withBundleAnalyzer(nextConfig);

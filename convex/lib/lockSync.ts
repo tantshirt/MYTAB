@@ -8,10 +8,14 @@ import { USDC_MINT } from "../../lib/solana/constants";
 import {
   computeTabBreakdowns,
   countUnassignedItems,
-  fixtureFxFields,
   loadItemClaimRows,
   persistComputedAllocations,
 } from "./allocationSync";
+import {
+  fxFieldsFromSnapshot,
+  fxRationalFromSnapshot,
+  requireLockableFxSnapshot,
+} from "./fxSnapshotSync";
 import { getDefaultReceivingWalletForUser } from "./walletSync";
 import { SETTLEMENT_STATUS } from "./settlementState";
 import { AuthError } from "./auth";
@@ -108,8 +112,14 @@ export async function lockBillCore(
     throw new AuthError(LOCK_FAILURE.RECIPIENT_WALLET_REQUIRED);
   }
 
-  const fx = fixtureFxFields();
-  const obligations = buildObligationSnapshots(breakdowns);
+  // Locking is where the rate stops being advisory: these amounts are what the
+  // recipient is paid. Fail closed rather than lock against a fixture rate.
+  const fxSnapshot = await requireLockableFxSnapshot(ctx, tab.fxSnapshotId, args.now);
+  const fx = fxFieldsFromSnapshot(fxSnapshot);
+  const obligations = buildObligationSnapshots(
+    breakdowns,
+    fxRationalFromSnapshot(fxSnapshot),
+  );
   const payload = {
     revision,
     totals,

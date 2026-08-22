@@ -71,17 +71,21 @@ describe("Story 3.3 — buildExactUsdcTransfer", () => {
     expect(expectedMemo).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("uses fixture sponsor address when env is absent", () => {
-    const original = process.env.PRIVY_SPONSOR_WALLET_ADDRESS;
-    delete process.env.PRIVY_SPONSOR_WALLET_ADDRESS;
-    delete process.env.PRIVY_SPONSOR_ADDRESS;
+  it("only falls back to the fixture sponsor address under an explicit opt-in", () => {
+    // Old contract: an absent SOLANA_RPC_URL implied fixture mode, so a
+    // deployment missing its config silently settled to a wallet nobody owns.
+    // New contract: fixture mode requires an explicit opt-in on a non-deployed
+    // runtime, and an absent secret alone is never an opt-in.
+    expect(isSolanaFixtureMode({})).toBe(false);
+    expect(isSolanaFixtureMode({ NODE_ENV: "test" })).toBe(true);
 
-    expect(resolveSponsorWalletAddress()).toBe(FIXTURE_SPONSOR_WALLET_ADDRESS);
-    expect(isSolanaFixtureMode({})).toBe(true);
+    expect(
+      resolveSponsorWalletAddress({ NODE_ENV: "test" } as never),
+    ).toBe(FIXTURE_SPONSOR_WALLET_ADDRESS);
 
-    if (original !== undefined) {
-      process.env.PRIVY_SPONSOR_WALLET_ADDRESS = original;
-    }
+    expect(() =>
+      resolveSponsorWalletAddress({ NODE_ENV: "production" } as never),
+    ).toThrow(/FIXTURE_MODE_NOT_PERMITTED/);
   });
 
   it("places sponsor pubkey first as fee payer in the compiled message", () => {

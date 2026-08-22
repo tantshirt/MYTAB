@@ -312,6 +312,7 @@ export async function persistComputedAllocations(
   return totals;
 }
 
+/** @deprecated Non-production only. Real locks take FX from the tab's snapshot. */
 export function fixtureFxFields() {
   return {
     fxNumeratorAtomic: FIXTURE_USDC_ATOMIC_NUMERATOR,

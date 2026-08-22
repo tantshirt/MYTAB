@@ -18,6 +18,7 @@ import type * as groups from "../groups.js";
 import type * as http from "../http.js";
 import type * as internal_confirmations from "../internal/confirmations.js";
 import type * as internal_dflow from "../internal/dflow.js";
+import type * as internal_fx from "../internal/fx.js";
 import type * as internal_privy from "../internal/privy.js";
 import type * as internal_receiptScheduler from "../internal/receiptScheduler.js";
 import type * as internal_sessionTokens from "../internal/sessionTokens.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "internal/confirmations": typeof internal_confirmations;
   "internal/dflow": typeof internal_dflow;
+  "internal/fx": typeof internal_fx;
   "internal/privy": typeof internal_privy;
   "internal/receiptScheduler": typeof internal_receiptScheduler;
   "internal/sessionTokens": typeof internal_sessionTokens;

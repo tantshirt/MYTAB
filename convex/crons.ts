@@ -16,4 +16,11 @@ crons.interval(
   internal.internal.settlementScheduler.expireStaleIntents,
 );
 
+/** Refreshes the Bank of Thailand FX snapshot (binding decision 6). */
+crons.interval(
+  "refresh bank of thailand fx snapshot",
+  { hours: 1 },
+  internal.internal.fx.refreshFxSnapshot,
+);
+
 export default crons;

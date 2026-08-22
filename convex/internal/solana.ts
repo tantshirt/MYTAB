@@ -8,6 +8,10 @@ import {
   isSolanaFixtureMode,
 } from "../../lib/solana";
 import { USDC_MINT } from "../../lib/solana/constants";
+import {
+  ClusterConfigError,
+  assertClusterRpcAgreement,
+} from "../../lib/solana/cluster";
 import { resolveSponsorWalletAddress } from "../../lib/solana/fixture";
 import { SETTLEMENT_STATUS } from "../lib/settlementState";
 import { validateBeforeClientExposure } from "../../lib/solana/validateTransactionMessage";
@@ -65,8 +69,40 @@ export const buildExactUsdcTransferAction = internalAction({
       return { ok: false, failureCode: "PAYER_WALLET_REQUIRED" };
     }
 
+    // Startup assertion for every live run: the configured cluster and the
+    // configured RPC endpoint must demonstrably agree. Without this a devnet
+    // mint could be validated here and the transaction broadcast to mainnet.
+    if (!isSolanaFixtureMode()) {
+      try {
+        assertClusterRpcAgreement();
+      } catch (error) {
+        const failureCode =
+          error instanceof ClusterConfigError ? error.code : "SOLANA_CLUSTER_UNKNOWN";
+        await ctx.runMutation(internal.settlements.markFailedInternal, {
+          intentId: args.intentId,
+          failureCode,
+          releaseReservation: false,
+        });
+        return { ok: false, failureCode };
+      }
+    }
+
     const sponsorAddress = resolveSponsorWalletAddress();
-    const recipientAtaExists = args.recipientAtaExists ?? isSolanaFixtureMode();
+
+    // Fail closed: whether the recipient's ATA exists is chain state. Assuming
+    // it exists when we cannot check would produce a transfer to an
+    // uninitialised account; assuming it does not would make the sponsor pay
+    // rent for an account that already exists. Only an explicit caller answer
+    // (from an RPC lookup) or an explicitly enabled fixture run may proceed.
+    if (args.recipientAtaExists === undefined && !isSolanaFixtureMode()) {
+      await ctx.runMutation(internal.settlements.markFailedInternal, {
+        intentId: args.intentId,
+        failureCode: "RECIPIENT_ATA_UNKNOWN",
+        releaseReservation: false,
+      });
+      return { ok: false, failureCode: "RECIPIENT_ATA_UNKNOWN" };
+    }
+    const recipientAtaExists = args.recipientAtaExists ?? true;
 
     const built = buildExactUsdcTransfer({
       payerAddress: wallet.solanaAddress,
@@ -108,6 +144,8 @@ export const buildExactUsdcTransferAction = internalAction({
       routingKind: "exact_usdc",
       intentId: args.intentId,
       currentTabRevision: tab?.lockedRevision ?? tab?.revision,
+      nowMs: startedAt,
+      expectedMemo: built.expectedMemo,
       intent: {
         payerAddress: wallet.solanaAddress,
         recipientAddress: intent.recipientAddress,

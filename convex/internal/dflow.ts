@@ -18,6 +18,7 @@ import { SETTLEMENT_STATUS } from "../lib/settlementState";
 import { validateBeforeClientExposure } from "../../lib/solana/validateTransactionMessage";
 import { resolveSponsorWalletAddress } from "../../lib/solana/fixture";
 import { buildValidationContext } from "./solanaPolicy";
+import { assertFixturePathAllowed } from "../../lib/solana/runtimeGuard";
 
 type DflowLogFields = {
   intentId: string;
@@ -160,6 +161,10 @@ export const buildDflowSettlementAction = internalAction({
       destinationWallet: intent.recipientAddress,
       payerAddress: wallet.solanaAddress,
       requestQuote: (inputAmountAtomic) => {
+        // A fabricated quote must never stand in for a real router response on
+        // a deployment: it would move an intent to ready_for_signature and
+        // reserve sponsor budget against numbers no solver ever returned.
+        assertFixturePathAllowed("dflow.buildDflowFixtureQuote");
         const raw = buildDflowFixtureQuote({
           inputMint: intent.inputMint,
           outputMint: intent.outputMint,

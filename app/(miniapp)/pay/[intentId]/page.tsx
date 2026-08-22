@@ -6,6 +6,9 @@ import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
 import { PaymentProgress } from "@/components/settlement-sheet";
 import { useHiddenTelegramBackButton } from "@/features/telegram/useBackAffordance";
+import { useLiveQuery } from "@/features/convex/useConvexData";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
 import type { SettlementStatus } from "@/convex/lib/settlementState";
 
@@ -16,9 +19,12 @@ type PayPageProps = {
 type PaymentProgressData = {
   status: SettlementStatus;
   recipientName: string;
-  failureMessage: string | null;
-  /** The amount in flight. §1.9: the amount is the heading, not "Sending payment". */
-  amountLabel: string;
+  failureCode: string | null;
+  /**
+   * The amount in flight. §1.9: the amount is the heading, not "Sending
+   * payment" — but only when it is actually known.
+   */
+  amountLabel: string | null;
   /** Where "Back to tab" lands. */
   tabHref: string;
 };
@@ -26,23 +32,43 @@ type PaymentProgressData = {
 /**
  * Single prop-resolution point for Payment Progress.
  *
- * TODO(live-data): replace the fixture with
- * `useQuery(api.settlements.getIntent, { intentId })`. The intent is a live
+ * Live read: `api.settlements.getIntent({ intentId })`. The intent is a live
  * subscription — this surface exists as a route precisely so a payment in
- * flight survives a reload (POLISH-SPEC §1.0).
+ * flight survives a reload (POLISH-SPEC §1.0) — and every step advances only on
+ * a server-confirmed transition, never optimistically (AD-11).
+ *
+ * PARTIALLY BLOCKED: `getIntent` returns `{ intentId, status, failureCode,
+ * transactionSignature, expiresAt }` only. The recipient's name, the display
+ * amount and the originating tab are all on the `settlementIntents` document
+ * but not projected, so `amount` is passed as `null` (the component falls back
+ * to its state-driven heading rather than inventing a figure) and "Back to tab"
+ * lands on Tabs. Widening `getIntent` — or an
+ * `settlements.getIntentForProgress` — is what unblocks the §1.9 heading.
  */
 function usePaymentProgressData(intentId: string): PaymentProgressData {
-  return useMemo(
-    () => ({
-      status: "submitted" as SettlementStatus,
-      recipientName: "Maya",
-      failureMessage: null,
-      amountLabel: "฿291.74",
+  const result = useLiveQuery(api.settlements.getIntent, {
+    intentId: intentId as Id<"settlementIntents">,
+  });
+
+  return useMemo<PaymentProgressData>(() => {
+    if (result.fixture) {
+      return {
+        status: "submitted" as SettlementStatus,
+        recipientName: "Maya",
+        failureCode: null,
+        amountLabel: "฿291.74",
+        tabHref: "/",
+      };
+    }
+
+    return {
+      status: (result.data?.status ?? "created") as SettlementStatus,
+      recipientName: "them",
+      failureCode: result.data?.failureCode ?? null,
+      amountLabel: null,
       tabHref: "/",
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentId is the seam key.
-    [intentId],
-  );
+    };
+  }, [result.fixture, result.data]);
 }
 
 function PaymentProgressSurface({ intentId }: { intentId: string }) {
@@ -66,18 +92,14 @@ function PaymentProgressSurface({ intentId }: { intentId: string }) {
     // background and safe-area padding now come from `(miniapp)/layout.tsx`,
     // which is the only thing that mounts them (POLISH-SPEC §2.9.1).
     <AppShell hideTabBar fullBleed bottomBar="paper">
-      {/*
-        `amount`, `amountA11yLabel` and `intentId` are all optional on the
-        component, so omitting them compiled and silently fell back to the
-        state-driven heading — and left the success haptic latched on the
-        literal "current" rather than on this payment (§1.9).
-      */}
       <PaymentProgress
         status={intent.status}
         recipientName={intent.recipientName}
-        failureMessage={intent.failureMessage}
+        failureCode={intent.failureCode}
         amount={intent.amountLabel}
-        amountA11yLabel={formatAmountLabelForA11y(intent.amountLabel)}
+        amountA11yLabel={
+          intent.amountLabel ? formatAmountLabelForA11y(intent.amountLabel) : undefined
+        }
         intentId={intentId}
         onTryAgain={handleTryAgain}
         onBackToTab={handleBackToTab}

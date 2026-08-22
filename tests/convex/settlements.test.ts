@@ -4,14 +4,14 @@ import {
   parseConfirmationFixture,
 } from "../../convex/internal/confirmations";
 import {
-  FIXTURE_MESSAGE_BYTES,
-  FIXTURE_MESSAGE_HASH,
-  FIXTURE_PARTIAL_SIGNED_TX,
-  FIXTURE_USER_SIGNATURE,
-  extractFixtureUserSignature,
+  extractUserSignature,
+  fixtureMessageHash,
   hashMessageBytes,
   verifyPartialSignedMessage,
 } from "../../convex/lib/solanaFixture";
+import { sha256Hex } from "../../lib/crypto/convexCrypto";
+import { USDC_MINT } from "../../lib/solana/constants";
+import { buildTx, makeActors, signAs, toBase64 } from "../helpers/solanaTx";
 import { coSignAndBroadcast } from "../../convex/internal/privy";
 import {
   SETTLEMENT_FAILURE,
@@ -21,136 +21,76 @@ import {
 import { applySettlementOffset } from "../../convex/lib/settlementLedger";
 
 describe("settlement message re-verification (Story 3.5 AC2)", () => {
-  it("accepts partial bytes whose embedded message matches the stored hash", () => {
-    const partial = `${FIXTURE_PARTIAL_SIGNED_TX}::message=${FIXTURE_MESSAGE_BYTES}::userSig=${FIXTURE_USER_SIGNATURE}`;
-    const result = verifyPartialSignedMessage(partial, FIXTURE_MESSAGE_HASH);
+  const actors = makeActors(20);
+  const PAYER = actors.payer.publicKey.toBase58();
+  const SPONSOR = actors.sponsor.publicKey.toBase58();
+
+  function signed() {
+    const tx = buildTx({ actors });
+    const messageHash = sha256Hex(tx.message.serialize());
+    signAs(tx, actors.payer);
+    return { base64: toBase64(tx), messageHash };
+  }
+
+  it("accepts a genuinely signed transaction whose hash matches the stored one", () => {
+    const { base64, messageHash } = signed();
+    const result = verifyPartialSignedMessage({
+      partialSignedTxBase64: base64,
+      expectedMessageHash: messageHash,
+      payerAddress: PAYER,
+      sponsorAddress: SPONSOR,
+    });
     expect(result.ok).toBe(true);
   });
 
-  it("rejects partial bytes when the message hash changed", () => {
-    const tampered = `${FIXTURE_PARTIAL_SIGNED_TX}::message=tampered-message::userSig=${FIXTURE_USER_SIGNATURE}`;
-    const result = verifyPartialSignedMessage(tampered, FIXTURE_MESSAGE_HASH);
+  it("rejects the string-marker payload the previous verifier accepted", () => {
+    const result = verifyPartialSignedMessage({
+      partialSignedTxBase64:
+        "fixture-partial-signed-tx-v1::message=fixture-settlement-message-v1::userSig=fixture-user-signature-v1",
+      expectedMessageHash: sha256Hex("fixture-settlement-message-v1"),
+      payerAddress: PAYER,
+      sponsorAddress: SPONSOR,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.failureCode).toBe("SIGNED_TX_DECODE_FAILED");
+    }
+  });
+
+  it("rejects when the message hash changed after the quote", () => {
+    const { base64 } = signed();
+    const result = verifyPartialSignedMessage({
+      partialSignedTxBase64: base64,
+      expectedMessageHash: sha256Hex("tampered-message"),
+      payerAddress: PAYER,
+      sponsorAddress: SPONSOR,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.failureCode).toBe(SETTLEMENT_FAILURE.MESSAGE_HASH_MISMATCH);
     }
   });
 
-  it("extracts fixture user signatures for duplicate detection", () => {
-    const partial = `${FIXTURE_PARTIAL_SIGNED_TX}::userSig=sig-a`;
-    expect(extractFixtureUserSignature(partial)).toBe("sig-a");
-    expect(extractFixtureUserSignature(FIXTURE_PARTIAL_SIGNED_TX)).toBe(
-      FIXTURE_USER_SIGNATURE,
-    );
-  });
-});
-
-describe("duplicate signature rejection (Story 3.5 / 3.6)", () => {
-  it("detects duplicate user signatures before co-sign", () => {
-    const existingSignature = "sig-already-recorded";
-    const incoming = extractFixtureUserSignature(
-      `${FIXTURE_PARTIAL_SIGNED_TX}::userSig=${existingSignature}`,
-    );
-    expect(incoming).toBe(existingSignature);
-    expect(existingSignature === existingSignature).toBe(true);
-  });
-
-  it("rejects applying the same transaction signature twice to the ledger", async () => {
-    type LedgerEvent = {
-      _id: string;
-      transactionSignature: string;
-      tipId?: string;
-      targetKind: "tip" | "obligation";
-      intentId: string;
-      obligationId?: string;
-      eventKind: "settlement_offset";
-      createdAt: number;
-    };
-
-    type Tip = {
-      _id: string;
-      status: "open" | "settled";
-      settledAt?: number;
-      settlementIntentId?: string;
-      updatedAt: number;
-    };
-
-    const ledgerEvents: LedgerEvent[] = [];
-    const tips: Tip[] = [{ _id: "tips:1", status: "open", updatedAt: 0 }];
-    let nextLedgerId = 1;
-
-    const ctx = {
-      db: {
-        query: (table: string) => ({
-          withIndex: (
-            _index: string,
-            builder: (q: {
-              eq: (field: string, value: string) => unknown;
-            }) => unknown,
-          ) => {
-            const filters: Record<string, string> = {};
-            const filterBuilder = {
-              eq: (field: string, value: string) => {
-                filters[field] = value;
-                return filterBuilder;
-              },
-            };
-            builder(filterBuilder);
-
-            const rows =
-              table === "settlementLedgerEvents"
-                ? ledgerEvents.filter((row) =>
-                    Object.entries(filters).every(
-                      ([field, value]) =>
-                        row[field as keyof LedgerEvent] === value,
-                    ),
-                  )
-                : [];
-
-            return {
-              unique: async () => rows[0] ?? null,
-            };
-          },
-        }),
-        get: async (id: string) => {
-          if (id === "tips:1") {
-            return tips[0] ?? null;
-          }
-          return null;
-        },
-        insert: async (_table: string, doc: Omit<LedgerEvent, "_id">) => {
-          const id = `settlementLedgerEvents:${nextLedgerId++}`;
-          ledgerEvents.push({ _id: id, ...doc });
-          return id;
-        },
-        patch: async (id: string, patch: Partial<Tip>) => {
-          if (id === "tips:1" && tips[0]) {
-            tips[0] = { ...tips[0], ...patch };
-          }
-        },
-      },
-    };
-
-    const first = await applySettlementOffset(ctx as never, {
-      intentId: "settlementIntents:1" as never,
-      targetKind: "tip",
-      tipId: "tips:1" as never,
-      transactionSignature: FIXTURE_TX_SIGNATURE,
-      now: 1000,
+  it("returns a real base58 signature for duplicate detection", () => {
+    const { base64, messageHash } = signed();
+    const signature = extractUserSignature({
+      partialSignedTxBase64: base64,
+      expectedMessageHash: messageHash,
+      payerAddress: PAYER,
+      sponsorAddress: SPONSOR,
     });
-    expect(first.alreadyApplied).toBe(false);
-    expect(ledgerEvents).toHaveLength(1);
-    expect(tips[0]?.status).toBe("settled");
+    expect(signature).toBeTruthy();
+    expect(signature).not.toContain("fixture");
 
-    const second = await applySettlementOffset(ctx as never, {
-      intentId: "settlementIntents:1" as never,
-      targetKind: "tip",
-      tipId: "tips:1" as never,
-      transactionSignature: FIXTURE_TX_SIGNATURE,
-      now: 2000,
-    });
-    expect(second.alreadyApplied).toBe(true);
-    expect(ledgerEvents).toHaveLength(1);
+    // An unverifiable payload yields null, never a fabricated marker string.
+    expect(
+      extractUserSignature({
+        partialSignedTxBase64: "garbage",
+        expectedMessageHash: messageHash,
+        payerAddress: PAYER,
+        sponsorAddress: SPONSOR,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -158,7 +98,7 @@ describe("sponsor co-sign and broadcast fixture (Story 3.5 AC3–AC4)", () => {
   it("returns a fixture signature without client broadcast", async () => {
     const result = await coSignAndBroadcast({
       intentId: "settlementIntents:1",
-      partialSignedTxBase64: FIXTURE_PARTIAL_SIGNED_TX,
+      partialSignedTxBase64: "fixture-partial-signed-tx-v1",
     });
     expect(result.signature).toBe(FIXTURE_TX_SIGNATURE);
     expect(result.fullySignedTxBase64).toContain("sponsorSig=");
@@ -167,9 +107,9 @@ describe("sponsor co-sign and broadcast fixture (Story 3.5 AC3–AC4)", () => {
 
 describe("confirmation parser fixture (Story 3.6 AC2–AC3)", () => {
   const expectation = {
-    messageHash: FIXTURE_MESSAGE_HASH,
+    messageHash: fixtureMessageHash(),
     recipientAddress: "Recip1111111111111111111111111111111111111",
-    outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    outputMint: USDC_MINT,
     minimumOutputAtomic: 1_000_000n,
     maximumInputAtomic: 1_000_000n,
     reservedSponsorLamports: 3_000_000n,

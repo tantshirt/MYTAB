@@ -85,9 +85,16 @@ describe("Story 6.2 — DFlow order fixture", () => {
     const hash = createHash("sha256").update(tx.message.serialize()).digest("hex");
     expect(hash).toBe(quote.messageHash);
 
-    const partial = `${quote.transaction}::message=${quote.transaction}::userSig=fixture-user`;
-    const fixtureCheck = verifyPartialSignedMessage(partial, hashMessageBytes(quote.transaction));
-    expect(fixtureCheck.ok).toBe(true);
+    // The marker format the old verifier accepted is now rejected outright:
+    // signature verification is real ed25519 over the serialized message bytes.
+    const markerPayload = `${quote.transaction}::message=${quote.transaction}::userSig=fixture-user`;
+    const rejected = verifyPartialSignedMessage({
+      partialSignedTxBase64: markerPayload,
+      expectedMessageHash: quote.messageHash,
+      payerAddress: FIXTURE_PAYER_WALLET_ADDRESS,
+      sponsorAddress: FIXTURE_SPONSOR_WALLET_ADDRESS,
+    });
+    expect(rejected.ok).toBe(false);
   });
 
   it("runs in fixture mode without an API key", () => {

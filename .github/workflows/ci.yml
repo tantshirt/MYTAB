@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # `next build` is quiet about which Node it wants; pin it so a green CI run
+  # and a green Vercel build mean the same thing.
+  NODE_VERSION: "22"
+
+jobs:
+  verify:
+    name: typecheck · test · build · smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # No secrets are provided to this job, deliberately.
+    #
+    # Without NEXT_PUBLIC_PRIVY_APP_ID and NEXT_PUBLIC_CONVEX_URL the app falls
+    # back to fixture mode (see lib/privy/config.ts): FixtureAuthProvider stands
+    # in for Privy and no Convex client is mounted. Every route still renders,
+    # hydrates and runs its client code — which is all a crash smoke test needs.
+    # Handing CI a real Privy app id would buy nothing and would put a live
+    # credential in every fork's PR run.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # `npm ci` with no --legacy-peer-deps, on purpose. A peer conflict is a
+      # real failure: one already shipped this way. If this step goes red, fix
+      # the dependency range — do not add the flag.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npx next build
+
+      # `next build` compiles and typechecks the bundle. It never executes it.
+      # That is exactly how `ReferenceError: require is not defined` reached
+      # production on every route with a green build. The step below boots the
+      # real production server and drives headless Chrome across every route
+      # discovered under app/, failing on any uncaught exception, any
+      # console.error, any failed document/script request, or any page that
+      # renders no text.
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: Browser smoke test
+        run: npm run smoke
+        env:
+          # setup-chrome reports where it put the binary; scripts/smoke.mjs
+          # falls back to /usr/bin/google-chrome and the macOS app bundle when
+          # CHROME_PATH is unset, so it runs locally with no configuration.
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+
+      - name: Upload build output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build-output
+          path: |
+            .next/build-manifest.json
+            .next/app-build-manifest.json
+          retention-days: 5
+          if-no-files-found: ignore

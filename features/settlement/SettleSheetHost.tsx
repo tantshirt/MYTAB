@@ -47,10 +47,25 @@ export type SettleSheetData = {
 /**
  * Single prop-resolution point for the Payment Sheet.
  *
- * TODO(live-data): replace the fixture return with
- * `useQuery(api.settlements.getObligationQuote, { obligationId })` and delete
- * the constant below. Nothing outside this function knows where the data
- * comes from.
+ * BLOCKED on Convex — this seam still returns the fixture.
+ *
+ * There is no `settlements.getObligationQuote`, and nothing equivalent:
+ *
+ *   - `api.settlements.getIntent` projects five fields (status, failure code,
+ *     signature, expiry) and none of the sheet's amounts, quote, rate or
+ *     token balances.
+ *   - `api.settlements.createObligationIntent` / `refreshObligationIntent`
+ *     take an `obligationId`, and no query returns one: `convex/obligations.ts`
+ *     is a stub and the `obligations` table has no read path. The `?settle=`
+ *     key the Claim Board passes today is therefore the tab token, not an
+ *     obligation id (see `TabDeepLinkSurface`).
+ *   - Wallet token balances have no Convex surface at all; only
+ *     `wallets.defaultReceivingWallet` (an address) exists.
+ *
+ * Needed before this can be swapped: an `obligations.forViewer(tabId)` query
+ * returning the viewer's obligation id and amount, and a quote read that
+ * projects the live intent's quote — spend, minimum receive, rate, TTL,
+ * `staleRevision` and the affordable token list.
  */
 function useSettleSheetData(obligationId: string): SettleSheetData {
   return useMemo(

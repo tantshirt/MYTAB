@@ -1,8 +1,6 @@
 import type { Doc } from "../_generated/dataModel";
-import {
-  FIXTURE_MESSAGE_HASH,
-  FIXTURE_USDC_MINT,
-} from "../lib/solanaFixture";
+import { expectedUsdcMint, fixtureMessageHash } from "../lib/solanaFixture";
+import { assertFixturePathAllowed } from "../../lib/solana/runtimeGuard";
 
 export const FIXTURE_TX_SIGNATURE =
   "FixTureSig1111111111111111111111111111111111111111";
@@ -37,12 +35,21 @@ export type ConfirmationExpectation = {
   reservedSponsorLamports: bigint;
 };
 
-/** Fixture parser for finalized on-chain confirmation (Story 3.6 AC2). */
+/**
+ * FIXTURE confirmation parser (Story 3.6 AC2).
+ *
+ * This fabricates a finalized-chain observation. On a deployment that would
+ * credit the ledger for a transaction nobody ever confirmed, so it is guarded:
+ * it throws unless fixture mode is explicitly enabled on a non-deployed runtime.
+ * AD-11 requires a real finalized fetch before any ledger change.
+ */
 export function parseConfirmationFixture(
   transactionSignature: string,
   expectation: ConfirmationExpectation,
   fixtureKind: "valid" | "wrong_hash" | "failed_tx" = "valid",
 ): ConfirmationParseResult {
+  assertFixturePathAllowed("confirmations.parseConfirmationFixture");
+
   if (fixtureKind === "failed_tx") {
     return { success: false, failureCode: "CONFIRMATION_TX_FAILED" };
   }
@@ -55,11 +62,11 @@ export function parseConfirmationFixture(
     return { success: false, failureCode: "CONFIRMATION_SIGNATURE_UNKNOWN" };
   }
 
-  if (expectation.messageHash !== FIXTURE_MESSAGE_HASH) {
+  if (expectation.messageHash !== fixtureMessageHash()) {
     return { success: false, failureCode: "CONFIRMATION_MESSAGE_HASH" };
   }
 
-  if (expectation.outputMint !== FIXTURE_USDC_MINT) {
+  if (expectation.outputMint !== expectedUsdcMint()) {
     return { success: false, failureCode: "CONFIRMATION_MINT" };
   }
 

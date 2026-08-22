@@ -36,13 +36,31 @@ export type TabsHomeData = {
  * The single prop-resolution seam for Tabs home, mirroring
  * `features/you/useYouSurfaceData`.
  *
- * TODO(live-data): replace the fixture with the live reads — this function is
- * the only thing that changes:
+ * BLOCKED on Convex — this seam still returns the fixture, and deliberately so.
  *
- *   const balances = useQuery(api.balances.forViewer, {});
- *   const openTabs = useQuery(api.tabs.listOpenForViewer, {});
- *   const activity = useQuery(api.activity.listForViewer, {});
- *   status: [balances, openTabs, activity].some((r) => r === undefined) ? "loading" : "ready"
+ * Every element this surface is made of is a *viewer-level balance*:
+ * `balanceHero` is a net position, `balanceComponents` and
+ * `compressedTransfers` are obligation ledgers, and even `openTabs` needs
+ * `settledCount` / `totalCount` / `amountTone` per tab. There is no Convex
+ * function that returns any of it:
+ *
+ *   - `convex/obligations.ts` is a stub (`export {}`); nothing exposes the
+ *     `obligations` or `obligationLedgerEvents` tables to a client.
+ *   - `convex/lib/balanceDerivation.ts` has `buildBalanceInputs` +
+ *     `deriveWithinGroupBalance` but is not called from any `query`.
+ *   - There is no `groups.listForViewer` / `tabs.listOpenForViewer` /
+ *     `activity.listForViewer`; every group read needs a `groupId` the client
+ *     has no way to enumerate.
+ *
+ * Needed before this can be swapped: a `balances.forViewer` query (net position
+ * + components), `tabs.listOpenForViewer` (with per-tab settled counts), and
+ * `groups.listForViewer`. `activity.listForGroup` already exists and is wired in
+ * `useActivityData`.
+ *
+ * Partially wiring this would be worse than not wiring it: `BalanceHeroState`
+ * has no "unknown" variant, so any live path has to assert `owed`, `settled` or
+ * `all_square` — and rendering "All square" over real debt is precisely the
+ * trust defect EXPERIENCE's *Money Legibility* section exists to prevent.
  */
 export function useTabsHomeData(): TabsHomeData {
   const hasCachedData = useHasPainted("tabs-home");

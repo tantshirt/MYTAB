@@ -1,45 +1,127 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { ClaimBoard, FIXTURE_CLAIM_BOARD, type ClaimBoardProps } from "@/features/claims";
 import { SettleSheetHost, settleSearch } from "@/features/settlement/SettleSheetHost";
 import { useTelegramBackButton } from "@/features/telegram/useTelegramBackButton";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
-import { isConvexAuthFixtureMode } from "@/lib/privy/config";
+import {
+  STALE_NOTICE,
+  useLiveMutation,
+  useLiveQuery,
+} from "@/features/convex/useConvexData";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AppShell } from "@/components/layout/AppShell";
+import { INVALID_LINK_MESSAGE, useResolvedTab } from "./useTabData";
 
 type TabDeepLinkSurfaceProps = {
   publicToken: string;
 };
 
-type TabSessionState =
-  | { status: "loading" }
-  | { status: "ready"; tabName: string; tabId: string }
-  | { status: "invalid"; message: string };
-
-const FIXTURE_TAB: TabSessionState = {
-  status: "ready",
-  tabName: "Sukhumvit Dinner",
-  tabId: "tabs:fixture",
+type ClaimBoardData = {
+  status: "loading" | "ready" | "error";
+  board: ClaimBoardProps;
 };
+
+/** `getClaimBoard` returns participants and the organizer's Telegram id, not a name. */
+function organizerNameFor(view: {
+  participants: Array<{ telegramUserId: string; displayName: string }>;
+  tab: { organizerTelegramUserId: string };
+}): string {
+  return (
+    view.participants.find(
+      (participant) => participant.telegramUserId === view.tab.organizerTelegramUserId,
+    )?.displayName ?? "Organizer"
+  );
+}
 
 /**
  * Single prop-resolution point for the deep-linked Claim Board.
  *
- * TODO(live-data): replace the fixture spread with
- * `useQuery(api.claims.getClaimBoard, { publicToken })` and drop the
- * `FIXTURE_CLAIM_BOARD` import. The surface below never learns the difference.
+ * Live read: `api.allocations.getClaimBoard({ tabId })` — one reactive
+ * subscription, so someone else's claim arrives in place and the board corrects
+ * itself after a stale write with no reload (EXPERIENCE, *Concurrency and
+ * Revision*).
  */
-function useClaimBoardData(publicToken: string, tabName: string): ClaimBoardProps {
-  return useMemo(
-    () => ({ ...FIXTURE_CLAIM_BOARD, tabName }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [publicToken, tabName],
+function useClaimBoardData(
+  tabId: string | null,
+  tabName: string | null,
+): ClaimBoardData {
+  const result = useLiveQuery(
+    api.allocations.getClaimBoard,
+    tabId ? { tabId: tabId as Id<"tabs"> } : "skip",
   );
+
+  const board = useMemo<ClaimBoardProps | null>(() => {
+    const view = result.data;
+    if (!view) {
+      return null;
+    }
+
+    return {
+      tabName: view.tab.name,
+      revision: view.tab.revision,
+      isLocked: view.isLocked,
+      isOrganizer: view.isOrganizer,
+      viewerUserId: view.viewerUserId,
+      organizerDisplayName: organizerNameFor(view),
+      participants: view.participants.map((participant) => ({
+        userId: participant.userId,
+        displayName: participant.displayName,
+        avatarUrl: participant.avatarUrl,
+      })),
+      items: view.items.map((item) => ({
+        id: item._id,
+        name: item.name,
+        lineTotalMinor: item.lineTotalMinor,
+        claimantIds: item.claimantIds,
+        viewerOwns: item.viewerOwns,
+        unassigned: item.unassigned,
+      })),
+      unassignedCount: view.unassignedCount,
+      viewerSubtotalMinor: view.viewerSubtotalMinor,
+      viewerHasClaims: view.viewerHasClaims,
+    };
+  }, [result.data]);
+
+  if (result.fixture) {
+    return {
+      status: "ready",
+      board: { ...FIXTURE_CLAIM_BOARD, tabName: tabName ?? FIXTURE_CLAIM_BOARD.tabName },
+    };
+  }
+
+  if (result.error) {
+    return { status: "error", board: FIXTURE_CLAIM_BOARD };
+  }
+
+  if (!board) {
+    // First paint: the board renders its own empty geometry rather than a
+    // spinner over nothing (EXPERIENCE, *State Patterns*).
+    return {
+      status: "loading",
+      board: {
+        tabName: tabName ?? "",
+        revision: 0,
+        isLocked: false,
+        isOrganizer: false,
+        viewerUserId: "",
+        organizerDisplayName: "Organizer",
+        participants: [],
+        items: [],
+        unassignedCount: 0,
+        viewerSubtotalMinor: 0,
+        viewerHasClaims: false,
+      },
+    };
+  }
+
+  return { status: "ready", board };
 }
 
 /**
@@ -51,41 +133,13 @@ function useClaimBoardData(publicToken: string, tabName: string): ClaimBoardProp
 export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   const router = useRouter();
   const { isTelegramWebApp } = useTelegramRuntime();
-  const [session, setSession] = useState<TabSessionState>({ status: "loading" });
+  const session = useResolvedTab(publicToken);
 
   const handleBack = useCallback(() => {
     router.push("/");
   }, [router]);
 
   useTelegramBackButton(handleBack, true);
-
-  useEffect(() => {
-    if (isConvexAuthFixtureMode()) {
-      setSession(
-        publicToken === "invalid"
-          ? {
-              status: "invalid",
-              message: "This link is no longer valid.",
-            }
-          : FIXTURE_TAB,
-      );
-      return;
-    }
-
-    if (!publicToken || publicToken.length < 8) {
-      setSession({
-        status: "invalid",
-        message: "This link is no longer valid.",
-      });
-      return;
-    }
-
-    setSession({
-      status: "ready",
-      tabName: "Group tab",
-      tabId: publicToken.slice(0, 8),
-    });
-  }, [publicToken]);
 
   if (session.status === "loading") {
     return (
@@ -115,6 +169,7 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
     <AuthGate>
       <DeepLinkedClaimBoard
         publicToken={publicToken}
+        tabId={session.tabId}
         tabName={session.tabName}
         showInAppBack={!isTelegramWebApp}
         onBack={handleBack}
@@ -125,17 +180,38 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
 
 function DeepLinkedClaimBoard({
   publicToken,
+  tabId,
   tabName,
   showInAppBack,
   onBack,
 }: {
   publicToken: string;
-  tabName: string;
+  tabId: string;
+  tabName: string | null;
   showInAppBack: boolean;
   onBack: () => void;
 }) {
   const router = useRouter();
-  const board = useClaimBoardData(publicToken, tabName);
+  const { isTelegramWebApp } = useTelegramRuntime();
+  const { status, board } = useClaimBoardData(tabId, tabName);
+
+  /*
+   * §4.5 — outside Telegram reads work and every mutation is disabled. The
+   * handlers below are `undefined` rather than no-ops in that case, so the
+   * affordances are absent rather than present and dead.
+   */
+  const canWrite = isTelegramWebApp;
+  const toggleOwnClaim = useLiveMutation(api.allocations.toggleOwnClaim);
+  const organizerAssignItem = useLiveMutation(api.allocations.organizerAssignItem);
+
+  /*
+   * "That changed a moment ago." — the one line a rejected write is allowed to
+   * produce. `toggleOwnClaim` returns `{ stale: true }` rather than throwing;
+   * `organizerAssignItem` throws `RevisionSyncError`. Both land here, the board
+   * corrects itself through its own subscription, and nothing is reloaded
+   * (EXPERIENCE, *Concurrency and Revision*).
+   */
+  const [staleNotice, setStaleNotice] = useState<string | null>(null);
 
   const openBillReview = useCallback(() => {
     router.push(`/tabs/${publicToken}/bill`);
@@ -143,34 +219,65 @@ function DeepLinkedClaimBoard({
 
   /*
    * The locked footer action. The Payment Sheet is a sheet, not a route (§1.0),
-   * so it is opened by adding `SettleSheetHost`'s `?settle=` key to this URL —
-   * the host below is already mounted and picks it up.
+   * so it is opened by adding `SettleSheetHost`'s `?settle=` key to this URL.
    *
-   * TODO(live-data): the key is the viewer's own obligation id from
-   * `api.settlements.getObligationForViewer`, not the tab token.
+   * BLOCKED: the key should be the viewer's own obligation id, and no Convex
+   * function returns it — `convex/obligations.ts` is a stub and no query reads
+   * the `obligations` table. The tab token stands in until an
+   * `obligations.forViewer(tabId)` query exists.
    */
   const openSettleSheet = useCallback(() => {
     router.push(`/tabs/${publicToken}${settleSearch(publicToken)}`);
   }, [router, publicToken]);
 
-  /*
-   * The organizer override — Flow 4 step 2. Without a handler the who-has-this
-   * sheet never renders its "Assign to" list at all, so this is what makes that
-   * half of the sheet exist.
-   *
-   * TODO(live-data): `api.allocations.organizerAssignItem({ itemId, userId })`.
-   */
-  const assignItem = useCallback((itemId: string, userId: string) => {
-    void itemId;
-    void userId;
-  }, []);
+  /** Claiming is additive: two people on one dish both succeed ("Split 2 ways"). */
+  const handleToggleClaim = useCallback(
+    (itemId: string) => {
+      if (!toggleOwnClaim) {
+        return;
+      }
+      setStaleNotice(null);
+      void toggleOwnClaim({
+        tabId: tabId as Id<"tabs">,
+        itemId: itemId as Id<"items">,
+        clientRevision: board.revision,
+      })
+        .then((result) => {
+          if (result && "stale" in result && result.stale) {
+            setStaleNotice(STALE_NOTICE);
+          }
+        })
+        .catch(() => setStaleNotice(STALE_NOTICE));
+    },
+    [toggleOwnClaim, tabId, board.revision],
+  );
+
+  /** The organizer override — Flow 4 step 2. */
+  const handleAssignItem = useCallback(
+    (itemId: string, userId: string) => {
+      if (!organizerAssignItem) {
+        return;
+      }
+      setStaleNotice(null);
+      void organizerAssignItem({
+        tabId: tabId as Id<"tabs">,
+        itemId: itemId as Id<"items">,
+        targetUserId: userId as Id<"users">,
+        clientRevision: board.revision,
+      }).catch(() => setStaleNotice(STALE_NOTICE));
+    },
+    [organizerAssignItem, tabId, board.revision],
+  );
 
   /*
-   * The organizer empty state's "Type an item". This adds an item to *this* tab,
-   * which is not what `/tabs/new` does, so it stays a fixture-mode no-op rather
-   * than routing somewhere plausible and wrong.
+   * The organizer empty state's "Type an item".
    *
-   * TODO(live-data): `api.items.addItem({ tabId, name, unitPriceMinor })`.
+   * BLOCKED, and not on Convex: `api.items.addItem({ tabId, name, quantity,
+   * unitPriceMinor })` exists and is ready, but `onAddManual` takes no arguments
+   * and this surface has no item editor — `ItemEditor` lives on
+   * `BillAuthoringSurface`, which only has a route for a *new* tab
+   * (`/tabs/new`). Wiring it needs an authoring route for an existing tab, not
+   * a new backend function.
    */
   const addManualItem = useCallback(() => {}, []);
 
@@ -180,6 +287,16 @@ function DeepLinkedClaimBoard({
   const scanReceipt = useCallback(() => {
     router.push(`/tabs/${publicToken}/receipt`);
   }, [router, publicToken]);
+
+  if (status === "error") {
+    return (
+      <AppShell hideTabBar>
+        <p className="mytab-type-body" style={{ marginTop: "24px", color: MYTAB_COLORS.inkMuted }}>
+          {INVALID_LINK_MESSAGE}
+        </p>
+      </AppShell>
+    );
+  }
 
   return (
     // A deep-linked Claim Board hides the tab bar entirely. The only exit is
@@ -206,9 +323,11 @@ function DeepLinkedClaimBoard({
       ) : null}
       <ClaimBoard
         {...board}
+        staleNotice={staleNotice}
+        onToggleClaim={canWrite && toggleOwnClaim ? handleToggleClaim : undefined}
         onOpenBillReview={openBillReview}
         onSettleUp={openSettleSheet}
-        onAssignItem={assignItem}
+        onAssignItem={canWrite && organizerAssignItem ? handleAssignItem : undefined}
         onAddManual={addManualItem}
         onScanReceipt={isReceiptScanEnabled() ? scanReceipt : undefined}
       />

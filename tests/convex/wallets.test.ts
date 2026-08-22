@@ -81,14 +81,19 @@ function createWalletStore(initial: WalletDoc[] = []) {
 }
 
 describe("Story 1.8 — wallet sync helpers", () => {
-  it("returns fixture wallet data when Privy server credentials are absent", () => {
+  it("returns fixture wallet data when Privy server credentials are absent", async () => {
     if (!isPrivyServerFixtureMode()) {
       return;
     }
 
-    expect(resolvePrivyEmbeddedWalletSnapshot("did:privy:test")).toEqual({
+    // Local/test runtime only — see tests/convex/privy-wallet-resolution.test.ts
+    // for the deployment paths, where this throws instead.
+    await expect(
+      resolvePrivyEmbeddedWalletSnapshot("did:privy:test"),
+    ).resolves.toEqual({
       privyWalletId: FIXTURE_PRIVY_WALLET_ID,
       solanaAddress: FIXTURE_SOLANA_ADDRESS,
+      candidateCount: 1,
     });
   });
 
