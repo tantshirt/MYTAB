@@ -6,6 +6,7 @@ import { isPrivyFixtureMode } from "@/lib/privy/config";
 import { TelegramBootstrapGate } from "@/features/telegram/TelegramBootstrapGate";
 import { useFixtureAuth } from "./fixture-auth";
 import { LaunchSurface } from "./LaunchSurface";
+import { FirstRunCard, hasSeenFirstRun } from "@/features/onboarding/FirstRunCard";
 import { WalletSyncGate } from "./WalletSyncGate";
 
 type AuthGateProps = {
@@ -94,10 +95,36 @@ function FixtureAuthGate({ children }: AuthGateProps) {
   return <>{children}</>;
 }
 
-export function AuthGate({ children }: AuthGateProps) {
-  if (isPrivyFixtureMode()) {
-    return <FixtureAuthGate>{children}</FixtureAuthGate>;
-  }
+/**
+ * First run sits INSIDE the gate, not around it — it must never delay
+ * authentication, and it must never be the first thing a deep-linked
+ * participant sees when they are two taps from settling a bill.
+ */
+function FirstRunGate({ children }: AuthGateProps) {
+  const [showFirstRun, setShowFirstRun] = useState(false);
 
-  return <PrivyAuthGate>{children}</PrivyAuthGate>;
+  useEffect(() => {
+    // Deep links land people in a bill room on purpose. Never interrupt that.
+    const deepLinked = window.location.pathname.startsWith("/tabs/");
+    if (!deepLinked && !hasSeenFirstRun()) {
+      setShowFirstRun(true);
+    }
+  }, []);
+
+  return (
+    <>
+      {children}
+      {showFirstRun ? <FirstRunCard onDismiss={() => setShowFirstRun(false)} /> : null}
+    </>
+  );
+}
+
+export function AuthGate({ children }: AuthGateProps) {
+  const gated = isPrivyFixtureMode() ? (
+    <FixtureAuthGate>{children}</FixtureAuthGate>
+  ) : (
+    <PrivyAuthGate>{children}</PrivyAuthGate>
+  );
+
+  return <FirstRunGate>{gated}</FirstRunGate>;
 }

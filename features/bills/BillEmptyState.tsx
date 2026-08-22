@@ -1,15 +1,23 @@
 "use client";
 
-import { MYTAB_COLORS } from "@/lib/theme/tokens";
+import { EmptyState } from "@/components/primitives/empty-state";
 
 type BillEmptyStateProps = {
   isOrganizer: boolean;
   organizerDisplayName: string;
   onAddManual?: () => void;
+  /** Absent when receipt scanning is off or unwired — never rendered disabled. */
   onScanReceipt?: () => void;
 };
 
-/** Organizer vs participant empty states (Stories 4.2 AC5, 4.4 AC3). */
+/**
+ * Organizer vs participant empty states (Stories 4.2 AC5, 4.4 AC3).
+ *
+ * This is a whole-surface state, not a section, so a card is correct here and
+ * only here — POLISH-SPEC §4.2 specifies empty states as `colors/surface` cards
+ * at `padding: 24px 20px`, centred, `rounded/md`, 1px `colors/border`. The
+ * shared `EmptyState` primitive is that card.
+ */
 export function BillEmptyState({
   isOrganizer,
   organizerDisplayName,
@@ -18,45 +26,31 @@ export function BillEmptyState({
 }: BillEmptyStateProps) {
   if (!isOrganizer) {
     return (
-      <section
-        className="mytab-card"
-        style={{ padding: "24px 20px", textAlign: "center" }}
-        data-testid="bill-participant-waiting"
-      >
-        <p className="mytab-type-body" style={{ margin: 0, color: MYTAB_COLORS.ink }}>
-          {organizerDisplayName} is adding the bill. You can stay here — it will appear automatically.
-        </p>
-      </section>
+      <div data-testid="bill-participant-waiting">
+        <EmptyState
+          headline={`${organizerDisplayName} is adding the bill. You can stay here — it will appear automatically.`}
+        />
+      </div>
     );
   }
 
   return (
-    <section
-      className="mytab-card"
-      style={{ padding: "24px 20px" }}
-      data-testid="bill-organizer-empty"
-    >
-      <p className="mytab-type-body" style={{ margin: "0 0 16px", color: MYTAB_COLORS.ink }}>
-        Add what you ordered.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        <button
-          type="button"
-          className="mytab-button-primary"
-          onClick={onAddManual}
-          style={{ width: "100%" }}
-        >
-          Type an item
-        </button>
-        <button
-          type="button"
-          className="mytab-button-secondary"
-          onClick={onScanReceipt}
-          style={{ width: "100%" }}
-        >
-          Scan a receipt
-        </button>
-      </div>
-    </section>
+    <div data-testid="bill-organizer-empty">
+      <EmptyState
+        headline="Add what you ordered."
+        action={
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button type="button" className="mytab-button-primary" onClick={onAddManual}>
+              Type an item
+            </button>
+            {onScanReceipt ? (
+              <button type="button" className="mytab-button-secondary" onClick={onScanReceipt}>
+                Scan a receipt
+              </button>
+            ) : null}
+          </div>
+        }
+      />
+    </div>
   );
 }

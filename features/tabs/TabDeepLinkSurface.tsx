@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
-import { BillAuthoringSurface } from "@/features/bills/BillAuthoringSurface";
+import { ClaimBoard, FIXTURE_CLAIM_BOARD, type ClaimBoardProps } from "@/features/claims";
+import { SettleSheetHost, settleSearch } from "@/features/settlement/SettleSheetHost";
 import { useTelegramBackButton } from "@/features/telegram/useTelegramBackButton";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { isConvexAuthFixtureMode } from "@/lib/privy/config";
+import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AppShell } from "@/components/layout/AppShell";
 
@@ -25,6 +27,27 @@ const FIXTURE_TAB: TabSessionState = {
   tabId: "tabs:fixture",
 };
 
+/**
+ * Single prop-resolution point for the deep-linked Claim Board.
+ *
+ * TODO(live-data): replace the fixture spread with
+ * `useQuery(api.claims.getClaimBoard, { publicToken })` and drop the
+ * `FIXTURE_CLAIM_BOARD` import. The surface below never learns the difference.
+ */
+function useClaimBoardData(publicToken: string, tabName: string): ClaimBoardProps {
+  return useMemo(
+    () => ({ ...FIXTURE_CLAIM_BOARD, tabName }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [publicToken, tabName],
+  );
+}
+
+/**
+ * The `[Open tab]` button in the group message always lands here, and this
+ * surface is the Claim Board for that specific tab — never the authoring
+ * screen, which lives at `/tabs/new` (EXPERIENCE, Information Architecture;
+ * POLISH-SPEC §1.0, §1.6).
+ */
 export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   const router = useRouter();
   const { isTelegramWebApp } = useTelegramRuntime();
@@ -90,17 +113,83 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
 
   return (
     <AuthGate>
-      {!isTelegramWebApp ? (
-        <div
-          style={{
-            maxWidth: 480,
-            margin: "0 auto",
-            padding: "8px 16px 0",
-          }}
-        >
+      <DeepLinkedClaimBoard
+        publicToken={publicToken}
+        tabName={session.tabName}
+        showInAppBack={!isTelegramWebApp}
+        onBack={handleBack}
+      />
+    </AuthGate>
+  );
+}
+
+function DeepLinkedClaimBoard({
+  publicToken,
+  tabName,
+  showInAppBack,
+  onBack,
+}: {
+  publicToken: string;
+  tabName: string;
+  showInAppBack: boolean;
+  onBack: () => void;
+}) {
+  const router = useRouter();
+  const board = useClaimBoardData(publicToken, tabName);
+
+  const openBillReview = useCallback(() => {
+    router.push(`/tabs/${publicToken}/bill`);
+  }, [router, publicToken]);
+
+  /*
+   * The locked footer action. The Payment Sheet is a sheet, not a route (§1.0),
+   * so it is opened by adding `SettleSheetHost`'s `?settle=` key to this URL —
+   * the host below is already mounted and picks it up.
+   *
+   * TODO(live-data): the key is the viewer's own obligation id from
+   * `api.settlements.getObligationForViewer`, not the tab token.
+   */
+  const openSettleSheet = useCallback(() => {
+    router.push(`/tabs/${publicToken}${settleSearch(publicToken)}`);
+  }, [router, publicToken]);
+
+  /*
+   * The organizer override — Flow 4 step 2. Without a handler the who-has-this
+   * sheet never renders its "Assign to" list at all, so this is what makes that
+   * half of the sheet exist.
+   *
+   * TODO(live-data): `api.allocations.organizerAssignItem({ itemId, userId })`.
+   */
+  const assignItem = useCallback((itemId: string, userId: string) => {
+    void itemId;
+    void userId;
+  }, []);
+
+  /*
+   * The organizer empty state's "Type an item". This adds an item to *this* tab,
+   * which is not what `/tabs/new` does, so it stays a fixture-mode no-op rather
+   * than routing somewhere plausible and wrong.
+   *
+   * TODO(live-data): `api.items.addItem({ tabId, name, unitPriceMinor })`.
+   */
+  const addManualItem = useCallback(() => {}, []);
+
+  // "Scan a receipt" routes at the Receipt Review surface for this tab. Gated on
+  // the flag as well as the handler: §4.2 shows the scan action only when receipt
+  // scanning is on, and a visible button that does nothing is worse than none.
+  const scanReceipt = useCallback(() => {
+    router.push(`/tabs/${publicToken}/receipt`);
+  }, [router, publicToken]);
+
+  return (
+    // A deep-linked Claim Board hides the tab bar entirely. The only exit is
+    // the back control, which lands on Tabs (EXPERIENCE, Information Architecture).
+    <AppShell hideTabBar>
+      {showInAppBack ? (
+        <div style={{ padding: "8px 0 0" }}>
           <button
             type="button"
-            onClick={handleBack}
+            onClick={onBack}
             style={{
               background: "none",
               border: "none",
@@ -115,11 +204,15 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
           </button>
         </div>
       ) : null}
-      <BillAuthoringSurface
-        tabId={session.tabId}
-        tabTitle={session.tabName}
-        viewerUserId={isConvexAuthFixtureMode() ? "users:andre" : undefined}
+      <ClaimBoard
+        {...board}
+        onOpenBillReview={openBillReview}
+        onSettleUp={openSettleSheet}
+        onAssignItem={assignItem}
+        onAddManual={addManualItem}
+        onScanReceipt={isReceiptScanEnabled() ? scanReceipt : undefined}
       />
-    </AuthGate>
+      <SettleSheetHost />
+    </AppShell>
   );
 }

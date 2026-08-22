@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { MyTabThemeProvider } from "@/components/theme/MyTabThemeProvider";
 import { FixtureAuthProvider } from "@/features/auth/fixture-auth";
 import { PrivyConvexProvider } from "@/features/auth/PrivyConvexProvider";
+import { AppViewportVars } from "@/features/telegram/AppViewportVars";
 import { TelegramRuntimeProvider } from "@/features/telegram/TelegramRuntimeProvider";
 import { createPrivyConfig, getPrivyAppId, isPrivyFixtureMode } from "@/lib/privy/config";
 
@@ -35,6 +36,7 @@ function ProviderStack({ children }: { children: ReactNode }) {
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <TelegramRuntimeProvider>
+      <AppViewportVars />
       <ProviderStack>{children}</ProviderStack>
     </TelegramRuntimeProvider>
   );

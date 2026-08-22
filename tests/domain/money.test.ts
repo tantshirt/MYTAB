@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addFiatMinor,
   formatFiatMinorThb,
+  groupThousands,
   parseThbStringToMinor,
   thbMinorFromInteger,
 } from "@/lib/domain";
@@ -16,6 +17,24 @@ describe("AC1 — fiat is int64 minor units", () => {
   it("formats satang only at the display boundary", () => {
     const amountMinor = thbMinorFromInteger(29174);
     expect(formatFiatMinorThb(amountMinor)).toBe("฿291.74");
+  });
+
+  // POLISH-SPEC §7 P0-3 / DESIGN.md: the canonical fixture is ฿1,840.00.
+  it("groups thousands with commas", () => {
+    expect(formatFiatMinorThb(thbMinorFromInteger(184_000))).toBe("฿1,840.00");
+    expect(formatFiatMinorThb(thbMinorFromInteger(100_000_000))).toBe("฿1,000,000.00");
+    expect(formatFiatMinorThb(thbMinorFromInteger(99_999))).toBe("฿999.99");
+    expect(formatFiatMinorThb(thbMinorFromInteger(100_000))).toBe("฿1,000.00");
+    expect(formatFiatMinorThb(thbMinorFromInteger(-184_000))).toBe("-฿1,840.00");
+    expect(formatFiatMinorThb(thbMinorFromInteger(0))).toBe("฿0.00");
+    expect(formatFiatMinorThb(thbMinorFromInteger(1))).toBe("฿0.01");
+  });
+
+  it("groupThousands leaves short runs alone", () => {
+    expect(groupThousands("0")).toBe("0");
+    expect(groupThousands("999")).toBe("999");
+    expect(groupThousands("1000")).toBe("1,000");
+    expect(groupThousands("1234567")).toBe("1,234,567");
   });
 
   it("keeps arithmetic in integer minor units", () => {

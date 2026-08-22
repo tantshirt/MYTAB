@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
 import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
 import type { PaymentDisplayState } from "@/lib/domain/paymentState";
 import { getPaymentStatePresentation } from "@/lib/domain/paymentState";
@@ -44,12 +45,20 @@ export function PaymentStateBadge({ state, failureMessage }: PaymentStateBadgePr
 export type BalanceLinkRowProps = {
   label: string;
   amount: string;
+  /** Spoken form — "291 baht 74". Derived from `amount` when omitted. */
+  amountA11yLabel?: string;
   tabId: string;
   billId?: string;
 };
 
 /** Balance row linking back to source bill (Story 7.2 AC4, 7.5 AC3). */
-export function BalanceLinkRow({ label, amount, tabId, billId }: BalanceLinkRowProps) {
+export function BalanceLinkRow({
+  label,
+  amount,
+  amountA11yLabel,
+  tabId,
+  billId,
+}: BalanceLinkRowProps) {
   const href = billId ? `/tabs/${tabId}?bill=${billId}` : `/tabs/${tabId}`;
 
   return (
@@ -67,22 +76,13 @@ export function BalanceLinkRow({ label, amount, tabId, billId }: BalanceLinkRowP
         borderBottom: `1px solid ${MYTAB_COLORS.border}`,
       }}
     >
-      <span
-        className="mytab-type-body"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <span className="mytab-type-body mytab-row__label" style={{ flex: 1, minWidth: 0 }}>
         {label}
       </span>
       <span
-        className="mytab-type-amount-row mytab-tabular"
+        className="mytab-type-amount-row mytab-tabular mytab-row__amount"
         data-mytab-amount
-        style={{ flexShrink: 0 }}
+        aria-label={amountA11yLabel ?? formatAmountLabelForA11y(amount)}
       >
         {amount}
       </span>

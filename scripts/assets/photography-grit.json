@@ -1,0 +1,22 @@
+{
+  "model": "nano-banana-2",
+  "defaults": { "resolution": "4K", "output_format": "jpg", "aspect_ratio": "9:16" },
+  "items": [
+    {
+      "name": "grit-bangkok",
+      "prompt": "Amateur snapshot taken on a cheap point-and-shoot 35mm camera with the built-in flash firing directly at the subject. Expired Cinestill 800T, badly scanned, heavy chunky grain, colour shifted green-magenta, blown-out flash hotspots, red halation ringing every light source, harsh black shadows with no detail, slightly out of focus. Night, a plastic-stool street restaurant in Bangkok. Four friends in their twenties crammed at a metal table covered in empty Chang bottles, dirty plates and crumpled tissue. One is caught mid-blink, one is turned half away, one is holding a phone low and lit from below by its screen. Faces are shiny with heat and flash. Nobody is posing, nobody looks at the camera, nobody is smiling for a photograph. Off-centre, tilted horizon, someone's shoulder blocking part of the frame. The top third of the frame is near-black empty night with only a few blown-out lights, no faces and no readable text. This is a photograph someone took at 1am and forgot about, not a photograph anyone was hired to take. No studio lighting, no colour grading, no advertising gloss, no stock-photo smiles, no legible signage or logos."
+    },
+    {
+      "name": "grit-carbone",
+      "prompt": "Amateur direct-flash snapshot on a 35mm point-and-shoot, Kodak Gold 400 pushed two stops, coarse grain, crushed blacks, warm colour cast, slight camera shake. Interior of an expensive dark Italian-American restaurant — red leather banquette, white tablecloth gone messy, wine rings, a leather bill folder half open. Four friends in their late twenties in good clothes, late in the night, caught unposed: one leaning across the table mid-sentence with a hand blurred by motion, one looking down at a phone on the tablecloth, one cropped by the frame edge, one lit hot and flat by the flash with the background dropping to pure black behind them. Slightly tilted, badly framed, too close. Nobody looks at the camera. The top third is black empty ceiling, quiet, no faces and no text. A real photograph from a real night, not an advertisement. No studio lighting, no gloss, no stock smiles, no legible text or logos."
+    },
+    {
+      "name": "grit-rooftop",
+      "prompt": "Amateur direct-flash snapshot on a 35mm point-and-shoot at night, Fuji Superia expired, heavy grain, green-shifted shadows, blown highlights, harsh falloff to black. A rooftop table strung with lights, candles burnt down, bottles everywhere, plates pushed aside. Six friends in their twenties, late in the evening, mid-motion — one standing and half out of frame, one laughing with her head thrown back and eyes shut, one reaching for a bottle with motion blur on the arm, one checking a phone. Flash flattens the foreground faces and the city behind them goes to black with a few smeared points of light. Tilted, off-centre, imperfect framing. Nobody looks at the camera. The top third of the frame is empty black night sky with a few blown light points, no faces and no text. Snapshot, not photography. No studio lighting, no colour grading, no advertising polish, no stock-photo grins, no logos."
+    },
+    {
+      "name": "grit-hands",
+      "prompt": "Amateur direct-flash snapshot on a 35mm point-and-shoot, close and slightly out of focus. A restaurant tabletop at the end of a night: a crumpled paper receipt, a stack of dirty plates, a wine glass with a smear on it, a scattering of coins and a phone lying face-down. Two hands enter the frame from opposite edges, one resting on the receipt, one reaching for the phone. No faces, nothing above the wrist. The flash blows out the tablecloth in the centre and the edges of the frame drop into black. Heavy grain, warm-green colour cast, harsh shadow, one bright specular hotspot. Tilted, too close, badly composed. The top half of the frame is dark, empty and quiet with nothing in it. This is a photograph taken to remember a bill, not a styled still life. No legible text on the receipt, no logos, no studio lighting, no gloss."
+    }
+  ]
+}

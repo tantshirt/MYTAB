@@ -8,6 +8,11 @@ export type ParticipantChipProps = {
   displayName: string;
   selected?: boolean;
   onSelect?: () => void;
+  /**
+   * From `avatarTintsForGroup`. A chip row is always a set of people, so the
+   * caller allocates the tints; the per-id hash is the fallback for a lone chip.
+   */
+  tint?: string;
 };
 
 /** Verified group member selector chip (Story 3.1 AC1, UX-DR9). */
@@ -16,9 +21,10 @@ export function ParticipantChip({
   displayName,
   selected = false,
   onSelect,
+  tint,
 }: ParticipantChipProps) {
   const initial = displayName.trim().charAt(0).toUpperCase() || "?";
-  const tint = avatarTintForUserId(userId);
+  const resolvedTint = tint ?? avatarTintForUserId(userId);
 
   return (
     <button
@@ -43,7 +49,7 @@ export function ParticipantChip({
           width: "52px",
           height: "52px",
           borderRadius: MYTAB_RADIUS.full,
-          background: tint,
+          background: resolvedTint,
           color: "#fff",
           fontSize: "18px",
           fontWeight: 600,
@@ -57,6 +63,12 @@ export function ParticipantChip({
       </span>
       <span
         style={{
+          minWidth: 0,
+          maxWidth: "100%",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          textAlign: "center",
           fontSize: MYTAB_TYPOGRAPHY.label.size,
           fontWeight: selected ? 600 : 400,
           color: selected ? MYTAB_COLORS.ink : MYTAB_COLORS.inkMuted,

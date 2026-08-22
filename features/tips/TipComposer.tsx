@@ -2,7 +2,10 @@
 
 import type React from "react";
 import { useMemo, useState } from "react";
+import { EmptyState } from "@/components/primitives/empty-state";
+import { NoticeBar } from "@/components/primitives/notice-bar";
 import { ParticipantChip } from "@/components/primitives/participant-chip";
+import { STATE_COPY } from "@/components/primitives/state-copy";
 import {
   assertTipMinor,
   formatFiatMinorThb,
@@ -11,7 +14,27 @@ import {
   thbMinorToUsdcAtomicFixture,
   type FiatMinor,
 } from "@/lib/domain";
-import { MYTAB_COLORS, MYTAB_ELEVATION, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
+import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
+import {
+  avatarTintsForGroup,
+  MYTAB_COLORS,
+  MYTAB_ELEVATION,
+  MYTAB_RADIUS,
+  MYTAB_TYPOGRAPHY,
+} from "@/lib/theme/tokens";
+
+export const TIP_COPY = {
+  title: "Send a tip",
+  /** §4.2 — no eligible recipients. */
+  emptyRecipients: "Nobody here has opened My Tab yet. Once they do, you can tip them.",
+  /** §4.3 — custom amount invalid. */
+  invalidAmount: "Enter an amount above ฿0.",
+  /** §4.3 — send fails. */
+  sendFailed: "Couldn't send the tip. Try again.",
+  offline: STATE_COPY.offline,
+  needsConnection: STATE_COPY.needsConnection,
+  outsideTelegram: STATE_COPY.outsideTelegram,
+} as const;
 
 export const TIP_PRESET_WHOLE_BAHT = [20, 50, 100, 200] as const;
 export const TIP_REACTIONS = ["🙏", "🔥", "💐", "🍜", "👏", "🫶"] as const;
@@ -37,6 +60,12 @@ export type TipComposerProps = {
   viewerUserId: string;
   preselectedRecipientUserId?: string;
   onSubmit?: (payload: TipComposerSubmitPayload) => void;
+  /** The send failed. Renders §4.3 copy above the footer; the action re-submits. */
+  sendFailed?: boolean;
+  /** §4.4 — money never moves optimistically, so the whole surface is disabled. */
+  offline?: boolean;
+  /** §4.5 — reads work, every mutation is disabled. */
+  inTelegram?: boolean;
 };
 
 function createIdempotencyKey(): string {
@@ -52,6 +81,9 @@ export function TipComposer({
   viewerUserId,
   preselectedRecipientUserId,
   onSubmit,
+  sendFailed = false,
+  offline = false,
+  inTelegram = true,
 }: TipComposerProps) {
   const eligibleMembers = useMemo(
     () =>
@@ -62,6 +94,13 @@ export function TipComposer({
           member.walletReady,
       ),
     [members, viewerUserId],
+  );
+
+  // The chip row is a set of people rendered together, so the tints are allocated
+  // for the set rather than hashed per id (§2.6).
+  const chipTints = useMemo(
+    () => avatarTintsForGroup(eligibleMembers.map((member) => member.userId)),
+    [eligibleMembers],
   );
 
   const initialRecipient =
@@ -76,24 +115,38 @@ export function TipComposer({
   const [customInput, setCustomInput] = useState("");
   const [note, setNote] = useState("");
   const [reaction, setReaction] = useState<string | null>(null);
+  const [customInvalid, setCustomInvalid] = useState(false);
+
+  const blockedReason = !inTelegram
+    ? TIP_COPY.outsideTelegram
+    : offline
+      ? TIP_COPY.needsConnection
+      : undefined;
 
   const recipient = eligibleMembers.find((member) => member.userId === recipientUserId);
   const amountLabel = formatFiatMinorThb(amountThbMinor);
-  const canSubmit = Boolean(recipient) && amountThbMinor > 0;
+  const canSubmit = Boolean(recipient) && amountThbMinor > 0 && blockedReason === undefined;
 
   function selectPreset(wholeBaht: number) {
     setCustomMode(false);
+    setCustomInvalid(false);
     setAmountThbMinor(thbMinorFromWholeBaht(wholeBaht));
   }
 
   function applyCustomAmount() {
+    if (customInput.trim() === "") {
+      setCustomInvalid(false);
+      return;
+    }
     try {
       const parsed = parseThbStringToMinor(customInput);
       assertTipMinor(parsed);
       setAmountThbMinor(parsed);
+      setCustomInvalid(false);
       setCustomMode(false);
     } catch {
-      // Keep composer usable — invalid custom input is ignored until valid.
+      // The hero holds its last value — a figure is never blanked (§4.0 rule 3).
+      setCustomInvalid(true);
     }
   }
 
@@ -125,6 +178,9 @@ export function TipComposer({
         fontFamily: MYTAB_TYPOGRAPHY.family,
       }}
     >
+      {offline ? <NoticeBar tone="warning">{TIP_COPY.offline}</NoticeBar> : null}
+      {!inTelegram ? <NoticeBar tone="quiet">{TIP_COPY.outsideTelegram}</NoticeBar> : null}
+
       <header style={{ padding: "16px" }}>
         <h1
           style={{
@@ -133,9 +189,15 @@ export function TipComposer({
             fontWeight: MYTAB_TYPOGRAPHY.title.weight,
           }}
         >
-          Send a tip
+          {TIP_COPY.title}
         </h1>
       </header>
+
+      {eligibleMembers.length === 0 ? (
+        <div style={{ padding: "0 16px 24px" }}>
+          <EmptyState headline={TIP_COPY.emptyRecipients} />
+        </div>
+      ) : null}
 
       <div style={{ flex: 1, paddingBottom: "24px" }}>
         <div
@@ -164,6 +226,7 @@ export function TipComposer({
               key={member.userId}
               userId={member.userId}
               displayName={member.displayName}
+              tint={chipTints.get(member.userId)}
               selected={member.userId === recipientUserId}
               onSelect={() => setRecipientUserId(member.userId)}
             />
@@ -172,11 +235,15 @@ export function TipComposer({
 
         <div style={{ textAlign: "center", margin: "38px 0 24px" }}>
           <div
+            data-mytab-amount
+            aria-label={formatThbMinorForA11y(amountThbMinor)}
             style={{
               fontSize: MYTAB_TYPOGRAPHY.amountHero.size,
               fontWeight: MYTAB_TYPOGRAPHY.amountHero.weight,
+              letterSpacing: MYTAB_TYPOGRAPHY.amountHero.tracking,
               fontVariantNumeric: "tabular-nums",
               fontFeatureSettings: '"tnum"',
+              whiteSpace: "nowrap",
             }}
           >
             {amountLabel}
@@ -234,15 +301,30 @@ export function TipComposer({
               value={customInput}
               onChange={(event) => setCustomInput(event.target.value)}
               onBlur={applyCustomAmount}
+              aria-invalid={customInvalid}
+              aria-describedby={customInvalid ? "tip-custom-amount-error" : undefined}
               style={{
                 width: "100%",
+                minHeight: "44px",
                 boxSizing: "border-box",
-                border: `1px solid ${MYTAB_COLORS.border}`,
+                border: `1px solid ${customInvalid ? MYTAB_COLORS.owed : MYTAB_COLORS.border}`,
                 borderRadius: MYTAB_RADIUS.sm,
                 padding: "14px 16px",
                 fontSize: MYTAB_TYPOGRAPHY.body.size,
               }}
             />
+            {customInvalid ? (
+              <p
+                id="tip-custom-amount-error"
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: MYTAB_TYPOGRAPHY.meta.size,
+                  color: MYTAB_COLORS.owed,
+                }}
+              >
+                {TIP_COPY.invalidAmount}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -330,6 +412,19 @@ export function TipComposer({
           padding: "14px 16px 22px",
         }}
       >
+        {sendFailed ? (
+          <p
+            role="alert"
+            style={{
+              margin: "0 0 10px",
+              fontSize: MYTAB_TYPOGRAPHY.body.size,
+              fontWeight: 500,
+              color: MYTAB_COLORS.ink,
+            }}
+          >
+            {TIP_COPY.sendFailed}
+          </p>
+        ) : null}
         <button
           type="button"
           disabled={!canSubmit}
@@ -357,6 +452,18 @@ export function TipComposer({
           </span>
           Send tip
         </button>
+        {blockedReason ? (
+          <p
+            style={{
+              margin: "8px 0 0",
+              textAlign: "center",
+              fontSize: MYTAB_TYPOGRAPHY.meta.size,
+              color: MYTAB_COLORS.inkMuted,
+            }}
+          >
+            {blockedReason}
+          </p>
+        ) : null}
       </div>
     </section>
   );

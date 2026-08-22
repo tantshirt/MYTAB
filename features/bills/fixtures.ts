@@ -31,6 +31,12 @@ export type BillAuthoringFixture = {
   title: string;
   merchantName: string;
   displayCurrency: string;
+  /**
+   * Group defaults that New Tab deliberately does **not** render. The recipient
+   * is the payer and the receiving asset is always USDC, stated on the You
+   * surface — POLISH-SPEC §1.4 deletes both controls from this screen. They stay
+   * on the fixture because they are part of `getGroupDefaults`, not of the form.
+   */
   recipientAsset: string;
   organizerDisplayName: string;
   organizerUserId: string;

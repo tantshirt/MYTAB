@@ -28,7 +28,7 @@ export {
   thbMinorFromWholeBaht,
 } from "./parse";
 
-export { formatFiatMinorThb } from "./format";
+export { formatFiatMinorThb, groupThousands } from "./format";
 
 export {
   USDC_DECIMALS,
@@ -73,9 +73,11 @@ export {
 
 export {
   deriveWithinGroupBalance,
+  formatBalanceHeroParts,
   formatBalanceHeroText,
   isBillComplete,
   resolveBalanceHero,
+  type BalanceHeroParts,
   type BalanceHeroState,
   type GroupBalanceSummary,
   type LedgerOffset,
@@ -110,7 +112,6 @@ export {
 
 export {
   ACTIVITY_EVENT_TYPE,
-  activityIconGlyph,
   activityIconTint,
   type ActivityEventPayload,
   type ActivityEventType,

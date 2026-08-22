@@ -113,13 +113,21 @@ export function ClaimBoard({
                 border: `1px solid ${MYTAB_COLORS.border}`,
               }}
             >
-              <div>
-                <div style={{ fontWeight: 600, color: MYTAB_COLORS.ink }}>{row.participantName}</div>
+              <div style={{ minWidth: 0 }}>
                 <div
+                  className="mytab-row__label"
+                  style={{ fontWeight: 600, color: MYTAB_COLORS.ink }}
+                >
+                  {row.participantName}
+                </div>
+                <div
+                  className="mytab-tabular"
+                  data-mytab-amount
                   style={{
                     marginTop: "4px",
                     fontSize: MYTAB_TYPOGRAPHY.meta.size,
                     color: MYTAB_COLORS.inkMuted,
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {row.amountLabel}
@@ -128,6 +136,7 @@ export function ClaimBoard({
               <span
                 aria-label={settled ? "Settled" : row.status === "submitted" ? "Sending" : "Open"}
                 style={{
+                  flex: "none",
                   width: "24px",
                   height: "24px",
                   borderRadius: MYTAB_RADIUS.full,

@@ -1,79 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
-import { useTelegramRuntime } from "./TelegramRuntimeProvider";
-
-type BackButtonHandler = () => void;
+import { useBackAffordance } from "./useBackAffordance";
 
 /**
- * Wires Telegram BackButton with a single back control (Story 2.8 AC2).
+ * Back-compatible alias for {@link useBackAffordance} (Story 2.8 AC2).
+ *
+ * The implementation moved to `useBackAffordance.ts`, which is the one hook
+ * POLISH-SPEC §2.4 asks for; this wrapper stays so existing call sites do not
+ * have to change in the same pass. New surfaces should call
+ * `useBackAffordance` directly and use its `showInAppChevron` to decide whether
+ * to draw the in-app chevron — the two controls are never both on screen.
+ *
+ * `triggerTelegramHaptic` used to live here and now lives in `useHaptics.ts`
+ * (POLISH-SPEC §2.8, §2.10 item 6).
  */
-export function useTelegramBackButton(onBack: BackButtonHandler, enabled = true) {
-  const { isTelegramWebApp } = useTelegramRuntime();
-
-  useEffect(() => {
-    if (!isTelegramWebApp || !enabled) {
-      return;
-    }
-
-    const webApp = window.Telegram?.WebApp as
-      | {
-          BackButton?: {
-            show: () => void;
-            hide: () => void;
-            onClick: (handler: BackButtonHandler) => void;
-            offClick: (handler: BackButtonHandler) => void;
-          };
-        }
-      | undefined;
-
-    const backButton = webApp?.BackButton;
-    if (!backButton) {
-      return;
-    }
-
-    backButton.show();
-    backButton.onClick(onBack);
-
-    return () => {
-      backButton.offClick(onBack);
-      backButton.hide();
-    };
-  }, [isTelegramWebApp, enabled, onBack]);
+export function useTelegramBackButton(onBack: () => void, enabled = true): void {
+  useBackAffordance({ onBack, enabled });
 }
 
-export type HapticStyle = "light" | "medium" | "success";
-
-/**
- * Sanctioned haptic moments only (Story 2.8 AC3).
- */
-export function triggerTelegramHaptic(style: HapticStyle): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduceMotion) {
-    return;
-  }
-
-  const webApp = window.Telegram?.WebApp as
-    | {
-        HapticFeedback?: {
-          impactOccurred: (style: "light" | "medium" | "heavy") => void;
-          notificationOccurred: (type: "success" | "warning" | "error") => void;
-        };
-      }
-    | undefined;
-
-  if (!webApp?.HapticFeedback) {
-    return;
-  }
-
-  if (style === "success") {
-    webApp.HapticFeedback.notificationOccurred("success");
-    return;
-  }
-
-  webApp.HapticFeedback.impactOccurred(style);
-}
+export { useBackAffordance } from "./useBackAffordance";
+export type { BackAffordance, UseBackAffordanceOptions } from "./useBackAffordance";

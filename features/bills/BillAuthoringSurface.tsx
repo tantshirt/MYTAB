@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { STATE_COPY } from "@/components/primitives/state-copy";
+import { useOffline } from "@/components/primitives/use-offline";
 import { computeBillBreakdown } from "@/lib/domain/bill";
-import { formatFiatMinorThb } from "@/lib/domain/format";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
+import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { isConvexAuthFixtureMode } from "@/lib/privy/config";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AdjustmentsPanel } from "./AdjustmentsPanel";
@@ -13,7 +15,7 @@ import { BillSkeleton } from "./BillSkeleton";
 import { BillTotals } from "./BillTotals";
 import { bahtToMinor, ItemEditor, minorToBaht } from "./ItemEditor";
 import { ItemRow } from "./ItemRow";
-import { NewTabForm } from "./NewTabForm";
+import { NewTabForm, type CaptureMethod, type NewTabFormPatch } from "./NewTabForm";
 import { OfflineBar } from "./OfflineBar";
 import {
   FIXTURE_BILL_AUTHORING,
@@ -23,81 +25,75 @@ import {
 } from "./fixtures";
 
 export type BillAuthoringSurfaceProps = {
+  /** Identifies the draft upstream. Never rendered — it is a storage key. */
   tabId: string;
   tabTitle?: string;
   viewerUserId?: string;
   fixture?: BillAuthoringFixture;
+  /**
+   * Receipt Review entry (`/tabs/[publicToken]/receipt`, POLISH-SPEC §1.5).
+   *
+   * Every scan affordance on this surface is gated on this handler *and*
+   * `isReceiptScanEnabled()`. Without both it does not render at all — a visible
+   * button that does nothing is worse than an absent one (§1.4).
+   */
+  onScanReceipt?: () => void;
 };
 
 type AuthorPhase = "setup" | "items";
 
-type LoadState = "initial" | "ready";
-
-/** Full tab authoring surface — Epic 4 stories 4.1–4.4. */
+/** Full tab authoring surface — Epic 4 stories 4.1–4.4, rebuilt per §1.4. */
 export function BillAuthoringSurface({
-  tabId,
   tabTitle,
   viewerUserId,
   fixture,
+  onScanReceipt,
 }: BillAuthoringSurfaceProps) {
   const resolvedFixture = fixture ?? (isConvexAuthFixtureMode() ? FIXTURE_BILL_AUTHORING : null);
-  const [loadState, setLoadState] = useState<LoadState>(() =>
-    resolvedFixture ? "ready" : "initial",
-  );
   const [phase, setPhase] = useState<AuthorPhase>(() =>
     resolvedFixture?.items.length ? "items" : "setup",
   );
-  const [offline, setOffline] = useState(false);
+  const offline = useOffline();
   const [showEditor, setShowEditor] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const hasLoadedOnce = useRef(false);
 
   const [form, setForm] = useState(() => ({
     title: resolvedFixture?.title ?? tabTitle ?? "New tab",
     merchantName: resolvedFixture?.merchantName ?? "",
     displayCurrency: resolvedFixture?.displayCurrency ?? "THB",
-    recipientAsset: resolvedFixture?.recipientAsset ?? "USDC",
     payerUserId: resolvedFixture?.payerUserId ?? viewerUserId ?? "",
-    recipientUserId: resolvedFixture?.recipientUserId ?? "",
+    captureMethod: "manual" as CaptureMethod,
     members: resolvedFixture?.members ?? [],
     organizerDisplayName: resolvedFixture?.organizerDisplayName ?? "Organizer",
     fxFixtureBadge: resolvedFixture?.fxFixtureBadge,
   }));
 
   const [items, setItems] = useState<BillItemView[]>(resolvedFixture?.items ?? []);
-  const [adjustments, setAdjustments] = useState(resolvedFixture?.adjustments ?? []);
+  const [adjustments] = useState(resolvedFixture?.adjustments ?? []);
   const [editorDraft, setEditorDraft] = useState({
     name: "",
     quantity: 1,
     unitPriceBaht: 0,
   });
 
+  /**
+   * The organizer check. `organizerUserId` is the authority; falling back to
+   * "the viewer is whoever they say they are" made this constant-true and the
+   * participant branch unreachable.
+   */
+  const organizerUserId = resolvedFixture?.organizerUserId;
   const isOrganizer =
-    viewerUserId != null
-      ? viewerUserId === (resolvedFixture?.organizerUserId ?? viewerUserId)
-      : isConvexAuthFixtureMode();
+    organizerUserId == null ? isConvexAuthFixtureMode() : viewerUserId === organizerUserId;
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setLoadState("ready");
-      hasLoadedOnce.current = true;
-      if (resolvedFixture?.items.length) {
-        setPhase("items");
-      }
-    }, resolvedFixture ? 0 : 120);
-    return () => window.clearTimeout(timer);
-  }, [resolvedFixture]);
+  /**
+   * There is exactly one loading state on this surface and it is first paint
+   * with no data at all. Authoring is local until submitted, so there is no
+   * "subsequent" load and no spinner over correct data (§4.1; EXPERIENCE,
+   * *State Patterns*).
+   */
+  const showSkeleton = resolvedFixture == null;
 
-  useEffect(() => {
-    const handleOnline = () => setOffline(false);
-    const handleOffline = () => setOffline(true);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
+  const scanAvailable = isReceiptScanEnabled() && onScanReceipt != null;
 
   const breakdown = useMemo(() => {
     if (items.length === 0) {
@@ -117,7 +113,7 @@ export function BillAuthoringSurface({
     }
   }, [items, adjustments]);
 
-  const handleFormChange = useCallback((patch: Partial<typeof form>) => {
+  const handleFormChange = useCallback((patch: NewTabFormPatch) => {
     setForm((current) => ({ ...current, ...patch }));
   }, []);
 
@@ -145,20 +141,22 @@ export function BillAuthoringSurface({
   );
 
   const saveItem = useCallback(() => {
+    const name = editorDraft.name.trim();
     const unitPriceMinor = bahtToMinor(editorDraft.unitPriceBaht);
+
+    // The editor will not call this while invalid; the guard keeps a
+    // `name: ""` at ฿0.00 out of the list if it ever does.
+    if (name.length === 0 || unitPriceMinor <= 0) {
+      return;
+    }
+
     const lineTotalMinor = unitPriceMinor * editorDraft.quantity;
 
     if (editingItemId) {
       setItems((current) =>
         current.map((item) =>
           item._id === editingItemId
-            ? {
-                ...item,
-                name: editorDraft.name.trim(),
-                quantity: editorDraft.quantity,
-                unitPriceMinor,
-                lineTotalMinor,
-              }
+            ? { ...item, name, quantity: editorDraft.quantity, unitPriceMinor, lineTotalMinor }
             : item,
         ),
       );
@@ -167,7 +165,7 @@ export function BillAuthoringSurface({
         ...current,
         {
           _id: `items:${current.length + 1}`,
-          name: editorDraft.name.trim(),
+          name,
           quantity: editorDraft.quantity,
           unitPriceMinor,
           lineTotalMinor,
@@ -186,13 +184,7 @@ export function BillAuthoringSurface({
       if (!source) {
         return current;
       }
-      return [
-        ...current,
-        {
-          ...source,
-          _id: `items:${current.length + 1}`,
-        },
-      ];
+      return [...current, { ...source, _id: `items:${current.length + 1}` }];
     });
   }, []);
 
@@ -200,41 +192,62 @@ export function BillAuthoringSurface({
     setItems((current) => current.filter((item) => item._id !== itemId));
   }, []);
 
-  const primaryAction =
-    phase === "setup" ? (
-      <button
-        type="button"
-        className="mytab-button-primary"
-        style={{ width: "100%" }}
-        onClick={() => setPhase("items")}
-        data-testid="primary-add-items"
-      >
-        Add items
-      </button>
-    ) : (
-      <button
-        type="button"
-        className="mytab-button-primary"
-        style={{ width: "100%" }}
-        onClick={openNewItemEditor}
-        data-testid="primary-add-item"
-      >
-        Add item
-      </button>
-    );
+  const startCapture = useCallback(() => {
+    if (form.captureMethod === "scan" && onScanReceipt) {
+      onScanReceipt();
+      return;
+    }
+    setPhase("items");
+    openNewItemEditor();
+  }, [form.captureMethod, onScanReceipt, openNewItemEditor]);
 
-  const showSkeleton = loadState === "initial" && !hasLoadedOnce.current;
+  const primaryAction = (
+    <>
+      {phase === "setup" ? (
+        <button
+          type="button"
+          className="mytab-button-primary"
+          onClick={startCapture}
+          disabled={offline || form.title.trim().length === 0}
+          data-testid="primary-add-items"
+        >
+          Add items
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="mytab-button-primary"
+          onClick={openNewItemEditor}
+          disabled={offline}
+          data-testid="primary-add-item"
+        >
+          Add item
+        </button>
+      )}
+      {/* A disabled control states its reason rather than going silent (§4.4). */}
+      {offline ? (
+        <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
+          {STATE_COPY.needsConnection}
+        </p>
+      ) : null}
+    </>
+  );
+
+  const showFooter = isOrganizer && !showSkeleton && !showEditor;
+  const hairline = `1px solid ${MYTAB_COLORS.border}`;
 
   return (
     <>
       <OfflineBar visible={offline} />
-      <AppShell hideTabBar footer={isOrganizer ? primaryAction : undefined}>
+      {/* Authoring keeps the tab bar. Only the deep-linked Claim Board hides it
+          (EXPERIENCE, Information Architecture; POLISH-SPEC §1.0). */}
+      <AppShell footer={showFooter ? primaryAction : undefined}>
         <header style={{ paddingTop: 8, paddingBottom: 16 }}>
           <h1 className="mytab-type-title" style={{ margin: 0 }}>
-            {form.title}
+            {phase === "setup" && isOrganizer ? "Start a tab" : form.title}
           </h1>
-          {form.merchantName ? (
-            <p className="mytab-type-meta" style={{ marginTop: 8 }}>
+          {phase !== "setup" && form.merchantName ? (
+            <p className="mytab-type-meta" style={{ margin: "4px 0 0" }}>
               {form.merchantName}
             </p>
           ) : null}
@@ -247,10 +260,11 @@ export function BillAuthoringSurface({
             title={form.title}
             merchantName={form.merchantName}
             displayCurrency={form.displayCurrency}
-            recipientAsset={form.recipientAsset}
             payerUserId={form.payerUserId}
-            recipientUserId={form.recipientUserId}
             members={form.members}
+            viewerUserId={viewerUserId}
+            captureMethod={scanAvailable ? form.captureMethod : "manual"}
+            scanAvailable={scanAvailable}
             fxFixtureBadge={form.fxFixtureBadge}
             onChange={handleFormChange}
           />
@@ -274,45 +288,41 @@ export function BillAuthoringSurface({
                 isOrganizer={isOrganizer}
                 organizerDisplayName={form.organizerDisplayName}
                 onAddManual={openNewItemEditor}
-                onScanReceipt={() => undefined}
+                onScanReceipt={scanAvailable ? onScanReceipt : undefined}
               />
             ) : null}
 
+            {/*
+              One card. Items, adjustments and totals are separated by
+              `colors/border` hairlines inside it — DESIGN.md bans giving each
+              section its own rounded card.
+            */}
             {!showEditor && items.length > 0 ? (
-              <section className="mytab-card" style={{ padding: "8px 20px 12px" }}>
-                {items.map((item) => (
-                  <ItemRow
-                    key={item._id}
-                    item={item}
-                    editable={isOrganizer}
-                    onEdit={openEditItem}
-                    onDuplicate={duplicateItem}
-                    onRemove={removeItem}
-                  />
-                ))}
-              </section>
-            ) : null}
-
-            {!showEditor && items.length > 0 ? (
-              <>
-                <div style={{ marginTop: 16 }}>
-                  <AdjustmentsPanel
-                    adjustments={adjustments}
-                    editable={isOrganizer}
-                  />
+              <section className="mytab-card" style={{ overflow: "hidden" }}>
+                <div style={{ padding: "4px 20px" }}>
+                  {items.map((item, index) => (
+                    <ItemRow
+                      key={item._id}
+                      item={item}
+                      editable={isOrganizer}
+                      divider={index > 0}
+                      onEdit={openEditItem}
+                      onDuplicate={duplicateItem}
+                      onRemove={removeItem}
+                    />
+                  ))}
                 </div>
+
+                <div style={{ borderTop: hairline, padding: 20 }}>
+                  <AdjustmentsPanel adjustments={adjustments} editable={isOrganizer} />
+                </div>
+
                 {breakdown ? (
-                  <div style={{ marginTop: 16 }}>
+                  <div style={{ borderTop: hairline, padding: 20 }}>
                     <BillTotals lines={breakdown.lines} />
                   </div>
-                ) : (
-                  <section className="mytab-card" style={{ padding: 20, marginTop: 16 }}>
-                    <p className="mytab-type-amount-md mytab-tabular" data-mytab-amount style={{ margin: 0 }}>
-                      {formatFiatMinorThb(fiatMinorFromInteger(items.reduce((sum, item) => sum + item.lineTotalMinor, 0)))}
-                    </p>
-                  </section>
-                )}
-              </>
+                ) : null}
+              </section>
             ) : null}
           </>
         ) : null}
@@ -323,15 +333,10 @@ export function BillAuthoringSurface({
             organizerDisplayName={form.organizerDisplayName}
           />
         ) : null}
-
-        {resolvedFixture && tabId ? (
-          <p className="mytab-type-meta" style={{ marginTop: 24, color: MYTAB_COLORS.inkMuted }}>
-            Fixture tab · {tabId}
-          </p>
-        ) : null}
       </AppShell>
     </>
   );
 }
 
 export { FIXTURE_BILL_AUTHORING, FIXTURE_EMPTY_BILL };
+export type { BillAuthoringFixture };

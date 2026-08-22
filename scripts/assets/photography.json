@@ -1,0 +1,50 @@
+{
+  "model": "nano-banana-2",
+  "defaults": {
+    "resolution": "4K",
+    "output_format": "jpg",
+    "aspect_ratio": "9:16"
+  },
+  "items": [
+    {
+      "name": "splash-bangkok",
+      "prompt": "35mm film photograph shot on a Contax T2, Cinestill 800T pushed one stop, heavy visible grain, halation blooming around the highlights. Night, an open-air Bangkok street restaurant on Sukhumvit. A long shared table seen from a low three-quarter angle, plates cleared and stacked, empty Chang bottles, crumpled napkins. Five friends in their late twenties, mixed Thai and Western, mid-conversation — one leaning back laughing with her eyes closed, one reaching across the table, one half-lit at the edge of frame holding a phone low near the tabletop. Nobody looks at the camera. Direct on-camera flash: hot foreground falling off fast into deep shadow, string lights blown out into soft orbs behind them. Motion blur on one moving hand. Composition weighted to the lower two thirds; the upper third is dark, quiet, uncluttered negative space with no faces, no signage and no text. Documentary party photography, unposed, imperfect, elegant. Not advertising, not stock, no studio lighting, no one grinning at the lens.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "splash-carbone",
+      "prompt": "35mm film photograph, Kodak Portra 800, fine grain, warm dense shadows. Interior of an expensive old-school Italian-American restaurant — deep red leather banquette, white tablecloth, brass sconces, dim tungsten. Four elegantly dressed friends in their late twenties crowded into one booth, mid-dinner, glasses of red wine, a shared plate. One is turned away from camera in silhouette, one is caught mid-sentence with a hand raised, a phone lies face-up on the tablecloth beside a leather bill folder. Available light only, shallow depth of field, slight underexposure, rich blacks. Nobody looks at the camera. Composition sits low in the frame; the upper third is dark quiet negative space with no faces and no text. Candid editorial documentary, expensive but unfussy. No studio lighting, no stock-photo smiles, no text or logos anywhere.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "splash-bali",
+      "prompt": "35mm film photograph, Kodak Portra 400, golden hour, heavy grain, warm halation, slight lens flare. An open-air beach club in Bali at sunset — long low wooden table, woven lanterns, palm shadow, ocean blurred out behind. Six friends in their twenties in loose linen, sun-flushed, mid-motion: one standing to reach across the table, one laughing into her hand, one half out of frame. Plates of shared food, sweating glasses. Backlit by low sun so faces are partly in shadow and the rim light is blown out. Nobody looks at the camera. Composition weighted to the bottom two thirds; the upper third is soft open sky, quiet negative space, no faces, no signage, no text. Candid documentary travel photography, youthful and unposed. Not advertising, no stock-photo grins, no text or logos.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "splash-tokyo",
+      "prompt": "35mm film photograph, Cinestill 800T, direct on-camera flash, strong grain, halation on every highlight. A cramped late-night Tokyo izakaya — tiled counter, hanging menu strips, condensation on glasses, cigarette haze. Four friends in their twenties packed shoulder to shoulder along the counter, coats still on, mid-laugh, one turning toward another, one looking down at a phone held low. Flash-lit foreground falling hard into black. Motion blur on a lifted glass. Nobody looks at the camera. Composition low in the frame; the upper third is dark, quiet, uncluttered, no faces and no legible text. Gritty candid night photography, youthful, stylish, imperfect. No studio lighting, no posing, no stock smiles, no readable signage or logos.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "splash-rooftop",
+      "prompt": "35mm film photograph, Kodak Portra 800 pushed, heavy grain, deep shadow, warm candlelight. A rooftop dinner at night in a city — long table, guttering candles, wine bottles, string lights strung overhead and out of focus. Seven friends in their late twenties around the table, one standing mid-toast with an arm out, others turned toward them, faces lit from below by candles. Someone at the near edge of frame is in soft focus, cut off by the frame edge. Nobody looks at the camera. Available light, underexposed, grainy, rich blacks. Composition weighted to the lower two thirds; the upper third is night sky and blurred lights, quiet negative space, no faces, no text. Candid documentary, celebratory but not staged. No studio lighting, no stock-photo grins, no text or logos.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "onboard-hands",
+      "prompt": "35mm film photograph, Kodak Portra 400, visible grain, warm tungsten light, shallow depth of field. Close overhead-ish three-quarter view of a restaurant table at the end of a meal: a paper receipt lying on scuffed wood, curled at one edge, beside a stack of cleared plates and a half-empty wine glass. Two hands enter from opposite sides of the frame — one resting near the receipt, one holding a phone just above the table, screen dark and unreadable. No faces, no people above the wrist. Soft focus falloff at the frame edges. Composition sits in the lower half; the upper half is warm out-of-focus darkness, quiet negative space with nothing in it. Intimate documentary still life, real and slightly messy, not styled. No text legible anywhere, no logos, no brand marks, no studio lighting.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "onboard-passing",
+      "prompt": "35mm film photograph, Cinestill 800T, direct flash, grain and halation. A crowded restaurant table at night, shot tight and low across the tabletop. A phone is being passed from one hand to another across the table, caught mid-handoff with slight motion blur, screen dark. Around it: cleared plates, a folded bill, glasses. Two people are visible but cropped — a shoulder, a forearm, part of a laughing jaw at the frame edge. No full faces. Flash-lit foreground dropping fast into black. Composition in the lower two thirds; the upper third is dark, empty, quiet negative space. Candid, urgent, unposed documentary photography. No legible text, no logos, no studio lighting, no posing.",
+      "aspect_ratio": "9:16"
+    },
+    {
+      "name": "wide-table",
+      "prompt": "35mm film photograph, Kodak Portra 800, heavy grain, warm shadows. A long restaurant table shot straight down the middle from one end, receding into the frame — plates, glasses, hands, elbows, the debris of a finished meal. Eight friends in their twenties along both sides, blurred with movement, none in sharp focus, none looking at the camera. Warm overhead light, deep falloff at the far end. Wide horizontal composition with generous empty tabletop in the foreground. Candid documentary, kinetic, unposed, slightly chaotic, elegant. No stock-photo smiles, no studio lighting, no text or logos anywhere.",
+      "aspect_ratio": "16:9"
+    }
+  ]
+}

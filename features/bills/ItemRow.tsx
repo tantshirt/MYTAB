@@ -1,5 +1,6 @@
 "use client";
 
+import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
@@ -8,67 +9,87 @@ import type { BillItemView } from "./fixtures";
 type ItemRowProps = {
   item: BillItemView;
   editable: boolean;
+  /** Hairline above the row. Rows live inside one card, not one card each. */
+  divider?: boolean;
   onEdit?: (itemId: string) => void;
   onDuplicate?: (itemId: string) => void;
   onRemove?: (itemId: string) => void;
 };
 
 /** Single item row with Thai/Latin truncation rules (Story 4.2 AC4). */
-export function ItemRow({ item, editable, onEdit, onDuplicate, onRemove }: ItemRowProps) {
+export function ItemRow({
+  item,
+  editable,
+  divider = false,
+  onEdit,
+  onDuplicate,
+  onRemove,
+}: ItemRowProps) {
+  const lineTotalMinor = fiatMinorFromInteger(item.lineTotalMinor);
+
   return (
     <article
       data-testid={`item-row-${item._id}`}
       style={{
-        display: "grid",
-        gridTemplateColumns: "1fr auto",
-        gap: "8px 12px",
-        alignItems: "baseline",
         padding: "12px 0",
-        borderBottom: `1px solid ${MYTAB_COLORS.border}`,
+        borderTop: divider ? `1px solid ${MYTAB_COLORS.border}` : undefined,
       }}
     >
-      <div style={{ minWidth: 0 }}>
+      <div className="mytab-row">
+        <div className="mytab-row__label">
+          <p
+            className="mytab-type-body"
+            style={{
+              margin: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              // Thai ascenders and descenders must not clip (DESIGN.md).
+              lineHeight: 1.45,
+            }}
+          >
+            {item.name}
+          </p>
+          <p className="mytab-type-meta" style={{ margin: "4px 0 0" }}>
+            ×{item.quantity}
+          </p>
+        </div>
         <p
-          className="mytab-type-body"
-          style={{
-            margin: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            lineHeight: 1.45,
-          }}
+          className="mytab-row__amount mytab-type-amount-row mytab-tabular"
+          data-mytab-amount
+          aria-label={formatThbMinorForA11y(lineTotalMinor)}
+          style={{ margin: 0 }}
         >
-          {item.name}
-        </p>
-        <p className="mytab-type-meta" style={{ margin: "4px 0 0", color: MYTAB_COLORS.inkMuted }}>
-          ×{item.quantity}
+          {formatFiatMinorThb(lineTotalMinor)}
         </p>
       </div>
-      <p
-        className="mytab-type-body mytab-tabular"
-        data-mytab-amount
-        style={{ margin: 0, whiteSpace: "nowrap" }}
-      >
-        {formatFiatMinorThb(fiatMinorFromInteger(item.lineTotalMinor))}
-      </p>
 
       {editable ? (
-        <div style={{ gridColumn: "1 / -1", display: "flex", gap: 12 }}>
-          <button type="button" className="mytab-link-button" onClick={() => onEdit?.(item._id)}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 4 }}>
+          {/* `.mytab-link-button` carries the 44px minimum target. */}
+          <button
+            type="button"
+            className="mytab-link-button"
+            onClick={() => onEdit?.(item._id)}
+            aria-label={`Edit ${item.name}`}
+          >
             Edit
           </button>
           <button
             type="button"
             className="mytab-link-button"
             onClick={() => onDuplicate?.(item._id)}
+            aria-label={`Duplicate ${item.name}`}
           >
             Duplicate
           </button>
+          {/* Destructive is `owed`. `warning` means "needs a human", not "this deletes". */}
           <button
             type="button"
             className="mytab-link-button"
             onClick={() => onRemove?.(item._id)}
-            style={{ color: MYTAB_COLORS.warning }}
+            aria-label={`Remove ${item.name}`}
+            style={{ color: MYTAB_COLORS.owed }}
           >
             Remove
           </button>

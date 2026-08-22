@@ -38,3 +38,8 @@ test-results/
 *.log
 tmp/
 .tmp/
+.vercel
+
+# generated launch imagery originals (3072x5504, never bundled)
+scripts/assets/originals/
+scripts/assets/out/

@@ -2,7 +2,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PaymentTokenSelector } from "@/components/settlement-sheet/PaymentTokenSelector";
-import { RoundUpControl, StaleRevisionBanner } from "@/components/settlement-sheet/RoundUpControl";
+import { RoundUpControl } from "@/components/settlement-sheet/RoundUpControl";
+import { PaymentSheet } from "@/components/settlement-sheet/PaymentSheet";
 import { ClaimBoard } from "@/features/settlement/ClaimBoard";
 import {
   formatPaymentProgressMessage,
@@ -44,11 +45,31 @@ describe("Story 6.5 — payment token selector", () => {
   });
 });
 
-describe("Story 6.6 — stale revision banner", () => {
-  it("shows the required copy and one refresh action", () => {
-    const html = renderToStaticMarkup(<StaleRevisionBanner onRefresh={() => undefined} />);
+describe("Story 6.6 — stale revision, in place", () => {
+  it("keeps the amounts and puts the message in the sheet", () => {
+    const html = renderToStaticMarkup(
+      <PaymentSheet
+        billAmount="฿291.74"
+        billAmountLabel="your share of Sukhumvit Dinner"
+        recipientName="Maya"
+        destinationAsset="USDC"
+        tokens={[{ id: "usdc", name: "USDC", balanceLabel: "12.40 USDC", affordable: true }]}
+        selectedTokenId="usdc"
+        onSelectToken={() => undefined}
+        spendLabel="8.31 USDC"
+        minimumReceiveAmount="8.25 USDC"
+        maximumSpend="8.31 USDC"
+        quoteRemainingMs={42_000}
+        staleRevision
+        onPay={() => undefined}
+        onRefreshBill={() => undefined}
+      />,
+    );
     expect(html).toContain("This bill changed. Refresh to see your new amount.");
-    expect(html).toContain("Refresh");
+    expect(html).toContain("Refresh bill");
+    // The sheet is not replaced: the amounts hold their values, dimmed.
+    expect(html).toContain("8.25 USDC");
+    expect(html).toContain("opacity:0.4");
   });
 });
 
@@ -96,17 +117,36 @@ describe("Story 6.8 — payment confirmed group message", () => {
 });
 
 describe("Story 6.9 — round-up control", () => {
-  it("defaults off and shows the amount when enabled", () => {
+  it("shows the amount whether it is on or off, and clears the 44px floor", () => {
+    for (const enabled of [true, false]) {
+      const html = renderToStaticMarkup(
+        <RoundUpControl
+          label="Round up for the organizer"
+          amountLabel="0.50 USDC"
+          enabled={enabled}
+          onToggle={() => undefined}
+        />,
+      );
+
+      expect(html).toContain("Round up for the organizer");
+      // A person cannot weigh an offer they cannot see.
+      expect(html).toContain("0.50 USDC");
+      expect(html).toContain("min-height:44px");
+      expect(html).toContain(`aria-checked="${enabled}"`);
+    }
+  });
+
+  it("carries the tip colour, never the action colour", () => {
     const html = renderToStaticMarkup(
       <RoundUpControl
-        label="Round up for the organizer"
-        amountLabel="0.50 USDC"
+        label="Round up to ฿300"
+        amountLabel="+฿8.26"
         enabled
         onToggle={() => undefined}
       />,
     );
 
-    expect(html).toContain("Round up for the organizer");
-    expect(html).toContain("0.50 USDC");
+    expect(html).toContain("#A85F2E");
+    expect(html).not.toContain("#1E51D2");
   });
 });
