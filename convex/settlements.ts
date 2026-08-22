@@ -2,15 +2,29 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
+  action,
   internalMutation,
   internalQuery,
   mutation,
   query,
+  type MutationCtx,
 } from "./_generated/server";
-import { AuthError } from "./lib/auth";
+import { AuthError, UNAUTHORIZED, getCurrentUser } from "./lib/auth";
 import { requireIntentOwner } from "./lib/intentAuth";
 import { createTipIntentCore, refreshTipIntentCore } from "./lib/settlementIntentSync";
-import { USDC_MINT } from "../lib/solana/constants";
+import {
+  USDC_DECIMALS,
+  USDC_MINT,
+  WRAPPED_SOL_MINT,
+} from "../lib/solana/constants";
+import {
+  createSolanaRpcClient,
+  type SolanaRpcClient,
+} from "../lib/solana/rpc";
+import {
+  decodeTokenAccount,
+  deriveRecipientUsdcAta,
+} from "../lib/solana/tokenAccount";
 import { createObligationIntentCore, refreshObligationIntentCore, normalizeInputMint } from "./lib/settlementObligationSync";
 import {
   countTabSettlementProgress,
@@ -22,28 +36,28 @@ import {
   SETTLEMENT_FAILURE,
   SETTLEMENT_STATUS,
   assertSettlementTransition,
+  isTerminalSettlementStatus,
 } from "./lib/settlementState";
 import { expireIntentIfPastDue } from "./lib/intentExpiry";
+import { OBLIGATION_NOT_FOUND } from "./obligations";
 import { applySettlementOffset, isTargetAlreadySettled } from "./lib/settlementLedger";
 import {
   releaseSponsorReservation,
   reserveSponsorBudget,
 } from "./lib/sponsorReservation";
 import {
+  SPONSOR_FAILURE,
   SPONSOR_POLICY_VERSION,
   isSponsorPaused,
   resolveSponsorEnvironment,
 } from "./sponsorPolicy";
 import {
-  FIXTURE_MESSAGE_BYTES,
-  FIXTURE_MESSAGE_HASH,
-  FIXTURE_PARTIAL_SIGNED_TX,
-  extractFixtureUserSignature,
+  fixtureMessageBytes,
+  fixtureMessageHash,
   verifyPartialSignedMessage,
 } from "./lib/solanaFixture";
-import {
-  FIXTURE_TX_SIGNATURE,
-} from "./internal/confirmations";
+import { assertFixturePathAllowed } from "../lib/solana/runtimeGuard";
+import { resolveSponsorWalletAddress } from "../lib/solana/fixture";
 
 export {
   SETTLEMENT_FAILURE,
@@ -227,15 +241,28 @@ export const recordUserSigned = mutation({
       throw new AuthError(SETTLEMENT_FAILURE.MESSAGE_HASH_MISMATCH);
     }
 
-    const verification = verifyPartialSignedMessage(
-      args.partialSignedTxBase64,
-      intent.messageHash,
-    );
+    // The payer public key is read from the server-owned wallet record, never
+    // from the submitted payload: verifying a signature against a key the client
+    // supplies proves nothing.
+    const wallet = await ctx.db.get(intent.walletId);
+    if (!wallet) {
+      throw new AuthError("PAYER_WALLET_REQUIRED");
+    }
+
+    const sponsorAddress = resolveSponsorWalletAddress();
+
+    const verification = verifyPartialSignedMessage({
+      partialSignedTxBase64: args.partialSignedTxBase64,
+      expectedMessageHash: intent.messageHash,
+      payerAddress: wallet.solanaAddress,
+      sponsorAddress,
+      expectedSerializedMessageBase64: intent.serializedMessage,
+    });
     if (!verification.ok) {
       throw new AuthError(verification.failureCode);
     }
 
-    const userSignature = extractFixtureUserSignature(args.partialSignedTxBase64);
+    const userSignature = verification.userSignature;
     if (intent.userSignature && intent.userSignature === userSignature) {
       throw new AuthError(SETTLEMENT_FAILURE.DUPLICATE_USER_SIGNATURE);
     }
@@ -264,6 +291,11 @@ export const markReadyForSignatureInternal = internalMutation({
     intentId: v.id("settlementIntents"),
   },
   handler: async (ctx, args) => {
+    // This helper writes fixture message bytes onto a real intent. It must never
+    // run on a deployment — a fixture hash there would make every later
+    // verification compare against a value no wallet ever signed.
+    assertFixturePathAllowed("settlements.markReadyForSignatureInternal");
+
     const intent = await ctx.db.get(args.intentId);
     if (!intent) {
       throw new AuthError("INTENT_NOT_FOUND");
@@ -298,8 +330,8 @@ export const markReadyForSignatureInternal = internalMutation({
 
     await ctx.db.patch(intent._id, {
       status: SETTLEMENT_STATUS.READY_FOR_SIGNATURE,
-      messageHash: FIXTURE_MESSAGE_HASH,
-      serializedMessage: FIXTURE_MESSAGE_BYTES,
+      messageHash: fixtureMessageHash(),
+      serializedMessage: fixtureMessageBytes(),
       sponsorReservationLamports: reservation.reservedLamports,
       policyVersion: SPONSOR_POLICY_VERSION,
       updatedAt: now,
@@ -309,13 +341,23 @@ export const markReadyForSignatureInternal = internalMutation({
   },
 });
 
-/** Records broadcast result — client never broadcasts (Story 3.5 AC4). */
-export const markSubmittedInternal = internalMutation({
+/**
+ * Records the transaction signature BEFORE the broadcast (AD-11, decision 8).
+ *
+ * A fully signed Solana transaction's id is simply its first signature, so it
+ * is knowable the instant the sponsor signs and before anything is sent. Writing
+ * it down first is what makes an unobservable send recoverable: if the action
+ * dies mid-broadcast, the intent still carries the signature that reconciliation
+ * needs to look up on chain.
+ *
+ * Deliberately does not move the status. Nothing has been broadcast yet, and
+ * `user_signed` is already a state that blocks reopen/replacement.
+ */
+export const markBroadcastPendingInternal = internalMutation({
   args: {
     intentId: v.id("settlementIntents"),
     transactionSignature: v.string(),
     fullySignedTx: v.string(),
-    ambiguous: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
@@ -323,40 +365,199 @@ export const markSubmittedInternal = internalMutation({
       throw new AuthError("INTENT_NOT_FOUND");
     }
 
-    const duplicate = await ctx.db
-      .query("settlements")
-      .withIndex("by_transaction_signature", (q) =>
-        q.eq("transactionSignature", args.transactionSignature),
-      )
-      .unique();
-
-    if (duplicate) {
+    // Exactly-once on the signature: the unique index on `settlements` is the
+    // ultimate guard, but catching a foreign owner here means we never even
+    // attempt a broadcast whose signature another intent already claimed.
+    const conflict = await findSignatureOwner(ctx, args.transactionSignature);
+    if (conflict && conflict !== intent._id) {
       throw new AuthError(SETTLEMENT_FAILURE.DUPLICATE_TRANSACTION_SIGNATURE);
     }
 
-    const nextStatus = args.ambiguous
-      ? SETTLEMENT_STATUS.UNKNOWN
-      : SETTLEMENT_STATUS.SUBMITTED;
-    assertSettlementTransition(intent.status, nextStatus);
+    if (
+      intent.transactionSignature &&
+      intent.transactionSignature !== args.transactionSignature
+    ) {
+      // The same intent producing two different signatures means the message
+      // changed underneath us — the one thing that could double-pay.
+      throw new AuthError(SETTLEMENT_FAILURE.DUPLICATE_TRANSACTION_SIGNATURE);
+    }
+
+    await ctx.db.patch(intent._id, {
+      transactionSignature: args.transactionSignature,
+      fullySignedTx: args.fullySignedTx,
+      updatedAt: Date.now(),
+    });
+
+    return { intentId: intent._id, status: intent.status };
+  },
+});
+
+/**
+ * The intent that already owns a transaction signature, if any.
+ *
+ * `settlements.by_transaction_signature` is a unique index, so this is the
+ * authoritative exactly-once check: a signature can appear in the ledger under
+ * exactly one intent, ever.
+ */
+async function findSignatureOwner(
+  ctx: MutationCtx,
+  transactionSignature: string,
+): Promise<Id<"settlementIntents"> | null> {
+  const settlement = await ctx.db
+    .query("settlements")
+    .withIndex("by_transaction_signature", (q) =>
+      q.eq("transactionSignature", transactionSignature),
+    )
+    .unique();
+  return settlement ? settlement.intentId : null;
+}
+
+/**
+ * Records the broadcast result — the client never broadcasts (Story 3.5 AC4).
+ *
+ * Idempotent by construction, because this mutation runs on a path that can be
+ * retried by the Convex scheduler after the broadcast already happened:
+ *
+ *  - re-entry with the SAME signature on an intent that is already
+ *    `submitted`/`unknown`/`confirmed` returns the current state instead of
+ *    throwing. A retry is not a second payment.
+ *  - a signature owned by a DIFFERENT intent still throws. That is the genuine
+ *    double-pay signal and it must never be swallowed.
+ *
+ * `ambiguous` means the send could not be observed. Per AD-21 the transition
+ * table has no `user_signed -> unknown` edge, and rightly so: we did submit,
+ * we simply cannot see the outcome. So an ambiguous send walks
+ * `user_signed -> submitted -> unknown`, both legal edges, and schedules
+ * reconciliation rather than a confirmation read.
+ */
+export const markSubmittedInternal = internalMutation({
+  args: {
+    intentId: v.id("settlementIntents"),
+    transactionSignature: v.string(),
+    fullySignedTx: v.string(),
+    ambiguous: v.optional(v.boolean()),
+    ambiguityDetail: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (!intent) {
+      throw new AuthError("INTENT_NOT_FOUND");
+    }
+
+    const owner = await findSignatureOwner(ctx, args.transactionSignature);
+    if (owner && owner !== intent._id) {
+      throw new AuthError(SETTLEMENT_FAILURE.DUPLICATE_TRANSACTION_SIGNATURE);
+    }
+
+    const alreadyRecorded =
+      intent.transactionSignature === args.transactionSignature &&
+      (intent.status === SETTLEMENT_STATUS.SUBMITTED ||
+        intent.status === SETTLEMENT_STATUS.UNKNOWN ||
+        intent.status === SETTLEMENT_STATUS.CONFIRMED);
+
+    if (alreadyRecorded) {
+      // Idempotent replay of a step that already happened.
+      return { intentId: intent._id, status: intent.status, alreadyRecorded: true };
+    }
 
     const now = Date.now();
+    assertSettlementTransition(intent.status, SETTLEMENT_STATUS.SUBMITTED);
     await ctx.db.patch(intent._id, {
-      status: nextStatus,
+      status: SETTLEMENT_STATUS.SUBMITTED,
       transactionSignature: args.transactionSignature,
       fullySignedTx: args.fullySignedTx,
       updatedAt: now,
     });
 
-    if (!args.ambiguous) {
-      await ctx.scheduler.runAfter(0, internal.internal.settlementPipeline.processConfirmationPipeline, {
-        intentId: intent._id,
-        transactionSignature: args.transactionSignature,
+    if (args.ambiguous) {
+      assertSettlementTransition(
+        SETTLEMENT_STATUS.SUBMITTED,
+        SETTLEMENT_STATUS.UNKNOWN,
+      );
+      await ctx.db.patch(intent._id, {
+        status: SETTLEMENT_STATUS.UNKNOWN,
+        // Not a failure code — the intent is not failed. It records WHY the
+        // observation was ambiguous so an operator can read the history.
+        failureCode: args.ambiguityDetail ?? "BROADCAST_UNOBSERVED",
+        updatedAt: now,
       });
+      await ctx.scheduler.runAfter(
+        RECONCILE_FIRST_DELAY_MS,
+        internal.internal.settlementPipeline.reconcileSettlementIntent,
+        { intentId: intent._id, attempt: 0 },
+      );
+      return { intentId: intent._id, status: SETTLEMENT_STATUS.UNKNOWN };
     }
 
-    return { intentId: intent._id, status: nextStatus };
+    await ctx.scheduler.runAfter(0, internal.internal.settlementPipeline.processConfirmationPipeline, {
+      intentId: intent._id,
+      transactionSignature: args.transactionSignature,
+    });
+
+    return { intentId: intent._id, status: SETTLEMENT_STATUS.SUBMITTED };
   },
 });
+
+/**
+ * Moves a submitted intent to `unknown` when the chain could not be observed.
+ *
+ * Never `failed`: decision 8 is explicit that a submission timeout is not a
+ * failure. `unknown` keeps the sponsor reservation held and keeps the target
+ * blocked from reopen, and a late confirmation still completes normally.
+ */
+export const markUnknownInternal = internalMutation({
+  args: {
+    intentId: v.id("settlementIntents"),
+    reason: v.string(),
+    scheduleAttempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (!intent) {
+      return { ok: false as const, failureCode: "INTENT_NOT_FOUND" };
+    }
+
+    if (intent.status === SETTLEMENT_STATUS.CONFIRMED) {
+      return { ok: true as const, status: intent.status };
+    }
+
+    const now = Date.now();
+    if (intent.status !== SETTLEMENT_STATUS.UNKNOWN) {
+      assertSettlementTransition(intent.status, SETTLEMENT_STATUS.UNKNOWN);
+      await ctx.db.patch(intent._id, {
+        status: SETTLEMENT_STATUS.UNKNOWN,
+        failureCode: args.reason,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(intent._id, { failureCode: args.reason, updatedAt: now });
+    }
+
+    const attempt = args.scheduleAttempt;
+    if (attempt !== undefined && attempt < RECONCILE_MAX_ATTEMPTS) {
+      await ctx.scheduler.runAfter(
+        reconcileDelayMs(attempt),
+        internal.internal.settlementPipeline.reconcileSettlementIntent,
+        { intentId: intent._id, attempt: attempt + 1 },
+      );
+    }
+
+    return { ok: true as const, status: SETTLEMENT_STATUS.UNKNOWN };
+  },
+});
+
+/** First reconciliation poll after an ambiguous broadcast. */
+export const RECONCILE_FIRST_DELAY_MS = 5_000;
+
+/**
+ * Reconciliation runs for 24 hours (AD-11). Backoff doubles from 5s and caps at
+ * 30 minutes; 60 attempts on that curve spans just over a day.
+ */
+export const RECONCILE_MAX_ATTEMPTS = 60;
+
+export function reconcileDelayMs(attempt: number): number {
+  return Math.min(RECONCILE_FIRST_DELAY_MS * 2 ** attempt, 30 * 60_000);
+}
 
 /** Applies parsed confirmation to ledger exactly once (Story 3.6 AC3). */
 export const applyConfirmedInternal = internalMutation({
@@ -383,7 +584,22 @@ export const applyConfirmedInternal = internalMutation({
       .unique();
 
     if (existingSettlement) {
+      if (existingSettlement.intentId !== intent._id) {
+        // The same on-chain transaction cannot settle two intents. This is the
+        // "late or duplicate confirmation after replacement" case in AD-11: it
+        // freezes rather than silently applying a second offset.
+        throw new AuthError(SETTLEMENT_FAILURE.DUPLICATE_TRANSACTION_SIGNATURE);
+      }
+      // Idempotent late confirmation: the ledger already moved for this exact
+      // signature and this exact intent, so this is a replay, not a payment.
       return { intentId: intent._id, status: SETTLEMENT_STATUS.CONFIRMED, alreadyConfirmed: true };
+    }
+
+    // A confirmed settlement must carry the hash of the message that was
+    // actually signed. Substituting a fixture hash here would let a settlement
+    // row exist that no transaction can be reconciled against.
+    if (!intent.messageHash) {
+      throw new AuthError(SETTLEMENT_FAILURE.MESSAGE_HASH_MISMATCH);
     }
 
     assertSettlementTransition(intent.status, SETTLEMENT_STATUS.CONFIRMED);
@@ -392,7 +608,7 @@ export const applyConfirmedInternal = internalMutation({
     await ctx.db.insert("settlements", {
       intentId: intent._id,
       transactionSignature: args.transactionSignature,
-      messageHash: intent.messageHash ?? FIXTURE_MESSAGE_HASH,
+      messageHash: intent.messageHash,
       billSnapshotHash: intent.billSnapshotHash,
       sponsorDebitLamports: args.sponsorDebitLamports,
       confirmedAt: now,
@@ -660,7 +876,15 @@ export const applyQuotedTransactionInternal = internalMutation({
   },
 });
 
-/** Ensures sponsor reservation immediately before co-sign (Story 3.8 AC6). */
+/**
+ * Ensures the sponsor reservation immediately before co-sign (Story 3.8 AC6, AD-17).
+ *
+ * Rechecks, in this order and all fail-closed: the kill switch, the policy
+ * version the reservation was made under, and every budget dimension. The kill
+ * switch is rechecked here as well as in the calling action because an operator
+ * may flip it between the two, and this mutation is the last transactional point
+ * before the sponsor key is used.
+ */
 export const ensureSponsorReservationInternal = internalMutation({
   args: { intentId: v.id("settlementIntents") },
   handler: async (ctx, args) => {
@@ -669,7 +893,15 @@ export const ensureSponsorReservationInternal = internalMutation({
       return { ok: false as const, failureCode: "INTENT_NOT_FOUND" };
     }
 
-    return reserveSponsorBudget(ctx, {
+    if (isSponsorPaused()) {
+      return { ok: false as const, failureCode: SPONSOR_FAILURE.PAUSED };
+    }
+
+    if (intent.policyVersion !== SPONSOR_POLICY_VERSION) {
+      return { ok: false as const, failureCode: "SPONSOR_POLICY_VERSION_MISMATCH" };
+    }
+
+    const reservation = await reserveSponsorBudget(ctx, {
       intentId: intent._id,
       userId: intent.userId,
       walletId: intent.walletId,
@@ -677,8 +909,19 @@ export const ensureSponsorReservationInternal = internalMutation({
       environment: resolveSponsorEnvironment(),
       recipientAddress: intent.recipientAddress,
       outputMint: intent.outputMint,
+      reservedLamports: intent.sponsorReservationLamports,
       paused: isSponsorPaused(),
     });
+
+    if (!reservation.ok) {
+      return reservation;
+    }
+
+    return {
+      ok: true as const,
+      reservedLamports: reservation.reservedLamports,
+      reservationOwnerIntentId: intent._id as string,
+    };
   },
 });
 
@@ -733,6 +976,7 @@ export const seedFixtureIntentInternal = internalMutation({
     maximumInputAtomic: v.int64(),
   },
   handler: async (ctx, args): Promise<Id<"settlementIntents">> => {
+    assertFixturePathAllowed("settlements.seedFixtureIntentInternal");
     const now = Date.now();
 
     const existing = await ctx.db
@@ -764,8 +1008,8 @@ export const seedFixtureIntentInternal = internalMutation({
       tipId: args.tipId,
       recipientUserId: args.recipientUserId,
       recipientAddress: args.recipientAddress,
-      inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      inputMint: USDC_MINT,
+      outputMint: USDC_MINT,
       maximumInputAtomic: args.maximumInputAtomic,
       minimumOutputAtomic: args.minimumOutputAtomic,
       idempotencyKey: args.idempotencyKey,
@@ -778,5 +1022,324 @@ export const seedFixtureIntentInternal = internalMutation({
   },
 });
 
-export const FIXTURE_PARTIAL_TX = FIXTURE_PARTIAL_SIGNED_TX;
-export const FIXTURE_BROADCAST_SIGNATURE = FIXTURE_TX_SIGNATURE;
+
+// ---------------------------------------------------------------------------
+// Payment Sheet — the quote half of one obligation
+// ---------------------------------------------------------------------------
+
+/**
+ * Server-owned facts the Payment Sheet's quote needs, minus wallet balances.
+ *
+ * Authorization is **debtor only**, and every party is read off the stored
+ * obligation row rather than out of the arguments. `obligations.get` admits the
+ * creditor and other tab participants because Bill Review is a shared read;
+ * this is not that. It exposes the payer's own locked price and, through its
+ * caller, the payer's wallet balances, so anyone who is not the payer has no
+ * business here — including the creditor.
+ */
+export const getObligationQuoteBaseInternal = internalQuery({
+  args: { obligationId: v.id("obligations") },
+  handler: async (ctx, args) => {
+    // Identity is derived from the authenticated session, never from an
+    // argument. A sibling mutation set shipped with a client-supplied
+    // `creditorUserId` and let any group member act on someone else's
+    // receivable; nothing here reads a party from `args`.
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      throw new AuthError(UNAUTHORIZED);
+    }
+
+    const obligation = await ctx.db.get(args.obligationId);
+    if (!obligation) {
+      throw new AuthError(OBLIGATION_NOT_FOUND);
+    }
+
+    if (obligation.debtorUserId !== user._id) {
+      // Deny by default. Not "creditor may peek", not "participants may read".
+      throw new AuthError(UNAUTHORIZED);
+    }
+
+    const tab = await ctx.db.get(obligation.tabId);
+    if (!tab) {
+      throw new AuthError(OBLIGATION_NOT_FOUND);
+    }
+
+    const payerWallet = await ctx.db
+      .query("wallets")
+      .withIndex("by_user_id", (q) => q.eq("userId", user._id))
+      .first();
+
+    // Prefer the intent the obligation points at; fall back to the live
+    // non-terminal one, then to the most recent attempt so a failed quote can
+    // still explain itself.
+    const intents = await ctx.db
+      .query("settlementIntents")
+      .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
+      .collect();
+
+    const linked = obligation.settlementIntentId
+      ? (intents.find((row) => row._id === obligation.settlementIntentId) ?? null)
+      : null;
+    const nonTerminal =
+      intents.find((row) => !isTerminalSettlementStatus(row.status)) ?? null;
+    const newest =
+      intents.length === 0
+        ? null
+        : intents.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+    const intent = nonTerminal ?? linked ?? newest;
+
+    const fx = tab.fxSnapshotId ? await ctx.db.get(tab.fxSnapshotId) : null;
+
+    const currentRevision = tab.lockedRevision ?? tab.revision ?? 0;
+
+    return {
+      obligationId: obligation._id,
+      payerAddress: payerWallet?.solanaAddress ?? null,
+      outputMint: obligation.outputMint,
+      obligationAmountAtomic: obligation.amountAtomic,
+      // The bill moved under the quote — the sheet must refresh before paying.
+      staleRevision:
+        obligation.tabRevision !== currentRevision ||
+        (intent?.tabRevision !== undefined && intent.tabRevision !== currentRevision),
+      rateNumeratorAtomic: fx?.numeratorAtomic ?? null,
+      rateDenominatorMinor: fx?.denominatorMinor ?? null,
+      intent:
+        intent === null
+          ? null
+          : {
+              _id: intent._id,
+              status: intent.status,
+              inputMint: intent.inputMint,
+              outputMint: intent.outputMint,
+              maximumInputAtomic: intent.maximumInputAtomic,
+              minimumOutputAtomic: intent.minimumOutputAtomic,
+              roundUpAtomic: intent.roundUpAtomic ?? null,
+              excessOutputAtomic: intent.excessOutputAtomic ?? null,
+              expiresAt: intent.expiresAt,
+              failureCode: intent.failureCode ?? null,
+              transactionSignature: intent.transactionSignature ?? null,
+            },
+    };
+  },
+});
+
+export type QuoteTokenRow = {
+  mint: string;
+  symbol: string;
+  decimals: number;
+  balanceAtomic: bigint;
+  /** Locked amount of THIS mint the payment needs, when one has been quoted. */
+  requiredAtomic: bigint | null;
+  /**
+   * `true`/`false` only when we can prove it. `null` means the token has no
+   * locked price yet, so affordability is genuinely unknown and the UI must not
+   * disable it on a guess.
+   *
+   * EXPERIENCE requires an unaffordable token to stay visible with its balance
+   * shown — never hidden — so the person can see why it is disabled.
+   */
+  affordable: boolean | null;
+};
+
+/** Mints the payer may settle from, with their display metadata. */
+const QUOTE_TOKENS: ReadonlyArray<{ mint: string; symbol: string; decimals: number }> =
+  Object.freeze([
+    { mint: USDC_MINT, symbol: "USDC", decimals: USDC_DECIMALS },
+    { mint: WRAPPED_SOL_MINT, symbol: "Solana", decimals: 9 },
+  ]);
+
+/**
+ * The Payment Sheet's quote for one obligation (debtor only).
+ *
+ * An **action**, not a query, for one reason: `tokens[]` needs wallet balances
+ * and there is no wallet-balance table in the schema. Balances are chain state,
+ * so they come from the configured RPC, which a deterministic Convex query
+ * cannot do. Everything else is read through
+ * {@link getObligationQuoteBaseInternal}, which owns the debtor-only check —
+ * so an unauthenticated or non-debtor caller is refused before any balance is
+ * fetched.
+ *
+ * A balance read that fails does not fail the whole sheet: the quote still
+ * renders and the affected token reports `affordable: null`. Refusing to show a
+ * price because an RPC hiccuped would be a worse answer than an honest unknown.
+ */
+export type ObligationQuote = {
+  intentId: Id<"settlementIntents"> | null;
+  /** One of the ten persisted AD-21 states, or null before any intent exists. */
+  status: string | null;
+  quoteResolving: boolean;
+  quoteExpired: boolean;
+  quoteRemainingMs: number;
+  staleRevision: boolean;
+  maximumInputAtomic: bigint | null;
+  minimumOutputAtomic: bigint;
+  inputMint: string | null;
+  outputMint: string;
+  roundUpAtomic: bigint | null;
+  excessOutputAtomic: bigint | null;
+  failureCode: string | null;
+  transactionSignature: string | null;
+  rateNumeratorAtomic: bigint | null;
+  rateDenominatorMinor: bigint | null;
+  tokens: QuoteTokenRow[];
+};
+
+export const getObligationQuote = action({
+  args: { obligationId: v.id("obligations") },
+  handler: async (ctx, args): Promise<ObligationQuote> => {
+    const base = await ctx.runQuery(internal.settlements.getObligationQuoteBaseInternal, {
+      obligationId: args.obligationId,
+    });
+
+    const now = Date.now();
+    const intent = base.intent;
+
+    const quoteResolving =
+      intent !== null &&
+      (intent.status === SETTLEMENT_STATUS.CREATED ||
+        intent.status === SETTLEMENT_STATUS.QUOTING);
+
+    const quoteRemainingMs =
+      intent === null ? 0 : Math.max(0, intent.expiresAt - now);
+
+    // Only a pre-signature quote can expire. Decision 8: user-signed or
+    // submitted money is never expired as a quote.
+    const quoteExpired =
+      intent !== null &&
+      quoteRemainingMs === 0 &&
+      (intent.status === SETTLEMENT_STATUS.CREATED ||
+        intent.status === SETTLEMENT_STATUS.QUOTING ||
+        intent.status === SETTLEMENT_STATUS.READY_FOR_SIGNATURE ||
+        intent.status === SETTLEMENT_STATUS.EXPIRED);
+
+    const tokens = await readQuoteTokenBalances({
+      payerAddress: base.payerAddress,
+      intentInputMint: intent?.inputMint ?? null,
+      requiredAtomic: intent?.maximumInputAtomic ?? null,
+      outputMint: base.outputMint,
+      obligationAmountAtomic: base.obligationAmountAtomic,
+    });
+
+    return {
+      intentId: intent?._id ?? null,
+      status: intent?.status ?? null,
+      quoteResolving,
+      quoteExpired,
+      quoteRemainingMs,
+      staleRevision: base.staleRevision,
+      maximumInputAtomic: intent?.maximumInputAtomic ?? null,
+      minimumOutputAtomic: intent?.minimumOutputAtomic ?? base.obligationAmountAtomic,
+      inputMint: intent?.inputMint ?? null,
+      outputMint: intent?.outputMint ?? base.outputMint,
+      roundUpAtomic: intent?.roundUpAtomic ?? null,
+      excessOutputAtomic: intent?.excessOutputAtomic ?? null,
+      failureCode: intent?.failureCode ?? null,
+      transactionSignature: intent?.transactionSignature ?? null,
+      rateNumeratorAtomic: base.rateNumeratorAtomic,
+      rateDenominatorMinor: base.rateDenominatorMinor,
+      tokens,
+    };
+  },
+});
+
+/**
+ * Reads each settleable token's balance from the chain.
+ *
+ * Native SOL is read as lamports, because that is what the person actually
+ * holds; wrapped SOL is a server-side detail at the router boundary and the UI
+ * calls it "Solana" (binding decision 7).
+ */
+async function readQuoteTokenBalances(input: {
+  payerAddress: string | null;
+  intentInputMint: string | null;
+  requiredAtomic: bigint | null;
+  outputMint: string;
+  obligationAmountAtomic: bigint;
+}): Promise<QuoteTokenRow[]> {
+  const rows: QuoteTokenRow[] = QUOTE_TOKENS.map((token) => ({
+    mint: token.mint,
+    symbol: token.symbol,
+    decimals: token.decimals,
+    balanceAtomic: 0n,
+    requiredAtomic: requiredForMint(token.mint, input),
+    affordable: null,
+  }));
+
+  if (!input.payerAddress) {
+    // No wallet yet. Balances are unknown, not zero-and-therefore-unaffordable.
+    return rows;
+  }
+
+  let rpc: SolanaRpcClient;
+  try {
+    rpc = createSolanaRpcClient();
+  } catch {
+    // Unconfigured or disagreeing RPC: report unknown rather than a false zero.
+    return rows;
+  }
+
+  for (const row of rows) {
+    try {
+      row.balanceAtomic =
+        row.mint === WRAPPED_SOL_MINT
+          ? await readNativeSolBalance(rpc, input.payerAddress)
+          : await readSplBalance(rpc, input.payerAddress, row.mint);
+      row.affordable =
+        row.requiredAtomic === null ? null : row.balanceAtomic >= row.requiredAtomic;
+    } catch {
+      // One token's RPC failure must not blank the whole sheet.
+      row.balanceAtomic = 0n;
+      row.affordable = null;
+    }
+  }
+
+  return rows;
+}
+
+function requiredForMint(
+  mint: string,
+  input: {
+    intentInputMint: string | null;
+    requiredAtomic: bigint | null;
+    outputMint: string;
+    obligationAmountAtomic: bigint;
+  },
+): bigint | null {
+  // The quoted token has a locked cap — that is the number to compare against.
+  if (input.intentInputMint === mint && input.requiredAtomic !== null) {
+    return input.requiredAtomic;
+  }
+  // Paying USDC into a USDC obligation needs no price: it is one-for-one.
+  if (mint === input.outputMint) {
+    return input.obligationAmountAtomic;
+  }
+  // Any other token needs a router quote we do not have yet.
+  return null;
+}
+
+async function readNativeSolBalance(
+  rpc: SolanaRpcClient,
+  address: string,
+): Promise<bigint> {
+  const account = await rpc.getAccountInfo(address, "confirmed");
+  return account?.lamports ?? 0n;
+}
+
+async function readSplBalance(
+  rpc: SolanaRpcClient,
+  owner: string,
+  mint: string,
+): Promise<bigint> {
+  const ata = deriveRecipientUsdcAta(owner, mint);
+  const account = await rpc.getAccountInfo(ata, "confirmed");
+  if (!account) {
+    return 0n;
+  }
+  const decoded = decodeTokenAccount(account.dataBase64);
+  // A wrong mint or owner at the derived address means the balance is not the
+  // payer's to spend. Report zero rather than credit someone else's tokens.
+  if (!decoded || decoded.mint !== mint || decoded.owner !== owner) {
+    return 0n;
+  }
+  return decoded.amount;
+}

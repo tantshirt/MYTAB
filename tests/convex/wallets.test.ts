@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
-  FIXTURE_PRIVY_WALLET_ID,
-  FIXTURE_SOLANA_ADDRESS,
   isPrivyServerFixtureMode,
   resolvePrivyEmbeddedWalletSnapshot,
 } from "../../convex/internal/privy";
+import {
+  FIXTURE_PRIVY_WALLET_ID,
+  FIXTURE_SOLANA_ADDRESS,
+} from "../../lib/privy/fixtures";
 import {
   DUPLICATE_DEFAULT_RECEIVING,
   WalletError,
@@ -13,10 +16,11 @@ import {
   shouldNewEmbeddedWalletBeDefault,
   upsertEmbeddedWallet,
 } from "../../convex/lib/walletSync";
+import { fakeId } from "../helpers/convexFakeDb";
 
 type WalletDoc = {
-  _id: string;
-  userId: string;
+  _id: Id<"wallets">;
+  userId: Id<"users">;
   privyWalletId: string;
   solanaAddress: string;
   isEmbedded: boolean;
@@ -24,6 +28,18 @@ type WalletDoc = {
   createdAt: number;
   updatedAt: number;
 };
+
+/**
+ * Convex stamps `_creationTime` on every document, but this fake deliberately
+ * does not: "stores only wallet id and address metadata" asserts the exact key
+ * set an insert produced, and that assertion is about what the handler wrote.
+ * `asWalletDocs` supplies the field only where a real `Doc<"wallets">` is
+ * required — the helpers under test only read those copies, and every write
+ * still goes through `ctx.db.patch` against the store itself.
+ */
+function asWalletDocs(rows: readonly WalletDoc[]): Array<Doc<"wallets">> {
+  return rows.map((row) => ({ _creationTime: 0, ...row }));
+}
 
 function createWalletStore(initial: WalletDoc[] = []) {
   const wallets = [...initial];
@@ -64,7 +80,7 @@ function createWalletStore(initial: WalletDoc[] = []) {
         },
       }),
       insert: async (_table: string, doc: Omit<WalletDoc, "_id">) => {
-        const id = `wallets:${nextId++}`;
+        const id = fakeId<"wallets">(`wallets:${nextId++}`);
         wallets.push({ _id: id, ...doc });
         return id;
       },
@@ -81,14 +97,19 @@ function createWalletStore(initial: WalletDoc[] = []) {
 }
 
 describe("Story 1.8 — wallet sync helpers", () => {
-  it("returns fixture wallet data when Privy server credentials are absent", () => {
+  it("returns fixture wallet data when Privy server credentials are absent", async () => {
     if (!isPrivyServerFixtureMode()) {
       return;
     }
 
-    expect(resolvePrivyEmbeddedWalletSnapshot("did:privy:test")).toEqual({
+    // Local/test runtime only — see tests/convex/privy-wallet-resolution.test.ts
+    // for the deployment paths, where this throws instead.
+    await expect(
+      resolvePrivyEmbeddedWalletSnapshot("did:privy:test"),
+    ).resolves.toEqual({
       privyWalletId: FIXTURE_PRIVY_WALLET_ID,
       solanaAddress: FIXTURE_SOLANA_ADDRESS,
+      candidateCount: 1,
     });
   });
 
@@ -96,11 +117,11 @@ describe("Story 1.8 — wallet sync helpers", () => {
     const { ctx, wallets } = createWalletStore();
     const now = Date.now();
 
-    await upsertEmbeddedWallet(ctx as never, "users:1" as never, "wallet-1", "SolAddr1");
+    await upsertEmbeddedWallet(ctx as never, fakeId<"users">("users:1"), "wallet-1", "SolAddr1");
 
     expect(wallets).toHaveLength(1);
     expect(wallets[0]).toMatchObject({
-      userId: "users:1",
+      userId: fakeId("users:1"),
       privyWalletId: "wallet-1",
       solanaAddress: "SolAddr1",
       isEmbedded: true,
@@ -123,7 +144,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
   it("AC2 — marks the first embedded wallet as the sole default receiving wallet", async () => {
     const { ctx, wallets } = createWalletStore();
 
-    await upsertEmbeddedWallet(ctx as never, "users:1" as never, "wallet-1", "SolAddr1");
+    await upsertEmbeddedWallet(ctx as never, fakeId<"users">("users:1"), "wallet-1", "SolAddr1");
 
     expect(wallets.filter((wallet) => wallet.isDefaultReceiving)).toHaveLength(1);
     expect(wallets[0]?.isEmbedded).toBe(true);
@@ -132,8 +153,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
   it("AC2 — keeps embedded vs external distinct and avoids a second default on insert", async () => {
     const { ctx, wallets } = createWalletStore([
       {
-        _id: "wallets:1",
-        userId: "users:1",
+        _id: fakeId("wallets:1"),
+        userId: fakeId("users:1"),
         privyWalletId: "external-1",
         solanaAddress: "ExternalAddr",
         isEmbedded: false,
@@ -145,7 +166,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
 
     expect(shouldNewEmbeddedWalletBeDefault(wallets)).toBe(false);
 
-    await upsertEmbeddedWallet(ctx as never, "users:1" as never, "wallet-1", "EmbeddedAddr");
+    await upsertEmbeddedWallet(ctx as never, fakeId<"users">("users:1"), "wallet-1", "EmbeddedAddr");
 
     expect(wallets).toHaveLength(2);
     expect(wallets.find((wallet) => wallet.privyWalletId === "wallet-1")).toMatchObject({
@@ -158,8 +179,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
   it("AC4 — reuses an existing wallet matched by Privy wallet id", async () => {
     const { ctx, wallets } = createWalletStore([
       {
-        _id: "wallets:1",
-        userId: "users:1",
+        _id: fakeId("wallets:1"),
+        userId: fakeId("users:1"),
         privyWalletId: "wallet-1",
         solanaAddress: "OldAddr",
         isEmbedded: true,
@@ -171,7 +192,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
 
     const result = await upsertEmbeddedWallet(
       ctx as never,
-      "users:1" as never,
+      fakeId<"users">("users:1"),
       "wallet-1",
       "NewAddr",
     );
@@ -185,8 +206,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
   it("AC2 — rejects duplicate default receiving wallets in corrupted state", async () => {
     const { ctx, wallets } = createWalletStore([
       {
-        _id: "wallets:1",
-        userId: "users:1",
+        _id: fakeId("wallets:1"),
+        userId: fakeId("users:1"),
         privyWalletId: "wallet-1",
         solanaAddress: "Addr1",
         isEmbedded: true,
@@ -195,8 +216,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
         updatedAt: 1,
       },
       {
-        _id: "wallets:2",
-        userId: "users:1",
+        _id: fakeId("wallets:2"),
+        userId: fakeId("users:1"),
         privyWalletId: "wallet-2",
         solanaAddress: "Addr2",
         isEmbedded: false,
@@ -207,19 +228,24 @@ describe("Story 1.8 — wallet sync helpers", () => {
     ]);
 
     await expect(
-      getDefaultReceivingWalletForUser(ctx as never, "users:1" as never),
+      getDefaultReceivingWalletForUser(ctx as never, fakeId<"users">("users:1")),
     ).rejects.toMatchObject({ code: DUPLICATE_DEFAULT_RECEIVING });
 
     await expect(
-      setDefaultReceivingWallet(ctx as never, "users:1" as never, "wallets:1" as never, wallets),
+      setDefaultReceivingWallet(
+        ctx as never,
+        fakeId<"users">("users:1"),
+        fakeId<"wallets">("wallets:1"),
+        asWalletDocs(wallets),
+      ),
     ).rejects.toBeInstanceOf(WalletError);
   });
 
   it("AC2 — atomically switches the default receiving wallet", async () => {
     const { ctx, wallets } = createWalletStore([
       {
-        _id: "wallets:1",
-        userId: "users:1",
+        _id: fakeId("wallets:1"),
+        userId: fakeId("users:1"),
         privyWalletId: "wallet-1",
         solanaAddress: "Addr1",
         isEmbedded: true,
@@ -228,8 +254,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
         updatedAt: 1,
       },
       {
-        _id: "wallets:2",
-        userId: "users:1",
+        _id: fakeId("wallets:2"),
+        userId: fakeId("users:1"),
         privyWalletId: "wallet-2",
         solanaAddress: "Addr2",
         isEmbedded: false,
@@ -239,7 +265,12 @@ describe("Story 1.8 — wallet sync helpers", () => {
       },
     ]);
 
-    await setDefaultReceivingWallet(ctx as never, "users:1" as never, "wallets:2" as never, wallets);
+    await setDefaultReceivingWallet(
+      ctx as never,
+      fakeId<"users">("users:1"),
+      fakeId<"wallets">("wallets:2"),
+      asWalletDocs(wallets),
+    );
 
     expect(wallets.find((wallet) => wallet._id === "wallets:1")?.isDefaultReceiving).toBe(false);
     expect(wallets.find((wallet) => wallet._id === "wallets:2")?.isDefaultReceiving).toBe(true);

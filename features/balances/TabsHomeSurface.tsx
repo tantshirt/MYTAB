@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { PlusIcon, TipIcon } from "@/components/icons";
 import { AmountPair } from "@/components/primitives/amount-pair";
 import { EmptyState } from "@/components/primitives/empty-state";
@@ -9,11 +8,10 @@ import { ErrorState } from "@/components/primitives/error-state";
 import { SurfaceErrorBoundary } from "@/components/primitives/error-boundary";
 import { showSkeleton, type LoadState } from "@/components/primitives/load-state";
 import { STATE_COPY } from "@/components/primitives/state-copy";
-import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { BalanceHero } from "./BalanceHero";
 import { TabCard } from "./TabCard";
 import { ActivityFeed } from "./ActivityFeed";
-import { AllSquareCard, hasSeenAllSquare, markAllSquareSeen } from "./AllSquareCard";
+import { AllSquareWatcher } from "./AllSquareWatcher";
 import { BalanceLinkRow } from "./PaymentStateBadge";
 import { TabsHomeSkeleton, OfflineBar, OutsideTelegramBar } from "./LoadingStates";
 import { StartTabAction } from "./StartTabAction";
@@ -41,7 +39,15 @@ export const TABS_HOME_COPY = {
 } as const;
 
 export type TabsHomeSurfaceProps = LoadState & {
-  balanceHero: BalanceHeroState;
+  /**
+   * The viewer's net position. **Absent when no position has been read yet.**
+   *
+   * `BalanceHeroState` has no "unknown" variant, so a required prop would force
+   * every caller to assert `owed`, `settled` or `all_square` — and "All square"
+   * over unread debt is the trust defect *Money Legibility* forbids. The card is
+   * hidden when this is absent, exactly as `GroupSurface`'s `position` is.
+   */
+  balanceHero?: BalanceHeroState;
   openTabs: TabCardProps[];
   groups: Array<{ id: string; name: string; memberCount: number }>;
   recentActivity: ActivityRowData[];
@@ -57,11 +63,20 @@ export type TabsHomeSurfaceProps = LoadState & {
   error?: boolean;
   onRetry?: () => void;
   offline?: boolean;
-  showAllSquare?: boolean;
-  allSquareBill?: { billId: string; name: string; amountLabel: string };
-  allSquareMembers?: Array<{ userId: string; displayName: string }>;
+  /**
+   * Posts the completion card to the group when the all-square moment fires.
+   * Absent → the moment offers only `Done` rather than a dead `Share to group`.
+   */
+  onShareAllSquare?: () => void;
   inTelegram?: boolean;
 };
+
+/**
+ * The Telegram bot this deployment belongs to, from
+ * `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`. Inlined at build time by Next; empty on
+ * a deployment that has not set it, which is a real state and not an error.
+ */
+const BOT_HANDLE = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "").trim();
 
 const ACTION_BASE = {
   display: "flex",
@@ -98,21 +113,28 @@ function PrimaryActions({
         <p className="mytab-type-body" style={{ margin: 0, color: MYTAB_COLORS.inkMuted }}>
           {STATE_COPY.noGroupContext}
         </p>
-        <a
-          href="https://t.me/mytab_fixture_bot"
-          style={{
-            ...ACTION_BASE,
-            display: "inline-flex",
-            marginTop: "12px",
-            padding: "0 20px",
-            background: MYTAB_COLORS.primary,
-            color: "#fff",
-            textDecoration: "none",
-            boxShadow: MYTAB_ELEVATION.buttonInset,
-          }}
-        >
-          {TABS_HOME_COPY.openBot}
-        </a>
+        {/*
+          The bot handle is deployment configuration, not a constant. Where it
+          is unset there is no bot to open, so the sentence stands on its own
+          rather than linking at a handle nobody registered.
+        */}
+        {BOT_HANDLE ? (
+          <a
+            href={`https://t.me/${BOT_HANDLE}`}
+            style={{
+              ...ACTION_BASE,
+              display: "inline-flex",
+              marginTop: "12px",
+              padding: "0 20px",
+              background: MYTAB_COLORS.primary,
+              color: "#fff",
+              textDecoration: "none",
+              boxShadow: MYTAB_ELEVATION.buttonInset,
+            }}
+          >
+            {TABS_HOME_COPY.openBot}
+          </a>
+        ) : null}
       </div>
     );
   }
@@ -218,25 +240,20 @@ export function TabsHomeSurface({
   error = false,
   onRetry,
   offline = false,
-  showAllSquare = false,
-  allSquareBill,
-  allSquareMembers = [],
+  onShareAllSquare,
   inTelegram = true,
 }: TabsHomeSurfaceProps) {
-  const [allSquareVisible, setAllSquareVisible] = useState(false);
   /*
-   * `window.matchMedia` used to be read during render here: undefined on the
-   * server, defined on the client, so the first client render disagreed with
-   * the server HTML — and nothing ever re-read it when the preference changed.
+   * The all-square moment is no longer a `showAllSquare` prop nobody ever
+   * passed. `AllSquareWatcher` subscribes each open tab to
+   * `balances.billCompletion` and fires on the live completion EDGE — never on
+   * mount over an already-complete bill, and never on the group net position,
+   * which is a different fact (EXPERIENCE, *Money Legibility*).
    */
-  const reduceMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (showAllSquare && allSquareBill && !hasSeenAllSquare(allSquareBill.billId)) {
-      setAllSquareVisible(true);
-      markAllSquareSeen(allSquareBill.billId);
-    }
-  }, [showAllSquare, allSquareBill]);
+  const allSquareCast = Object.entries(memberNames).map(([userId, displayName]) => ({
+    userId,
+    displayName,
+  }));
 
   // A skeleton only on a first paint with nothing cached — never on a tab
   // switch, never over data we already have (§2.9).
@@ -267,19 +284,17 @@ export function TabsHomeSurface({
       ) : null}
 
       <SurfaceErrorBoundary headline={TABS_HOME_COPY.error} retryLabel={TABS_HOME_COPY.retry}>
-        {allSquareVisible && allSquareBill ? (
-          <div style={{ marginBottom: "24px" }}>
-            <AllSquareCard
-              billName={allSquareBill.name}
-              amountLabel={allSquareBill.amountLabel}
-              members={allSquareMembers}
-              reduceMotion={reduceMotion}
-              onDismiss={() => setAllSquareVisible(false)}
-            />
-          </div>
-        ) : null}
+        <AllSquareWatcher
+          tabs={openTabs.map((tab) => ({
+            tabId: tab.tabId,
+            name: tab.name,
+            totalLabel: tab.totalLabel,
+          }))}
+          members={allSquareCast}
+          onShare={onShareAllSquare}
+        />
 
-        <BalanceHero state={balanceHero} />
+        {balanceHero ? <BalanceHero state={balanceHero} /> : null}
         <PrimaryActions groups={groups} blockedReason={blockedReason} />
 
         <section style={{ marginTop: "32px" }}>

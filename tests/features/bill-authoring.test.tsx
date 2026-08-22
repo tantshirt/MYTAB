@@ -11,11 +11,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => undefined, replace: () => undefined, refresh: () => undefined }),
   useSearchParams: () => new URLSearchParams(),
 }));
-import {
-  BillAuthoringSurface,
-  FIXTURE_BILL_AUTHORING,
-  FIXTURE_EMPTY_BILL,
-} from "@/features/bills";
+import { BillAuthoringSurface } from "@/features/bills";
+import { FIXTURE_BILL_AUTHORING, FIXTURE_EMPTY_BILL } from "@/tests/fixtures/bills";
 import { BillEmptyState } from "@/features/bills/BillEmptyState";
 import { BillSkeleton } from "@/features/bills/BillSkeleton";
 import { OfflineBar } from "@/features/bills/OfflineBar";
@@ -52,7 +49,7 @@ describe("Story 4.1 — New Tab surface", () => {
 
   it("AC5 — primary action reads Add items", () => {
     const html = renderBill(
-      <BillAuthoringSurface tabId="tabs:fixture" viewerUserId="users:andre" fixture={FIXTURE_EMPTY_BILL} />,
+      <BillAuthoringSurface tabId="tabs:fixture" viewerUserId="users:andre" data={FIXTURE_EMPTY_BILL} />,
     );
     expect(html).toContain("Add items");
   });
@@ -98,7 +95,7 @@ describe("Story 4.1 — New Tab surface", () => {
 describe("Story 4.2 — item list and empty states", () => {
   it("AC4 — renders Thai item names", () => {
     const html = renderBill(
-      <BillAuthoringSurface tabId="tabs:fixture" viewerUserId="users:andre" fixture={FIXTURE_BILL_AUTHORING} />,
+      <BillAuthoringSurface tabId="tabs:fixture" viewerUserId="users:andre" data={FIXTURE_BILL_AUTHORING} />,
     );
     expect(html).toContain("ส้มตำ");
     expect(html).toContain("Pad Thai");
@@ -126,7 +123,7 @@ describe("Story 4.2 — item list and empty states", () => {
       <BillAuthoringSurface
         tabId="tabs:fixture"
         viewerUserId="users:maya"
-        fixture={FIXTURE_EMPTY_BILL}
+        data={FIXTURE_EMPTY_BILL}
       />,
     );
     expect(html).toContain("Andre is adding the bill");
@@ -152,7 +149,7 @@ describe("Story 4.2 — item list and empty states", () => {
 describe("Story 4.3 — adjustments and totals", () => {
   it("AC3 — shows labelled adjustment lines", () => {
     const html = renderBill(
-      <BillAuthoringSurface tabId="tabs:fixture" viewerUserId="users:andre" fixture={FIXTURE_BILL_AUTHORING} />,
+      <BillAuthoringSurface tabId="tabs:fixture" viewerUserId="users:andre" data={FIXTURE_BILL_AUTHORING} />,
     );
     expect(html).toContain("Service charge");
     expect(html).toContain("Tax");

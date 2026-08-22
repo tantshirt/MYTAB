@@ -15,7 +15,6 @@ import {
 } from "./lib/telegramWebhook";
 import { normalizeTelegramUpdate } from "../lib/telegram/webhook";
 import { buildTelegramDeepLink } from "./lib/telegramDeepLink";
-import { mintSessionToken } from "./lib/sessionTokenOps";
 
 const http = httpRouter();
 
@@ -111,8 +110,28 @@ http.route({
 });
 
 /**
- * Fixture stub for deep-link token generation (Story 1.9).
- * Creates a tab_session token for an existing tab when authenticated.
+ * Mints one invite link for a tab — §9.11 B1.
+ *
+ * What this used to be: any caller holding any Privy session could name any tab
+ * id, and `mintDeepLinkToken` would check only that the tab existed and that the
+ * `groupId` **the caller also supplied** matched it. Two request arguments
+ * agreeing with each other is not an authorization check. It minted a raw
+ * `tab_session` for a tab the caller had nothing to do with, and that token
+ * opens the tab.
+ *
+ * What it is now, per §1.4 — "the number of people who can enlarge a tab is
+ * exactly one, and it is the person who is owed the money":
+ *
+ * - the caller is the Privy DID on the verified JWT, never a request field;
+ * - the tab, its organizer, and its group are read off stored rows;
+ * - the caller must **be** that organizer;
+ * - membership is proven live before minting, refreshing `getChatMember` when
+ *   the cached check is older than five minutes (binding decision 2);
+ * - the `groupId` field in the body is ignored entirely. There is nothing for
+ *   the client to say here.
+ *
+ * Only the hash reaches the database (binding decision 4). The raw token is
+ * returned to the organizer and never stored.
  */
 http.route({
   path: "/telegram/deep-link",
@@ -122,25 +141,43 @@ http.route({
     if (!identity?.subject) {
       return jsonResponse({ error: "UNAUTHORIZED" }, 401);
     }
+    const privyDid = identity.subject;
 
-    let body: { tabId?: unknown; groupId?: unknown };
+    let body: { tabId?: unknown };
     try {
       body = await request.json();
     } catch {
       return jsonResponse({ error: "INVALID_BODY" }, 400);
     }
 
-    if (typeof body.tabId !== "string" || typeof body.groupId !== "string") {
+    if (typeof body.tabId !== "string" || body.tabId.trim().length === 0) {
       return jsonResponse({ error: "INVALID_ARGS" }, 400);
     }
+    const tabId = body.tabId.trim();
 
-    const result = await ctx.runMutation(internal.internal.sessionTokens.mintDeepLinkToken, {
-      tabId: body.tabId,
-      groupId: body.groupId,
+    const plan = await ctx.runQuery(internal.sessionTokens.inviteMintPlan, {
+      tabId,
+      privyDid,
+    });
+
+    if (plan.kind === "refresh") {
+      await ctx.runAction(internal.internal.telegramDelivery.refreshMembership, {
+        groupId: plan.groupId,
+        chatId: plan.chatId,
+        telegramUserId: plan.telegramUserId,
+        botId: getTelegramBotId(),
+      });
+    }
+
+    const result = await ctx.runMutation(internal.sessionTokens.mintInvite, {
+      tabId,
+      privyDid,
     });
 
     if (!result.ok) {
-      return jsonResponse({ error: result.code }, 400);
+      // Refusals are 403, not 404: a caller who is not the organizer learns
+      // nothing about whether the tab exists.
+      return jsonResponse({ error: result.code }, 403);
     }
 
     return jsonResponse({

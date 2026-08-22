@@ -15,10 +15,20 @@ export const VERCEL_ONLY_KEYS = [
 /** Keys that must only exist in the Convex Cloud runtime. */
 export const CONVEX_ONLY_KEYS = [
   "DFLOW_API_KEY",
+  /** Host override. Convex-only because the Trading API serves no CORS: every
+   * call must originate server-side, never from the browser. */
+  "DFLOW_API_BASE_URL",
+  /** Optional — unlocks the keyed Jupiter Token API tier; the lite tier needs none. */
+  "JUPITER_API_KEY",
   "PRIVY_APP_ID",
   "PRIVY_VERIFICATION_KEY",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_WEBHOOK_SECRET",
+  /** Required: every invite deep link is built from these. No fallback exists —
+   * `convex/lib/telegramDeepLink` throws rather than mint a link to a bot that
+   * does not exist. */
+  "TELEGRAM_BOT_USERNAME",
+  "TELEGRAM_MINIAPP_NAME",
   "OPENAI_API_KEY",
   "PRIVY_APP_SECRET",
   "PRIVY_SPONSOR_WALLET_ID",

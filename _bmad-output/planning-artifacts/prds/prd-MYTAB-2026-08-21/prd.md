@@ -15,6 +15,31 @@ note: >-
   `bmad-prd` Update intent.
 ---
 
+> ## ⚠ Amendment notice — read `docs/DECISIONS.md` first
+>
+> **This document remains the numbered requirement contract** that UX, epics and stories cite.
+> FR/NFR ids are stable and still binding except where listed below.
+>
+> Superseded, with reasoning in **`docs/DECISIONS.md`** (binding):
+>
+> - **OQ-2** — *"Resolved 2026-08-21: native SOL"* is itself superseded. Any token the payer
+>   holds, subject to verification (**D-05**).
+> - **FR-S4** — *"P0 DFlow orders support one non-USDC input: native SOL"* → any verified
+>   token (**D-05**). The output mint, wrapped-SOL normalization and the sync-only rule are
+>   unchanged; `allowAsyncExec=false` must be asserted **present in the serialised query**
+>   because the API default is `true` (**D-04**).
+> - **FR-S6** — *"platform fee amount is exactly zero and no fee account exists"* → the fee
+>   fields are **omitted from the request entirely**; a declared fee, including a declared
+>   zero, is charged against the slippage budget (**D-04**). The checklist item *"resolved
+>   address-lookup-table entries match the versioned manifest"* is now the routed path's
+>   normal operation, not an edge case (**D-02**).
+> - **OQ-4** — resolved zero, and implemented as *omitted* rather than *zero* (**D-04**).
+> - **OQ-1** — resolved; the custom-JWT path works.
+> - Mainnet is the target cluster and the cluster is configuration (**D-01**); no fixture or
+>   demo data ships in source (**D-11**); `tabParticipants` is the authoritative roster
+>   (**D-06**).
+
+
 # My Tab — Product Requirements Document
 
 ## 1. Product Summary

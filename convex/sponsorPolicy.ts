@@ -1,5 +1,7 @@
 /** sponsor-v1 caps, allowlists, and kill switch (AD-17, Story 3.8). */
 
+import { getSponsorPolicyManifest } from "../lib/solana/sponsorPolicyManifest";
+
 export const SPONSOR_POLICY_VERSION = "sponsor-v1";
 
 export type SponsorEnvironment = "production" | "development";
@@ -56,16 +58,27 @@ const CAPS: Record<SponsorEnvironment, SponsorCaps> = {
   },
 };
 
-/** Fixture allowlists used when live manifest validation is not wired (Story 3.8 AC2). */
-export const FIXTURE_ALLOWLIST = {
-  programs: new Set([
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
-  ]),
-  mints: new Set(["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"]),
-  recipients: new Set<string>(),
-  instructions: new Set(["transfer", "transferChecked", "memo"]),
-} as const;
+/**
+ * Coarse allowlist applied at reservation time (Story 3.8 AC2).
+ *
+ * This is a cheap pre-check on intent metadata, NOT the authority on what a
+ * transaction may contain — `lib/solana/validateTransactionMessage.ts` decodes
+ * the actual bytes and is the gate that guards the sponsor key. The value here
+ * is that a reservation cannot even be taken out for a mint or program the
+ * manifest would refuse later.
+ *
+ * Every entry is derived from the active cluster manifest; nothing is a literal.
+ */
+export function sponsorReservationAllowlist() {
+  const manifest = getSponsorPolicyManifest("exact_usdc");
+  return {
+    programs: new Set(manifest.allowedPrograms),
+    /** Exactly the configured cluster USDC mint — a wrong-cluster mint rejects. */
+    outputMint: manifest.outputMint,
+    recipients: new Set<string>(),
+    instructions: new Set(["transfer", "transferChecked", "memo"]),
+  };
+}
 
 export type SponsorUsageSnapshot = {
   userDayReserved: bigint;
@@ -201,19 +214,23 @@ export function evaluateSponsorReservation(
     return { ok: false, failureCode: SPONSOR_FAILURE.CAP_GLOBAL_EPOCH };
   }
 
-  if (!FIXTURE_ALLOWLIST.programs.has(allowlist.programId)) {
+  const manifestAllowlist = sponsorReservationAllowlist();
+
+  if (!manifestAllowlist.programs.has(allowlist.programId)) {
     return { ok: false, failureCode: SPONSOR_FAILURE.ALLOWLIST_PROGRAM };
   }
-  if (!FIXTURE_ALLOWLIST.mints.has(allowlist.mint)) {
+  // Exactly the configured cluster USDC mint. A devnet mint reserved against a
+  // mainnet manifest (or the reverse) is a rejection, not a warning.
+  if (allowlist.mint !== manifestAllowlist.outputMint) {
     return { ok: false, failureCode: SPONSOR_FAILURE.ALLOWLIST_MINT };
   }
   if (
-    FIXTURE_ALLOWLIST.recipients.size > 0 &&
-    !FIXTURE_ALLOWLIST.recipients.has(allowlist.recipientAddress)
+    manifestAllowlist.recipients.size > 0 &&
+    !manifestAllowlist.recipients.has(allowlist.recipientAddress)
   ) {
     return { ok: false, failureCode: SPONSOR_FAILURE.ALLOWLIST_RECIPIENT };
   }
-  if (!FIXTURE_ALLOWLIST.instructions.has(allowlist.instructionKind)) {
+  if (!manifestAllowlist.instructions.has(allowlist.instructionKind)) {
     return { ok: false, failureCode: SPONSOR_FAILURE.ALLOWLIST_INSTRUCTION };
   }
 

@@ -1,3 +1,4 @@
+import { TOKEN_PROGRAM_ID } from "../../lib/solana/constants";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
@@ -173,7 +174,7 @@ export async function reserveSponsorBudget(
     reservedLamports,
     usage,
     allowlist: {
-      programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      programId: TOKEN_PROGRAM_ID,
       mint: args.outputMint,
       recipientAddress: args.recipientAddress,
       instructionKind: "transferChecked",

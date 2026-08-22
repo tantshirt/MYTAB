@@ -25,6 +25,10 @@ _bmad-output/planning-artifacts/ux-designs/ux-MYTAB-2026-08-21/canvas/my-tab-min
 # JavaScript and Next.js output
 node_modules/
 .next/
+# Build output from verification harnesses (smoke, sweep). The previous
+# `.next-sweep/` entry missed `.next-devsweep/`, and 76MB of webpack cache
+# reached a commit. Wildcard so a new harness name cannot repeat it.
+.next-*/
 out/
 coverage/
 playwright-report/

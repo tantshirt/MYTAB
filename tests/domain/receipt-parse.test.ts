@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fiatMinor } from "@/tests/helpers/money";
 import {
   formatDiscrepancyCopy,
   parseExtractedReceipt,
@@ -52,8 +53,8 @@ describe("Story 8.3 — deterministic re-parse", () => {
     });
 
     const fixed = recomputeReconciliation({
-      lines: [{ ...parsed.lines[0]!, unitPriceMinor: 12_000, computedLineTotalMinor: 12_000 }],
-      receiptTotalMinor: 12_000,
+      lines: [{ ...parsed.lines[0]!, unitPriceMinor: fiatMinor(12_000), computedLineTotalMinor: fiatMinor(12_000) }],
+      receiptTotalMinor: fiatMinor(12_000),
     });
 
     expect(fixed.reconciled).toBe(true);

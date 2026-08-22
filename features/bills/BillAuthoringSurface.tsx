@@ -7,7 +7,6 @@ import { useOffline } from "@/components/primitives/use-offline";
 import { computeBillBreakdown } from "@/lib/domain/bill";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import { isReceiptScanEnabled } from "@/lib/features/flags";
-import { isConvexAuthFixtureMode } from "@/lib/privy/config";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AdjustmentsPanel } from "./AdjustmentsPanel";
 import { BillEmptyState } from "./BillEmptyState";
@@ -17,19 +16,18 @@ import { bahtToMinor, ItemEditor, minorToBaht } from "./ItemEditor";
 import { ItemRow } from "./ItemRow";
 import { NewTabForm, type CaptureMethod, type NewTabFormPatch } from "./NewTabForm";
 import { OfflineBar } from "./OfflineBar";
-import {
-  FIXTURE_BILL_AUTHORING,
-  FIXTURE_EMPTY_BILL,
-  type BillAuthoringFixture,
-  type BillItemView,
-} from "./fixtures";
+import type { BillAuthoringData, BillItemView } from "./types";
 
 export type BillAuthoringSurfaceProps = {
   /** Identifies the draft upstream. Never rendered — it is a storage key. */
   tabId: string;
   tabTitle?: string;
   viewerUserId?: string;
-  fixture?: BillAuthoringFixture;
+  /**
+   * The draft, resolved by `features/bills/useNewTabData`. Absent only before
+   * the first read resolves, which is the one loading state this surface has.
+   */
+  data?: BillAuthoringData;
   /**
    * Receipt Review entry (`/tabs/[publicToken]/receipt`, POLISH-SPEC §1.5).
    *
@@ -46,30 +44,30 @@ type AuthorPhase = "setup" | "items";
 export function BillAuthoringSurface({
   tabTitle,
   viewerUserId,
-  fixture,
+  data,
   onScanReceipt,
 }: BillAuthoringSurfaceProps) {
-  const resolvedFixture = fixture ?? (isConvexAuthFixtureMode() ? FIXTURE_BILL_AUTHORING : null);
+  const resolved = data ?? null;
   const [phase, setPhase] = useState<AuthorPhase>(() =>
-    resolvedFixture?.items.length ? "items" : "setup",
+    resolved?.items.length ? "items" : "setup",
   );
   const offline = useOffline();
   const [showEditor, setShowEditor] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   const [form, setForm] = useState(() => ({
-    title: resolvedFixture?.title ?? tabTitle ?? "New tab",
-    merchantName: resolvedFixture?.merchantName ?? "",
-    displayCurrency: resolvedFixture?.displayCurrency ?? "THB",
-    payerUserId: resolvedFixture?.payerUserId ?? viewerUserId ?? "",
+    title: resolved?.title ?? tabTitle ?? "New tab",
+    merchantName: resolved?.merchantName ?? "",
+    displayCurrency: resolved?.displayCurrency ?? "THB",
+    payerUserId: resolved?.payerUserId ?? viewerUserId ?? "",
     captureMethod: "manual" as CaptureMethod,
-    members: resolvedFixture?.members ?? [],
-    organizerDisplayName: resolvedFixture?.organizerDisplayName ?? "Organizer",
-    fxFixtureBadge: resolvedFixture?.fxFixtureBadge,
+    members: resolved?.members ?? [],
+    organizerDisplayName: resolved?.organizerDisplayName ?? "Organizer",
+    fxFixtureBadge: resolved?.fxFixtureBadge,
   }));
 
-  const [items, setItems] = useState<BillItemView[]>(resolvedFixture?.items ?? []);
-  const [adjustments] = useState(resolvedFixture?.adjustments ?? []);
+  const [items, setItems] = useState<BillItemView[]>(resolved?.items ?? []);
+  const [adjustments] = useState(resolved?.adjustments ?? []);
   const [editorDraft, setEditorDraft] = useState({
     name: "",
     quantity: 1,
@@ -77,13 +75,14 @@ export function BillAuthoringSurface({
   });
 
   /**
-   * The organizer check. `organizerUserId` is the authority; falling back to
-   * "the viewer is whoever they say they are" made this constant-true and the
-   * participant branch unreachable.
+   * The organizer check. `organizerUserId` is the authority.
+   *
+   * It is the empty string until the group's member list resolves, and on this
+   * route the person who opened it is the one authoring — so an unresolved
+   * organizer is not evidence that they are merely a participant.
    */
-  const organizerUserId = resolvedFixture?.organizerUserId;
-  const isOrganizer =
-    organizerUserId == null ? isConvexAuthFixtureMode() : viewerUserId === organizerUserId;
+  const organizerUserId = resolved?.organizerUserId;
+  const isOrganizer = organizerUserId ? viewerUserId === organizerUserId : true;
 
   /**
    * There is exactly one loading state on this surface and it is first paint
@@ -91,7 +90,7 @@ export function BillAuthoringSurface({
    * "subsequent" load and no spinner over correct data (§4.1; EXPERIENCE,
    * *State Patterns*).
    */
-  const showSkeleton = resolvedFixture == null;
+  const showSkeleton = resolved == null;
 
   const scanAvailable = isReceiptScanEnabled() && onScanReceipt != null;
 
@@ -338,5 +337,4 @@ export function BillAuthoringSurface({
   );
 }
 
-export { FIXTURE_BILL_AUTHORING, FIXTURE_EMPTY_BILL };
-export type { BillAuthoringFixture };
+export type { BillAuthoringData };

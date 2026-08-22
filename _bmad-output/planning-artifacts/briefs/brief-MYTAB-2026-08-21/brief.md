@@ -12,6 +12,31 @@ note: >-
   prd.md, which is the numbered requirement contract.
 ---
 
+> ## ⚠ Amendment notice — read `docs/DECISIONS.md` first
+>
+> **This document remains the authority** for the product narrative, the judge story, the
+> ten-day plan and the demo script. Its reasoning is why the system looks the way it does and
+> is still worth reading in full. It is a **historical record**, not a description of the
+> current build.
+>
+> Superseded, with reasoning in **`docs/DECISIONS.md`** (binding):
+>
+> - §1 **binding decision 2** — *"The bot must be a group administrator."* Scoped to
+>   group-origin tabs; bot-admin is an upgrade, not a prerequisite (**D-06**). Its consequence
+>   clause — that a membership failure disables mutations — no longer blocks paying an
+>   already-locked obligation (**D-07**).
+> - §1 **binding decision 4** / §2.8 — `tab_session` now carries a **seat policy**
+>   (`{kind:"chat"}` or `{kind:"fixed", seats:n}`) (**D-06**).
+> - §1 **binding decision 7** — *"SOL is the single routed P0 input."* Superseded: any token
+>   the payer holds, subject to verification (**D-05**).
+> - §1 **binding decision 10** / §6.1 — the platform fee is **omitted entirely** from the DFlow
+>   request, not declared as zero; a declared fee is charged against the slippage budget
+>   (**D-04**). DFlow is the settlement path for every non-USDC payer, not a one-token proof
+>   point (**D-03**).
+> - Devnet-first sequencing throughout — DFlow serves **mainnet only** (**D-01**).
+> - Fixture-mode delivery throughout — no fixture or demo data ships in source (**D-11**).
+
+
 # My Tab Hackathon Project Brief
 
 **Version:** 1.4<br>

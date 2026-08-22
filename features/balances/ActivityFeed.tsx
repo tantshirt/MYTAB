@@ -228,7 +228,19 @@ export function ActivityRow({ event, now = Date.now(), divided = true }: Activit
               style={{ fontSize: "13px", color: MYTAB_COLORS.inkMuted }}
             >
               <span className="mytab-row__label">{ACTIVITY_COPY.networkFee}</span>
-              <span className="mytab-row__amount" style={{ color: MYTAB_COLORS.settled }}>
+              <span
+                /*
+                 * "Covered by My Tab" is a sentence, not a figure, so it takes
+                 * the prose modifier and is allowed to wrap. A real
+                 * `networkFeeLabel` IS a figure and keeps the nowrap column.
+                 */
+                className={
+                  breakdown.networkFeeLabel
+                    ? "mytab-row__amount mytab-tabular"
+                    : "mytab-row__amount mytab-row__amount--text"
+                }
+                style={{ color: MYTAB_COLORS.settled }}
+              >
                 {breakdown.networkFeeLabel ?? ACTIVITY_COPY.networkFeeCovered}
               </span>
             </div>

@@ -28,6 +28,8 @@ export const BOT_API_VERSION = {
   bottomBarColor: "7.10",
   /** safeAreaInset / contentSafeAreaInset and their change events. */
   safeArea: "8.0",
+  /** WebApp.shareMessage — Telegram's own share sheet for a prepared message. */
+  shareMessage: "8.0",
 } as const;
 
 /** The two bottom-bar values the product uses — never more (§2.1). */

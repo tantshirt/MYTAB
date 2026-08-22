@@ -1,46 +1,52 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
-import { ClaimBoard, FIXTURE_CLAIM_BOARD, type ClaimBoardProps } from "@/features/claims";
+import { ClaimBoard } from "@/features/claims";
+import { useClaimBoardData } from "@/features/claims/useClaimBoardData";
 import { SettleSheetHost, settleSearch } from "@/features/settlement/SettleSheetHost";
 import { useTelegramBackButton } from "@/features/telegram/useTelegramBackButton";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
-import { isConvexAuthFixtureMode } from "@/lib/privy/config";
+import {
+  STALE_NOTICE,
+  useLiveMutation,
+  useRetryNonce,
+} from "@/features/convex/useConvexData";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AppShell } from "@/components/layout/AppShell";
+import {
+  TAB_REFUSAL_ACTION_LABEL,
+  useResolvedTab,
+} from "@/features/tabs/useTabData";
+
+/**
+ * A text action that is still a 44px target.
+ *
+ * `padding: 0` on a 15px line box is a 19px tap target — under EXPERIENCE's
+ * hard floor, and `scripts/sweep.mjs` measures it. `inline-flex` with a
+ * `min-height` keeps the type where the design puts it and gives the finger
+ * somewhere to land.
+ */
+const TEXT_ACTION_STYLE = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "44px",
+  background: "none",
+  border: "none",
+  color: MYTAB_COLORS.primary,
+  fontSize: "15px",
+  fontWeight: 500,
+  padding: 0,
+  cursor: "pointer",
+} as const;
 
 type TabDeepLinkSurfaceProps = {
   publicToken: string;
 };
-
-type TabSessionState =
-  | { status: "loading" }
-  | { status: "ready"; tabName: string; tabId: string }
-  | { status: "invalid"; message: string };
-
-const FIXTURE_TAB: TabSessionState = {
-  status: "ready",
-  tabName: "Sukhumvit Dinner",
-  tabId: "tabs:fixture",
-};
-
-/**
- * Single prop-resolution point for the deep-linked Claim Board.
- *
- * TODO(live-data): replace the fixture spread with
- * `useQuery(api.claims.getClaimBoard, { publicToken })` and drop the
- * `FIXTURE_CLAIM_BOARD` import. The surface below never learns the difference.
- */
-function useClaimBoardData(publicToken: string, tabName: string): ClaimBoardProps {
-  return useMemo(
-    () => ({ ...FIXTURE_CLAIM_BOARD, tabName }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [publicToken, tabName],
-  );
-}
 
 /**
  * The `[Open tab]` button in the group message always lands here, and this
@@ -51,41 +57,14 @@ function useClaimBoardData(publicToken: string, tabName: string): ClaimBoardProp
 export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   const router = useRouter();
   const { isTelegramWebApp } = useTelegramRuntime();
-  const [session, setSession] = useState<TabSessionState>({ status: "loading" });
+  const { nonce, retry } = useRetryNonce();
+  const session = useResolvedTab(publicToken, nonce);
 
   const handleBack = useCallback(() => {
     router.push("/");
   }, [router]);
 
   useTelegramBackButton(handleBack, true);
-
-  useEffect(() => {
-    if (isConvexAuthFixtureMode()) {
-      setSession(
-        publicToken === "invalid"
-          ? {
-              status: "invalid",
-              message: "This link is no longer valid.",
-            }
-          : FIXTURE_TAB,
-      );
-      return;
-    }
-
-    if (!publicToken || publicToken.length < 8) {
-      setSession({
-        status: "invalid",
-        message: "This link is no longer valid.",
-      });
-      return;
-    }
-
-    setSession({
-      status: "ready",
-      tabName: "Group tab",
-      tabId: publicToken.slice(0, 8),
-    });
-  }, [publicToken]);
 
   if (session.status === "loading") {
     return (
@@ -100,12 +79,38 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   }
 
   if (session.status === "invalid") {
+    /*
+     * §7 — no raw codes, no stack traces, no dead ends. Each cause carries its
+     * own words and its own next action, and where the design allows it the
+     * group facts stay visible: tab name and people count, never an amount.
+     */
+    const onAction = session.action === "retry" ? retry : handleBack;
+
     return (
       <AuthGate>
         <AppShell>
-          <p className="mytab-type-body" style={{ marginTop: "24px", color: MYTAB_COLORS.inkMuted }}>
-            {session.message}
-          </p>
+          <div style={{ marginTop: "24px", display: "grid", gap: "12px", justifyItems: "start" }}>
+            {session.facts ? (
+              <p className="mytab-type-meta" style={{ color: MYTAB_COLORS.inkMuted }}>
+                {session.facts.tabName} · {session.facts.peopleCount}{" "}
+                {session.facts.peopleCount === 1 ? "person" : "people"}
+              </p>
+            ) : null}
+            <p className="mytab-type-body" style={{ color: MYTAB_COLORS.inkMuted }}>
+              {session.message}
+            </p>
+            <button
+              type="button"
+              onClick={onAction}
+              // The refusal's only action, and now a reachable one: no
+              // deployment behind a link resolves here, so this button is on
+              // screen in the shipped app rather than only in a dead branch.
+              // EXPERIENCE's 44px floor applies to it like anything else.
+              style={TEXT_ACTION_STYLE}
+            >
+              {TAB_REFUSAL_ACTION_LABEL[session.action]}
+            </button>
+          </div>
         </AppShell>
       </AuthGate>
     );
@@ -115,6 +120,7 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
     <AuthGate>
       <DeepLinkedClaimBoard
         publicToken={publicToken}
+        tabId={session.tabId}
         tabName={session.tabName}
         showInAppBack={!isTelegramWebApp}
         onBack={handleBack}
@@ -125,17 +131,38 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
 
 function DeepLinkedClaimBoard({
   publicToken,
+  tabId,
   tabName,
   showInAppBack,
   onBack,
 }: {
   publicToken: string;
-  tabName: string;
+  tabId: string;
+  tabName: string | null;
   showInAppBack: boolean;
   onBack: () => void;
 }) {
   const router = useRouter();
-  const board = useClaimBoardData(publicToken, tabName);
+  const { isTelegramWebApp } = useTelegramRuntime();
+  const { status, board } = useClaimBoardData(tabId, tabName);
+
+  /*
+   * §4.5 — outside Telegram reads work and every mutation is disabled. The
+   * handlers below are `undefined` rather than no-ops in that case, so the
+   * affordances are absent rather than present and dead.
+   */
+  const canWrite = isTelegramWebApp;
+  const toggleOwnClaim = useLiveMutation(api.allocations.toggleOwnClaim);
+  const organizerAssignItem = useLiveMutation(api.allocations.organizerAssignItem);
+
+  /*
+   * "That changed a moment ago." — the one line a rejected write is allowed to
+   * produce. `toggleOwnClaim` returns `{ stale: true }` rather than throwing;
+   * `organizerAssignItem` throws `RevisionSyncError`. Both land here, the board
+   * corrects itself through its own subscription, and nothing is reloaded
+   * (EXPERIENCE, *Concurrency and Revision*).
+   */
+  const [staleNotice, setStaleNotice] = useState<string | null>(null);
 
   const openBillReview = useCallback(() => {
     router.push(`/tabs/${publicToken}/bill`);
@@ -143,34 +170,65 @@ function DeepLinkedClaimBoard({
 
   /*
    * The locked footer action. The Payment Sheet is a sheet, not a route (§1.0),
-   * so it is opened by adding `SettleSheetHost`'s `?settle=` key to this URL —
-   * the host below is already mounted and picks it up.
+   * so it is opened by adding `SettleSheetHost`'s `?settle=` key to this URL.
    *
-   * TODO(live-data): the key is the viewer's own obligation id from
-   * `api.settlements.getObligationForViewer`, not the tab token.
+   * BLOCKED: the key should be the viewer's own obligation id, and no Convex
+   * function returns it — `convex/obligations.ts` is a stub and no query reads
+   * the `obligations` table. The tab token stands in until an
+   * `obligations.forViewer(tabId)` query exists.
    */
   const openSettleSheet = useCallback(() => {
     router.push(`/tabs/${publicToken}${settleSearch(publicToken)}`);
   }, [router, publicToken]);
 
-  /*
-   * The organizer override — Flow 4 step 2. Without a handler the who-has-this
-   * sheet never renders its "Assign to" list at all, so this is what makes that
-   * half of the sheet exist.
-   *
-   * TODO(live-data): `api.allocations.organizerAssignItem({ itemId, userId })`.
-   */
-  const assignItem = useCallback((itemId: string, userId: string) => {
-    void itemId;
-    void userId;
-  }, []);
+  /** Claiming is additive: two people on one dish both succeed ("Split 2 ways"). */
+  const handleToggleClaim = useCallback(
+    (itemId: string) => {
+      if (!toggleOwnClaim) {
+        return;
+      }
+      setStaleNotice(null);
+      void toggleOwnClaim({
+        tabId: tabId as Id<"tabs">,
+        itemId: itemId as Id<"items">,
+        clientRevision: board.revision,
+      })
+        .then((result) => {
+          if (result && "stale" in result && result.stale) {
+            setStaleNotice(STALE_NOTICE);
+          }
+        })
+        .catch(() => setStaleNotice(STALE_NOTICE));
+    },
+    [toggleOwnClaim, tabId, board.revision],
+  );
+
+  /** The organizer override — Flow 4 step 2. */
+  const handleAssignItem = useCallback(
+    (itemId: string, userId: string) => {
+      if (!organizerAssignItem) {
+        return;
+      }
+      setStaleNotice(null);
+      void organizerAssignItem({
+        tabId: tabId as Id<"tabs">,
+        itemId: itemId as Id<"items">,
+        targetUserId: userId as Id<"users">,
+        clientRevision: board.revision,
+      }).catch(() => setStaleNotice(STALE_NOTICE));
+    },
+    [organizerAssignItem, tabId, board.revision],
+  );
 
   /*
-   * The organizer empty state's "Type an item". This adds an item to *this* tab,
-   * which is not what `/tabs/new` does, so it stays a fixture-mode no-op rather
-   * than routing somewhere plausible and wrong.
+   * The organizer empty state's "Type an item".
    *
-   * TODO(live-data): `api.items.addItem({ tabId, name, unitPriceMinor })`.
+   * BLOCKED, and not on Convex: `api.items.addItem({ tabId, name, quantity,
+   * unitPriceMinor })` exists and is ready, but `onAddManual` takes no arguments
+   * and this surface has no item editor — `ItemEditor` lives on
+   * `BillAuthoringSurface`, which only has a route for a *new* tab
+   * (`/tabs/new`). Wiring it needs an authoring route for an existing tab, not
+   * a new backend function.
    */
   const addManualItem = useCallback(() => {}, []);
 
@@ -181,6 +239,16 @@ function DeepLinkedClaimBoard({
     router.push(`/tabs/${publicToken}/receipt`);
   }, [router, publicToken]);
 
+  if (status === "error") {
+    return (
+      <AppShell hideTabBar>
+        <p className="mytab-type-body" style={{ marginTop: "24px", color: MYTAB_COLORS.inkMuted }}>
+          Can&rsquo;t load this tab right now. Try again in a moment.
+        </p>
+      </AppShell>
+    );
+  }
+
   return (
     // A deep-linked Claim Board hides the tab bar entirely. The only exit is
     // the back control, which lands on Tabs (EXPERIENCE, Information Architecture).
@@ -190,15 +258,7 @@ function DeepLinkedClaimBoard({
           <button
             type="button"
             onClick={onBack}
-            style={{
-              background: "none",
-              border: "none",
-              color: MYTAB_COLORS.primary,
-              fontSize: "15px",
-              fontWeight: 500,
-              padding: 0,
-              cursor: "pointer",
-            }}
+            style={TEXT_ACTION_STYLE}
           >
             ← Tabs
           </button>
@@ -206,9 +266,11 @@ function DeepLinkedClaimBoard({
       ) : null}
       <ClaimBoard
         {...board}
+        staleNotice={staleNotice}
+        onToggleClaim={canWrite && toggleOwnClaim ? handleToggleClaim : undefined}
         onOpenBillReview={openBillReview}
         onSettleUp={openSettleSheet}
-        onAssignItem={assignItem}
+        onAssignItem={canWrite && organizerAssignItem ? handleAssignItem : undefined}
         onAddManual={addManualItem}
         onScanReceipt={isReceiptScanEnabled() ? scanReceipt : undefined}
       />

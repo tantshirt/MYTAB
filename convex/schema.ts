@@ -47,6 +47,10 @@ export default defineSchema({
     displayName: v.string(),
     avatarUrl: v.optional(v.string()),
     botIsAdmin: v.boolean(),
+    // When the bot's administrator status was last proven against Telegram
+    // rather than inferred from a webhook. Older than five minutes is stale
+    // for a privileged action (binding decision 2).
+    botAdminCheckedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_telegram_chat_id", ["telegramChatId"]),
@@ -257,19 +261,36 @@ export default defineSchema({
     .index("by_transaction_signature", ["transactionSignature"]),
 
   telegramOutboundMessages: defineTable({
-    tipId: v.id("tips"),
+    // Optional because the row is keyed by `dedupeKey`; `tipId` is the subject
+    // for the only one-shot message kind that exists (the tip confirmation).
+    tipId: v.optional(v.id("tips")),
     groupId: v.id("groups"),
+    // The unique delivery key. Every message kind must produce a stable value
+    // here, because it is the only thing standing between a retry and a
+    // duplicate post in a live group.
+    dedupeKey: v.optional(v.string()),
     kind: v.literal("tip_confirmation"),
     messageText: v.string(),
     status: v.union(
       v.literal("queued"),
+      v.literal("sending"),
       v.literal("posted"),
       v.literal("failed"),
     ),
+    // Delivery lease — a claim fences the commit so a slow retry can never
+    // overwrite a newer worker's result.
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    telegramMessageId: v.optional(v.number()),
     postedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_tip_id", ["tipId"]),
+  })
+    .index("by_tip_id", ["tipId"])
+    .index("by_dedupe_key", ["dedupeKey"]),
 
   settlementLedgerEvents: defineTable({
     intentId: v.id("settlementIntents"),
@@ -332,6 +353,15 @@ export default defineSchema({
       v.literal("closed"),
     ),
     defaultCurrency: v.optional(v.string()),
+    // INVITE-FLOW §1.5 — the bound that replaces `getChatMember` for a tab with
+    // no chat. Absent means `{ kind: "chat" }`: bounded by the Telegram chat's
+    // own membership, which is every tab that exists today.
+    seatPolicy: v.optional(
+      v.union(
+        v.object({ kind: v.literal("chat") }),
+        v.object({ kind: v.literal("fixed"), seats: v.number() }),
+      ),
+    ),
     recipientAsset: v.optional(v.string()),
     payerUserId: v.optional(v.id("users")),
     recipientUserId: v.optional(v.id("users")),
@@ -492,11 +522,42 @@ export default defineSchema({
     .index("by_tab_id", ["tabId"])
     .index("by_tab_and_user", ["tabId", "userId"]),
 
+  // Exactly one row per tab — the canonical group card that is edited in place
+  // (FR-N4). `by_tab_id` is the uniqueness path and the delivery lease lives on
+  // the same row, so claiming, committing, and recovering are all one
+  // transactional read-modify-write.
   telegramStatusMessages: defineTable({
     tabId: v.id("tabs"),
     chatId: v.string(),
-    messageId: v.number(),
+    // Absent until the first post lands. Absent also means "post", not "edit".
+    messageId: v.optional(v.number()),
     eventVersion: v.number(),
+    event: v.optional(
+      v.union(
+        v.literal("tab_opened"),
+        v.literal("bill_ready"),
+        v.literal("payment_confirmed"),
+        v.literal("bill_completed"),
+      ),
+    ),
+    renderedText: v.optional(v.string()),
+    deliveredVersion: v.optional(v.number()),
+    deliveredText: v.optional(v.string()),
+    deliveryState: v.optional(v.union(v.literal("idle"), v.literal("claimed"))),
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    // Set to the claim id that already posted a replacement. A claim may
+    // recover a deleted card exactly once.
+    replacementClaimId: v.optional(v.string()),
+    replacementReservedAt: v.optional(v.number()),
+    replacementCount: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    peopleCount: v.optional(v.number()),
+    billTotalMinor: v.optional(v.int64()),
+    claimedItemCount: v.optional(v.number()),
+    totalItemCount: v.optional(v.number()),
     settledObligationCount: v.optional(v.number()),
     totalObligationCount: v.optional(v.number()),
     lastEditedAt: v.number(),
@@ -543,6 +604,73 @@ export default defineSchema({
   })
     .index("by_group_id", ["groupId"])
     .index("by_obligation_id", ["obligationId"]),
+
+  /**
+   * Token metadata cache (symbols, names, decimals, logos, verification).
+   *
+   * Server-side only, and never shipped whole. The registry this is populated
+   * from is megabytes; the Mini App's First Load JS is already the product's
+   * weak point, and a payer on restaurant wifi must not download a token list
+   * to read the word "USDC". Reads go through `api.tokens.getTokenMetadata`,
+   * which takes an explicit set of mints and returns only those rows.
+   *
+   * Keyed by (cluster, mint). The cluster is part of the key rather than a
+   * filter because devnet USDC and mainnet USDC are different addresses, and a
+   * row from the wrong cluster is not stale data — it is the wrong token.
+   *
+   * A row with no `symbol` is a NEGATIVE cache entry: we asked, and no registry
+   * lists this mint. It is kept so a payer holding an obscure token does not
+   * re-trigger a registry fetch on every render, and so the sheet can tell
+   * "unlisted but real" apart from "never looked".
+   */
+  tokenMetadata: defineTable({
+    cluster: v.union(v.literal("devnet"), v.literal("mainnet-beta")),
+    mint: v.string(),
+    /** Absent for a negative entry — the mint is in no registry we consulted. */
+    symbol: v.optional(v.string()),
+    name: v.optional(v.string()),
+    /**
+     * Chain truth once `decimalsVerifiedAt` is set; until then it is the
+     * registry's claim and must not scale an amount we are about to transact.
+     */
+    decimals: v.optional(v.number()),
+    logoUri: v.optional(v.string()),
+    /** Never true for a mint the registry does not vouch for. */
+    verified: v.boolean(),
+    source: v.union(
+      v.literal("cluster_pin"),
+      v.literal("jupiter"),
+      v.literal("chain"),
+    ),
+    /** Absent when the mint account has not been read yet. */
+    existsOnChain: v.optional(v.boolean()),
+    fetchedAt: v.number(),
+    /** When `decimals` was last proven equal to the mint account. */
+    decimalsVerifiedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_cluster_and_mint", ["cluster", "mint"])
+    .index("by_cluster_and_fetched", ["cluster", "fetchedAt"]),
+
+  /**
+   * One row per cluster recording the health of the registry fetch path.
+   *
+   * Exists so "the list is unavailable" is an observable state rather than an
+   * inference from rows quietly ageing. It also carries the cooldown that stops
+   * a render loop from turning every cache miss into an outbound request.
+   */
+  tokenSourceStatus: defineTable({
+    cluster: v.union(v.literal("devnet"), v.literal("mainnet-beta")),
+    source: v.union(v.literal("jupiter")),
+    lastSuccessAt: v.optional(v.number()),
+    lastAttemptAt: v.number(),
+    lastFailureAt: v.optional(v.number()),
+    lastFailureCode: v.optional(v.string()),
+    consecutiveFailures: v.number(),
+    /** No outbound fetch is attempted before this instant. */
+    cooldownUntil: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_cluster_and_source", ["cluster", "source"]),
 
   receiptImports: defineTable({
     tabId: v.id("tabs"),

@@ -53,7 +53,7 @@ export function WhoHasThisSheet({
     <SheetContainer label={`Who has ${itemName}`} onDismiss={onClose}>
       <div className="mytab-row" style={{ alignItems: "baseline", marginTop: 8 }}>
         <span
-          className="mytab-row__label"
+          className="mytab-row__label mytab-name"
           style={{ fontSize: MYTAB_TYPOGRAPHY.title.size, fontWeight: 600, letterSpacing: MYTAB_TYPOGRAPHY.title.tracking }}
         >
           {itemName}

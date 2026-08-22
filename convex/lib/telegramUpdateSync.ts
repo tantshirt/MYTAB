@@ -1,7 +1,8 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { resolveGroupFromChat } from "./groupSync";
-import { normalizeBotCommand, routeBotCommand, TabCommandError } from "./tabCommandSync";
+import { normalizeBotCommand } from "./tabCommandSync";
 
 type NormalizedUpdate =
   | {
@@ -52,6 +53,8 @@ export type ProcessTelegramUpdateResult = {
   duplicate: boolean;
   outcome: "processed" | "ignored" | "duplicate";
   groupId?: Id<"groups"> | null;
+  /** Present when the update carried a supported command that was scheduled. */
+  command?: string;
 };
 
 /** Deduplicates by bot/update id, then resolves group state for supported updates. */
@@ -91,27 +94,18 @@ export async function processTelegramUpdate(
   if (update.kind === "message" && groupResult.groupId) {
     const command = normalizeBotCommand(update.command);
     if (command) {
-      try {
-        await routeBotCommand(ctx, {
-          command,
-          groupId: groupResult.groupId,
-          chatId: update.chatId,
-          fromId: update.fromId,
-          chatTitle: update.chatTitle,
-          now,
-        });
-      } catch (error) {
-        if (error instanceof TabCommandError) {
-          console.info("[telegram/processUpdate] command rejected", {
-            command,
-            code: error.code,
-            chatId: update.chatId,
-            fromId: update.fromId,
-          });
-        } else {
-          throw error;
-        }
-      }
+      // Ingress stays an adapter: the command runs in an action so that
+      // membership and bot-admin status can be proven against Telegram before
+      // anything is written, and so this handler returns immediately
+      // (Story 2.1 AC3, binding decision 2).
+      await ctx.scheduler.runAfter(0, internal.internal.telegramCommands.runCommand, {
+        command,
+        groupId: groupResult.groupId,
+        chatId: update.chatId,
+        fromId: update.fromId,
+        ...(update.chatTitle === undefined ? {} : { chatTitle: update.chatTitle }),
+      });
+      return { ok: true, duplicate: false, outcome, groupId: groupResult.groupId, command };
     }
   }
 

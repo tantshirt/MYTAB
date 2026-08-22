@@ -11,7 +11,10 @@
     "test:watch": "vitest",
     "check:forbidden-deps": "node scripts/check-forbidden-deps.mjs",
     "check:env-contract": "vitest run tests/convex/env-contract.test.ts",
-    "setup:telegram": "node scripts/setup-telegram.mjs"
+    "setup:telegram": "node scripts/setup-telegram.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "sweep": "node scripts/sweep.mjs",
+    "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
     "@astryxdesign/core": "0.4.5",
@@ -32,6 +35,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^15.5.23",
     "@types/node": "22.13.4",
     "@types/react": "19.0.10",
     "@types/react-dom": "19.0.4",

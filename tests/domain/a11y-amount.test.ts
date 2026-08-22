@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fiatMinor } from "@/tests/helpers/money";
 import {
   formatAmountLabelForA11y,
   formatThbMinorForA11y,
@@ -7,8 +8,8 @@ import {
 
 describe("Story 7.7 — accessibility amount copy", () => {
   it("AC4 — THB reads as baht and satang", () => {
-    expect(formatThbMinorForA11y(29_173)).toBe("291 baht 73");
-    expect(formatThbMinorForA11y(12_000)).toBe("120 baht");
+    expect(formatThbMinorForA11y(fiatMinor(29_173))).toBe("291 baht 73");
+    expect(formatThbMinorForA11y(fiatMinor(12_000))).toBe("120 baht");
   });
 
   it("AC4 — USDC reads as token units", () => {

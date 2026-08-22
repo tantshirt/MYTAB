@@ -3,11 +3,8 @@ import {
   type ExtractedReceipt,
   type ParsedReceipt,
 } from "../../lib/domain/receiptParse";
-import {
-  FIXTURE_SAMPLE_EXTRACTION,
-  RECEIPT_FORMAT_FIXTURES,
-  RECEIPT_TARGET_SUBSET,
-} from "../../lib/domain/receiptFixture";
+import { FIXTURE_SAMPLE_EXTRACTION } from "../../lib/domain/receiptFixture";
+import { assertFixturePathAllowed } from "../../lib/solana/runtimeGuard";
 
 export type ReceiptExtractionResult = {
   raw: ExtractedReceipt;
@@ -74,13 +71,18 @@ export function validateAndParseExtraction(raw: unknown): ReceiptExtractionResul
   };
 }
 
-/** Fixture extraction — no external provider call (Story 8.6 AC1). */
+/**
+ * Fixture extraction — no external provider call (Story 8.6 AC1).
+ *
+ * This is the ONLY extraction implementation that exists. It invents line items,
+ * so it is guarded here as well as at every call site: nothing on a deployment
+ * can write a fabricated receipt onto a real bill.
+ */
 export function runFixtureExtraction(): ReceiptExtractionResult {
+  assertFixturePathAllowed("receipts.runFixtureExtraction");
   return validateAndParseExtraction(FIXTURE_SAMPLE_EXTRACTION);
 }
 
-export {
-  FIXTURE_SAMPLE_EXTRACTION,
-  RECEIPT_FORMAT_FIXTURES,
-  RECEIPT_TARGET_SUBSET,
-};
+// FIXTURE_SAMPLE_EXTRACTION / RECEIPT_FORMAT_FIXTURES / RECEIPT_TARGET_SUBSET are
+// deliberately NOT re-exported: no module under convex/ carries a FIXTURE_*
+// symbol in its public surface. Import them from lib/domain/receiptFixture.

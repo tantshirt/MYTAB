@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PaymentTokenSelector } from "@/components/settlement-sheet/PaymentTokenSelector";
 import { RoundUpControl } from "@/components/settlement-sheet/RoundUpControl";
 import { PaymentSheet } from "@/components/settlement-sheet/PaymentSheet";
-import { ClaimBoard } from "@/features/settlement/ClaimBoard";
+import { SettlementProgress } from "@/components/settlement-progress";
 import {
   formatPaymentProgressMessage,
 } from "@/convex/lib/paymentConfirmationNotify";
@@ -73,10 +73,10 @@ describe("Story 6.6 — stale revision, in place", () => {
   });
 });
 
-describe("Story 6.7 — claim board progress", () => {
+describe("Story 6.7 — settlement progress", () => {
   it("counts only settled rows in the ring caption", () => {
     const html = renderToStaticMarkup(
-      <ClaimBoard
+      <SettlementProgress
         rows={[
           { id: "1", participantName: "Alex", amountLabel: "฿291.74", status: "settled" },
           { id: "2", participantName: "Maya", amountLabel: "฿120.00", status: "submitted" },
@@ -112,7 +112,10 @@ describe("Story 6.8 — payment confirmed group message", () => {
         totalCount: 5,
         billCompleted: true,
       }),
-    ).toBe("This bill is all settled. Nice work, everyone.");
+      // The completion line is a count, not a speech. The card's headline
+      // already says "is all square"; repeating it in prose was the stub's
+      // copy, and it is still the same group fact either way (NFR-7).
+    ).toBe("All 5 shares settled.");
   });
 });
 

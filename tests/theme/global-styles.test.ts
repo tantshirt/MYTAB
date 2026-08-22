@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MYTAB_GLOBAL_CSS } from "@/lib/theme/globalStyles";
-import { MYTAB_COLORS, MYTAB_ELEVATION, MYTAB_RADIUS } from "@/lib/theme/tokens";
+import { MYTAB_GLOBAL_CSS, withThaiFallback } from "@/lib/theme/globalStyles";
+import { MYTAB_COLORS, MYTAB_ELEVATION, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 
 /**
  * POLISH-SPEC §6.3 — these four classes are referenced across `features/bills/*`.
@@ -136,5 +136,77 @@ describe("POLISH-SPEC §6.3 — the custom properties .mytab-card depends on", (
     const card = MYTAB_GLOBAL_CSS.slice(MYTAB_GLOBAL_CSS.indexOf(".mytab-card {"));
     expect(card).toContain("box-shadow: var(--mytab-elevation-card)");
     expect(card).toContain("border-radius: var(--radius-md)");
+  });
+});
+
+/**
+ * DESIGN.md, *Typography*: "Thai and Latin text share the stack and appear
+ * together in item names on scanned receipts — line height must accommodate Thai
+ * ascenders and descenders without clipping."
+ *
+ * Every number asserted here was measured in headless Chrome against the
+ * canonical fixture strings (ต้มยำกุ้ง, ส้มตำ, ผัดไทย, แกงเขียวหวาน) rendered in
+ * Noto Sans Thai, by comparing each element's clip box against the glyph ink box
+ * from `measureText().actualBoundingBox*` and counting ink pixels lost to a
+ * cropped raster. They are not derived from font tables and they are not
+ * guesses; if one of them changes, re-measure before changing the assertion.
+ */
+describe("DESIGN.md — Thai and Latin on one line", () => {
+  const rule = (selector: string) => {
+    const start = MYTAB_GLOBAL_CSS.indexOf(`${selector} {`);
+    expect(start, `${selector} is not defined`).toBeGreaterThan(-1);
+    return MYTAB_GLOBAL_CSS.slice(start, MYTAB_GLOBAL_CSS.indexOf("}", start));
+  };
+
+  it("puts the Thai face in the name stack and keeps it out of the global one", () => {
+    // Instrument Sans has no U+0E3F either, so ฿ is a Thai codepoint: splice the
+    // Thai face into --mytab-font-family and every amount row at line-height
+    // normal takes Noto's taller box (measured: 23px -> 30px at 20px/600).
+    expect(MYTAB_GLOBAL_CSS).toContain("--mytab-font-family: var(--font-instrument-sans)");
+    expect(MYTAB_GLOBAL_CSS).not.toContain("--mytab-font-family: var(--font-instrument-sans), var(--font-noto-thai)");
+    expect(withThaiFallback(MYTAB_TYPOGRAPHY.family)).toContain(
+      "var(--font-instrument-sans), var(--font-noto-thai)",
+    );
+  });
+
+  it("splices Thai second, so Latin still resolves from Instrument Sans", () => {
+    const spliced = withThaiFallback(MYTAB_TYPOGRAPHY.family).split(",").map((one) => one.trim());
+    expect(spliced[0]).toBe("var(--font-instrument-sans)");
+    expect(spliced[1]).toBe("var(--font-noto-thai)");
+  });
+
+  it("never names Noto Sans Thai as a bare local family", () => {
+    // A locally installed copy carries no unicode-range, so it would cover Latin
+    // too and inflate every Latin line in the product (measured: 23px -> 30px).
+    expect(MYTAB_GLOBAL_CSS).not.toContain('"Noto Sans Thai"');
+  });
+
+  it("gives name-bearing elements the Thai stack, with the Latin stack as fallback", () => {
+    const names = rule(".mytab-name,\n  .mytab-item-name");
+    expect(names).toContain("var(--mytab-font-family-thai, var(--mytab-font-family))");
+  });
+
+  it("pins the item-name line box above the measured clipping threshold", () => {
+    // At 15px/500 the fixture strings draw ink 12.71px above the baseline and
+    // 3.91px below. A 1.2 box clips (12 ink pixels lost on ต้มยำกุ้ง); 1.45
+    // clears by 3.29px above and 1.84px below.
+    const match = /\.mytab-item-name \{\s*line-height: ([\d.]+);/.exec(MYTAB_GLOBAL_CSS);
+    expect(match, ".mytab-item-name must pin a line-height").toBeTruthy();
+    expect(Number(match![1])).toBeGreaterThanOrEqual(1.4);
+  });
+
+  it("leaves the input a content box tall enough for a Thai descender", () => {
+    // 16px text, 1.4 line box, 13px padding => 24px of content against a
+    // baseline 18px down and 4.18px of descender: 1.82px of clearance. The
+    // previous 15px/1.2 pairing left 20px and lost 4 ink pixels.
+    const input = rule(".mytab-input");
+    expect(input).toContain("padding: 13px 16px");
+    expect(input).toContain("line-height: 1.4");
+    expect(input).toContain("min-height: 52px");
+    expect(input).toContain("var(--mytab-font-family-thai, var(--mytab-font-family))");
+
+    const compact = rule(".mytab-input--compact");
+    expect(compact).toContain("padding: 9px 14px");
+    expect(compact).toContain("min-height: 44px");
   });
 });

@@ -1,44 +1,66 @@
 "use client";
 
 import { usePrivy } from "@privy-io/react-auth";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { isConvexAuthFixtureMode } from "@/lib/privy/config";
 import { getConvexSiteUrl } from "@/lib/telegram/client";
+import { TELEGRAM_CONTEXT_TTL_MS } from "@/lib/telegram/verify";
 import { useTelegramRuntime } from "./TelegramRuntimeProvider";
 
 /**
- * Posts raw Telegram initData to authenticated POST /telegram/bootstrap after Privy auth.
+ * Re-post at 60% of the server TTL. The context is the thing every mutation is
+ * checked against, so it must be renewed comfortably before it lapses, not at
+ * the last moment — one failed request must not be able to strand the session.
+ */
+const REFRESH_INTERVAL_MS = Math.floor(TELEGRAM_CONTEXT_TTL_MS * 0.6);
+
+/** Returning to a backgrounded app renews only if the context is half-spent. */
+const STALE_ON_RESUME_MS = Math.floor(TELEGRAM_CONTEXT_TTL_MS * 0.5);
+
+/** Failures back off rather than spin; capped well under the TTL. */
+const RETRY_BASE_MS = 2_000;
+const RETRY_MAX_MS = 30_000;
+
+/**
+ * Posts raw Telegram initData to authenticated POST /telegram/bootstrap after
+ * Privy auth, and KEEPS IT ALIVE for as long as the app is open.
+ *
  * Never sends initDataUnsafe; never stores the Privy access token.
+ *
+ * The renewal is the point. The server context expires after
+ * TELEGRAM_CONTEXT_TTL_MS (5 minutes), and every mutation is gated on it via
+ * `requireTabParticipant`. This hook previously posted exactly once, guarded by
+ * `lastInitData === initData` — but `initData` never changes for a launch, so
+ * the guard was permanent and nothing ever re-posted. Five minutes into a meal,
+ * every write began failing while reads kept working, which is the most
+ * confusing failure this product can produce: the bill is on screen and
+ * claiming an item silently does nothing.
  */
 export function useTelegramBootstrap(): void {
   const { ready, authenticated, getAccessToken } = usePrivy();
   const { initData, isTelegramWebApp } = useTelegramRuntime();
-  const lastInitDataRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (isConvexAuthFixtureMode()) {
-      return;
-    }
+  const lastPostedAtRef = useRef<number>(0);
+  const inFlightRef = useRef(false);
+  const failuresRef = useRef(0);
 
-    if (!ready || !authenticated || !isTelegramWebApp || !initData) {
-      return;
-    }
+  const active =
+    !isConvexAuthFixtureMode() && ready && authenticated && isTelegramWebApp && Boolean(initData);
 
-    if (lastInitDataRef.current === initData) {
-      return;
-    }
+  const post = useCallback(
+    async (signal: { cancelled: boolean }) => {
+      if (inFlightRef.current || !initData) {
+        return;
+      }
+      const siteUrl = getConvexSiteUrl();
+      if (!siteUrl) {
+        return;
+      }
 
-    const siteUrl = getConvexSiteUrl();
-    if (!siteUrl) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const bootstrap = async () => {
+      inFlightRef.current = true;
       try {
         const accessToken = await getAccessToken();
-        if (!accessToken || cancelled) {
+        if (!accessToken || signal.cancelled) {
           return;
         }
 
@@ -52,17 +74,69 @@ export function useTelegramBootstrap(): void {
         });
 
         if (response.ok) {
-          lastInitDataRef.current = initData;
+          lastPostedAtRef.current = Date.now();
+          failuresRef.current = 0;
+        } else {
+          failuresRef.current += 1;
         }
       } catch {
-        // Bootstrap retries on the next initData / auth change.
+        failuresRef.current += 1;
+      } finally {
+        inFlightRef.current = false;
+      }
+    },
+    [initData, getAccessToken],
+  );
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    const signal = { cancelled: false };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = () => {
+      if (signal.cancelled) {
+        return;
+      }
+      const delay =
+        failuresRef.current > 0
+          ? Math.min(RETRY_BASE_MS * 2 ** (failuresRef.current - 1), RETRY_MAX_MS)
+          : REFRESH_INTERVAL_MS;
+      timer = setTimeout(run, delay);
+    };
+
+    const run = async () => {
+      await post(signal);
+      schedule();
+    };
+
+    void run();
+
+    // A Mini App is routinely backgrounded mid-meal — someone answers a message
+    // and comes back. Timers are throttled or frozen while hidden, so the
+    // context can lapse even though the interval "ran".
+    const onResume = () => {
+      if (signal.cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      if (Date.now() - lastPostedAtRef.current >= STALE_ON_RESUME_MS) {
+        void post(signal);
       }
     };
 
-    void bootstrap();
+    document.addEventListener("visibilitychange", onResume);
+    const webApp = window.Telegram?.WebApp;
+    webApp?.onEvent?.("activated", onResume);
 
     return () => {
-      cancelled = true;
+      signal.cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      document.removeEventListener("visibilitychange", onResume);
+      webApp?.offEvent?.("activated", onResume);
     };
-  }, [ready, authenticated, isTelegramWebApp, initData, getAccessToken]);
+  }, [active, post]);
 }

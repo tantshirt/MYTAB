@@ -47,7 +47,39 @@ export {
   thbMinorToUsdcAtomicFixture,
   FIXTURE_USDC_ATOMIC_NUMERATOR,
   FIXTURE_USDC_ATOMIC_DENOMINATOR,
+  FIXTURE_FX_PROVIDER,
+  MANUAL_FX_RATIONAL,
+  MANUAL_USD_THB_RATE_TEXT,
 } from "./fxFixture";
+
+export {
+  FX_DIRECTION,
+  FX_FRESHNESS_WEEKDAY_MS,
+  FX_FRESHNESS_WEEKEND_MS,
+  FX_POLICY_VERSION,
+  FX_PROVIDER_FRANKFURTER_BOT,
+  FX_PROVIDER_MANUAL,
+  FxError,
+  FxErrorCode,
+  THAI_BANK_HOLIDAYS,
+  THAI_BANK_HOLIDAY_COVERAGE,
+  addIsoDays,
+  assertFxSnapshotFresh,
+  buildFxSnapshotFields,
+  isFxSnapshotFresh,
+  isThaiBankBusinessDay,
+  isThaiBankHoliday,
+  isWeekend,
+  parseIsoDate,
+  providerDateToAsOfMs,
+  reduceFxRational,
+  resolveFreshnessWindowMs,
+  thbMinorToUsdcAtomic,
+  usdThbRateTextToRational,
+  type FxRateQuote,
+  type FxRational,
+  type FxSnapshotFields,
+} from "./fx";
 
 export {
   CANONICAL_ADJUSTMENT_ORDER,
@@ -119,6 +151,8 @@ export {
 
 export {
   countsTowardConfirmedBalance,
+  DEFAULT_FAILURE_CAUSE,
+  describeSettlementFailure,
   formatPaymentFailureMessage,
   getPaymentStatePresentation,
   mapSettlementStatusToDisplay,

@@ -28,6 +28,13 @@ type TelegramHapticFeedback = {
   notificationOccurred: (type: "success" | "warning" | "error") => void;
 };
 
+/**
+ * Mini App events carry a payload on newer clients (`shareMessageFailed` is one)
+ * and none at all on older ones. Typed permissively so a zero-argument handler
+ * — which is what every chrome listener is — stays assignable.
+ */
+export type TelegramEventHandler = (payload?: unknown) => void;
+
 export type TelegramInset = {
   top?: number;
   bottom?: number;
@@ -66,13 +73,20 @@ export type TelegramWebApp = {
   disableClosingConfirmation?: () => void;
   /** Bot API 6.2. */
   enableClosingConfirmation?: () => void;
+  /**
+   * Bot API 8.0. Opens Telegram's OWN share sheet for a message previously
+   * minted with `savePreparedInlineMessage`; the person picks the chat. The
+   * outcome arrives as `shareMessageSent` / `shareMessageFailed`, and the
+   * optional callback receives a plain boolean.
+   */
+  shareMessage?: (msgId: string, callback?: (sent: boolean) => void) => void;
   MainButton?: TelegramBottomButton;
   /** Bot API 7.10. */
   SecondaryButton?: TelegramBottomButton;
   BackButton?: TelegramBackButton;
   HapticFeedback?: TelegramHapticFeedback;
-  onEvent?: (event: string, handler: () => void) => void;
-  offEvent?: (event: string, handler: () => void) => void;
+  onEvent?: (event: string, handler: TelegramEventHandler) => void;
+  offEvent?: (event: string, handler: TelegramEventHandler) => void;
 };
 
 declare global {
@@ -101,6 +115,19 @@ export type TelegramRuntimeContextValue = {
 const TelegramRuntimeContext = createContext<TelegramRuntimeContextValue | null>(
   null,
 );
+
+/**
+ * The runtime, or `null` when no provider is mounted.
+ *
+ * Every surface that renders inside the app has a provider above it, so
+ * `useTelegramRuntime` throwing is the right contract there. A capability probe
+ * is different: "there is no Telegram here" is a legitimate answer that must
+ * resolve to *absent*, not to a crash — server rendering and tests both take
+ * this path.
+ */
+export function useOptionalTelegramRuntime(): TelegramRuntimeContextValue | null {
+  return useContext(TelegramRuntimeContext);
+}
 
 export function useTelegramRuntime(): TelegramRuntimeContextValue {
   const context = useContext(TelegramRuntimeContext);

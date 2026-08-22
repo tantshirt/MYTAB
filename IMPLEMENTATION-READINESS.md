@@ -1,5 +1,16 @@
 # Implementation Readiness Handoff
 
+> ## ⚠ Superseded in part — read `docs/DECISIONS.md` first
+>
+> This handoff describes the Day 0 gate, which has been passed; broad feature implementation
+> happened. Item **4** (*"The bot must be an administrator in supported groups"*) is scoped to
+> group-origin tabs (**D-06**). Item **6** (*"SOL is the one non-USDC P0 DFlow input"*) is
+> superseded — any token the payer holds, subject to verification (**D-05**); the sync-only
+> rule stands and `allowAsyncExec=false` must be asserted present in the serialised query
+> (**D-04**). Item **8** stands, amended for photography and the all-square wash (**D-13**,
+> **D-16**). The cluster is mainnet (**D-01**) and no fixture data ships (**D-11**).
+
+
 Status: **ready to begin the Day 0 implementation gate; broad feature implementation remains gated on that proof**.
 
 This handoff preserves the complete eight-epic, seventy-story product. The pre-implementation review changed sequencing and strengthened contracts; it did not reduce the intended product.

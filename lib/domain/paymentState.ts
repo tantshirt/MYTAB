@@ -34,13 +34,43 @@ export type PaymentStatePresentation = {
   background: string;
 };
 
-const FAILURE_COPY: Record<string, string> = {
+/**
+ * Plain **named** causes, keyed by the server's stable failure code.
+ *
+ * This is the one map. The settlement stepper (`lib/settlement/stepperCopy.ts`)
+ * re-exports `describeSettlementFailure` from here rather than keeping a second
+ * copy: the Payment Progress stepper and a payment row in a list are two
+ * renderings of the same failure and must never word it differently. They did —
+ * the same `QUOTE_EXPIRED` read "Quote expired. Refresh it." on one surface and
+ * "The quote expired. Refresh and try again." on the other.
+ *
+ * It lives in `lib/domain` because that is the pure layer both surfaces may
+ * depend on; the stepper additionally knows about intent status, which domain
+ * does not.
+ */
+const FAILURE_CAUSE: Record<string, string> = {
+  QUOTE_EXPIRED: "Quote expired. Refresh it.",
+  CONFIRMATION_REJECTED: "The network didn't confirm this payment.",
+  TARGET_ALREADY_SETTLED: "This one was already settled.",
   INVALID_INTENT_STATUS: "This payment is no longer valid. Start again from the tab.",
-  MESSAGE_HASH_MISMATCH: "The payment details changed. Try again from the tab.",
-  CONFIRMATION_REJECTED: "The network did not confirm this payment. Try again.",
-  TARGET_ALREADY_SETTLED: "This was already settled. Refresh the tab.",
-  QUOTE_EXPIRED: "The quote expired. Refresh and try again.",
+  MESSAGE_HASH_MISMATCH: "The payment details changed. Start again from the tab.",
 };
+
+/**
+ * The fallback for a code this build has never seen — still a named cause, never
+ * "Something went wrong". EXPERIENCE requires the cause be named, and "the
+ * payment didn't go through" IS the cause when nothing more specific is known
+ * (POLISH-SPEC §4.3, "Failed — unknown cause").
+ */
+export const DEFAULT_FAILURE_CAUSE = "This payment didn't go through.";
+
+/** Plain named cause from a stable code — never a raw provider error. */
+export function describeSettlementFailure(failureCode?: string | null): string {
+  if (!failureCode) {
+    return DEFAULT_FAILURE_CAUSE;
+  }
+  return FAILURE_CAUSE[failureCode] ?? DEFAULT_FAILURE_CAUSE;
+}
 
 export function mapSettlementStatusToDisplay(
   status: SettlementStatus,
@@ -122,12 +152,15 @@ export function getPaymentStatePresentation(
   }
 }
 
-/** Plain failure copy from stable code — never raw provider errors (Story 7.4 AC4). */
+/**
+ * Plain failure copy from a stable code — never raw provider errors, and never a
+ * generic (Story 7.4 AC4; EXPERIENCE, *Failure and Recovery*).
+ *
+ * An alias of `describeSettlementFailure`, kept under the name the payment-state
+ * surfaces already import, so the two can never drift apart again.
+ */
 export function formatPaymentFailureMessage(failureCode?: string | null): string {
-  if (!failureCode) {
-    return "Something went wrong. Try again from the tab.";
-  }
-  return FAILURE_COPY[failureCode] ?? "Something went wrong. Try again from the tab.";
+  return describeSettlementFailure(failureCode);
 }
 
 /** Submitted payments must not reduce displayed debt (Story 7.4 AC2). */

@@ -6,9 +6,10 @@ import {
   verifyWebhookSecret,
 } from "@/lib/telegram/webhook";
 import {
-  FIXTURE_TELEGRAM_WEBHOOK_SECRET as CONVEX_FIXTURE_SECRET,
+  getTelegramWebhookSecret,
   isTelegramWebhookFixtureMode,
 } from "../../convex/lib/telegramWebhook";
+import { FixtureModeNotPermittedError } from "../../lib/solana/runtimeGuard";
 import { resolveGroupFromChat } from "../../convex/lib/groupSync";
 import { processTelegramUpdate } from "../../convex/lib/telegramUpdateSync";
 
@@ -23,6 +24,14 @@ const TEST_USER = {
   first_name: "Ada",
   username: "ada_test",
 };
+
+function restoreWebhookEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    (process.env as Record<string, string>)[key] = value;
+  }
+}
 
 function buildMessageUpdate(overrides: Record<string, unknown> = {}) {
   const { message: messageOverrides, ...rest } = overrides;
@@ -63,13 +72,41 @@ describe("Story 2.1 — webhook secret verification (AC1)", () => {
     expect(extractBotIdFromToken("fixture-telegram-bot-token")).toBe("fixture-bot");
   });
 
-  it("fixture mode activates when TELEGRAM_WEBHOOK_SECRET is absent", () => {
+  it("fixture mode activates only under the test runner, never on a deployment", () => {
     const original = process.env.TELEGRAM_WEBHOOK_SECRET;
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
-    expect(isTelegramWebhookFixtureMode()).toBe(true);
-    expect(CONVEX_FIXTURE_SECRET).toBe(FIXTURE_TELEGRAM_WEBHOOK_SECRET);
-    if (original !== undefined) {
-      process.env.TELEGRAM_WEBHOOK_SECRET = original;
+    try {
+      expect(isTelegramWebhookFixtureMode()).toBe(true);
+      expect(getTelegramWebhookSecret()).toBe(FIXTURE_TELEGRAM_WEBHOOK_SECRET);
+    } finally {
+      if (original !== undefined) {
+        process.env.TELEGRAM_WEBHOOK_SECRET = original;
+      }
+    }
+  });
+
+  it("refuses the fixture secret on a real deployment rather than substituting it", () => {
+    // Substituting a published secret would make the webhook header guessable,
+    // so every update in the world would authenticate.
+    const originalSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const originalCloud = process.env.CONVEX_CLOUD_URL;
+    const originalVitest = process.env.VITEST;
+    const originalWorker = process.env.VITEST_WORKER_ID;
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    process.env.CONVEX_CLOUD_URL = "https://example-deployment.convex.cloud";
+    delete process.env.VITEST;
+    delete process.env.VITEST_WORKER_ID;
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    try {
+      expect(isTelegramWebhookFixtureMode()).toBe(false);
+      expect(() => getTelegramWebhookSecret()).toThrow(FixtureModeNotPermittedError);
+    } finally {
+      restoreWebhookEnv("TELEGRAM_WEBHOOK_SECRET", originalSecret);
+      restoreWebhookEnv("CONVEX_CLOUD_URL", originalCloud);
+      restoreWebhookEnv("VITEST", originalVitest);
+      restoreWebhookEnv("VITEST_WORKER_ID", originalWorker);
+      restoreWebhookEnv("NODE_ENV", originalNodeEnv);
     }
   });
 });
@@ -224,11 +261,11 @@ describe("Story 2.1 — idempotency by update id (AC4)", () => {
         insert: async (table: string, doc: Record<string, unknown>) => {
           const id = `${table}:${nextId++}`;
           if (table === "telegramUpdates") {
-            telegramUpdates.push({ _id: id, ...(doc as TelegramUpdateDoc) });
+            telegramUpdates.push({ _id: id, ...(doc as Omit<TelegramUpdateDoc, "_id">) });
           } else if (table === "groups") {
-            groups.push({ _id: id, ...(doc as GroupDoc) });
+            groups.push({ _id: id, ...(doc as Omit<GroupDoc, "_id">) });
           } else if (table === "groupMembers") {
-            groupMembers.push({ _id: id, ...(doc as GroupMemberDoc) });
+            groupMembers.push({ _id: id, ...(doc as Omit<GroupMemberDoc, "_id">) });
           }
           return id;
         },

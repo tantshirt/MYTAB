@@ -1,67 +1,44 @@
-import type { Doc } from "../_generated/dataModel";
-import {
-  FIXTURE_FULL_SIGNED_TX,
-  FIXTURE_MESSAGE_BYTES,
-  FIXTURE_MESSAGE_HASH,
-  FIXTURE_PARTIAL_SIGNED_TX,
-  FIXTURE_USDC_MINT,
-  FIXTURE_USER_SIGNATURE,
-  extractFixtureUserSignature,
-  hashMessageBytes,
-  verifyPartialSignedMessage,
-} from "../lib/solanaFixture";
-import { isSponsorPaused } from "../sponsorPolicy";
+/**
+ * Sponsor policy entry points for the settlement pipeline (AD-10, AD-17).
+ *
+ * `verifyTransactionAllowlistsFixture()` used to return `{ ok: true }`
+ * unconditionally, immediately before the sponsor fee payer co-signed. It has
+ * been replaced by `verifyTransactionAllowlists`, which decodes the transaction
+ * and runs the full pre-sponsor manifest gate. There is no remaining code path
+ * that reaches the sponsor key without that gate returning ok.
+ *
+ * This module deliberately no longer re-exports FIXTURE_* symbols: a deployed
+ * Convex module should not carry fixture constants in its public surface.
+ */
 
-export {
-  FIXTURE_FULL_SIGNED_TX,
-  FIXTURE_MESSAGE_BYTES,
-  FIXTURE_MESSAGE_HASH,
-  FIXTURE_PARTIAL_SIGNED_TX,
-  FIXTURE_USDC_MINT,
-  FIXTURE_USER_SIGNATURE,
-  extractFixtureUserSignature,
-  hashMessageBytes,
-  verifyPartialSignedMessage,
-};
+import type { Doc } from "../_generated/dataModel";
+import { hashMessageBytes, verifyPartialSignedMessage } from "../lib/solanaFixture";
+import { isSponsorPaused } from "../sponsorPolicy";
+import {
+  validateBeforeSponsorCoSign,
+  type SettlementIntentValidationContext,
+  type ValidationResult,
+} from "../../lib/solana/validateTransactionMessage";
+
+export { hashMessageBytes, verifyPartialSignedMessage };
 
 export type SolanaValidationFailure =
   | "MESSAGE_HASH_MISMATCH"
   | "ALLOWLIST_VIOLATION";
 
-type SettlementIntentValidationContext = {
-  intent: {
-    payerAddress: string;
-    recipientAddress: string;
-    inputMint: string;
-    outputMint: string;
-    targetOutputAtomic: string;
-    maxInputAtomic: string;
-    minimumOutputAtomic: string;
-    messageHash?: string;
-    status: string;
-  };
-  sponsorAddress: string;
-  blockhash: string;
-  lastValidBlockHeight: number;
-  telegramContextFresh?: boolean;
-  targetSuperseded?: boolean;
-  sponsorPaused?: boolean;
-  reservationActive?: boolean;
-  reservationOwnerIntentId?: string;
-  intentId?: string;
-};
+type IntentValidationContext = Omit<SettlementIntentValidationContext, "gate">;
 
 /** Builds validation context from a persisted settlement intent (AD-10). */
 export function buildValidationContext(
   intent: Doc<"settlementIntents">,
   payerAddress: string,
   sponsorAddress: string,
-  overrides: Partial<SettlementIntentValidationContext> & {
+  overrides: Partial<IntentValidationContext> & {
     blockhash: string;
     lastValidBlockHeight: number;
     status: string;
   },
-): Omit<SettlementIntentValidationContext, "gate"> {
+): IntentValidationContext {
   return {
     intent: {
       payerAddress,
@@ -86,9 +63,16 @@ export function buildValidationContext(
   };
 }
 
-/** Manifest non-empty gate used by settlement pipeline (Story 3.8 fixture). */
-export function verifyTransactionAllowlistsFixture(): { ok: true } {
-  return { ok: true };
+/**
+ * The real pre-sponsor gate. Runs the full AD-10 manifest against the bytes that
+ * are about to be co-signed and broadcast. Any failure rejects; nothing here can
+ * return ok without decoding the transaction.
+ */
+export function verifyTransactionAllowlists(
+  serializedBase64: string,
+  context: IntentValidationContext,
+): ValidationResult {
+  return validateBeforeSponsorCoSign(serializedBase64, context);
 }
 
 /** Re-exports validation helpers when lib/solana is available (Story 3.4). */

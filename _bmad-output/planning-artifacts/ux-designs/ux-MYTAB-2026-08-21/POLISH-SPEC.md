@@ -10,6 +10,20 @@ binding_sources:
   - canvas/*.dc.html (approved artboards)
 ---
 
+> ## ⚠ Amendment notice — read `docs/DECISIONS.md` first
+>
+> **This document remains the implementation specification** for the design-to-build gap, and
+> most of it has been executed. Superseded items, with reasoning in **`docs/DECISIONS.md`**:
+>
+> - **§2.3** — the proposed `html, body { overflow-x: hidden }` guard must **not** be used.
+>   `hidden` makes an element a scroll container and un-pins every `position: sticky`
+>   descendant in the product. Use `overflow-x: clip` (**D-14**).
+> - **§2.10 item 5 / §8 item 8** — resolved as `min(100%, 480px)` (**D-15**).
+> - **§5 / §8 item 5** — the 46% wash and its two tokens are shipped (**D-16**).
+> - Fixture and demo datasets referenced as reconciliation targets no longer ship in
+>   application source (**D-11**).
+
+
 # My Tab — Polish Spec
 
 > **What this is.** An executable specification for closing the gap between the approved design

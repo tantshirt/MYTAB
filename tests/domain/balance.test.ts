@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fiatMinor } from "@/tests/helpers/money";
 import {
   deriveWithinGroupBalance,
   formatBalanceHeroParts,
@@ -15,7 +16,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
       billId: "b1",
       debtorUserId: "alice",
       creditorUserId: "bob",
-      amountMinor: 10_000,
+      amountMinor: fiatMinor(10_000),
       revision: 1,
       superseded: false,
     },
@@ -25,7 +26,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
       billId: "b2",
       debtorUserId: "bob",
       creditorUserId: "alice",
-      amountMinor: 3_000,
+      amountMinor: fiatMinor(3_000),
       revision: 1,
       superseded: false,
     },
@@ -41,7 +42,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
           billId: "b1",
           debtorUserId: "alice",
           creditorUserId: "bob",
-          amountMinor: 10_000,
+          amountMinor: fiatMinor(10_000),
           kind: "settlement_offset",
           confirmed: true,
         },
@@ -63,7 +64,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
           billId: "b1",
           debtorUserId: "alice",
           creditorUserId: "bob",
-          amountMinor: 10_000,
+          amountMinor: fiatMinor(10_000),
           kind: "settlement_offset",
           confirmed: true,
         },
@@ -73,7 +74,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
           billId: "b2",
           debtorUserId: "bob",
           creditorUserId: "alice",
-          amountMinor: 3_000,
+          amountMinor: fiatMinor(3_000),
           kind: "settlement_offset",
           confirmed: true,
         },
@@ -93,7 +94,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
           billId: "b1",
           debtorUserId: "alice",
           creditorUserId: "bob",
-          amountMinor: 5_000,
+          amountMinor: fiatMinor(5_000),
           kind: "settlement_offset",
           confirmed: false,
         },
@@ -113,7 +114,7 @@ describe("Story 7.5 — within-group balance derivation", () => {
           billId: "b1",
           debtorUserId: "alice",
           creditorUserId: "bob",
-          amountMinor: 10_000,
+          amountMinor: fiatMinor(10_000),
           kind: "settlement_offset",
           confirmed: true,
         },
@@ -132,7 +133,7 @@ describe("Story 7.1 — balance hero", () => {
       formatBalanceHeroText({ kind: "all_square" }),
     ).toBe("All square");
     expect(
-      formatBalanceHeroText({ kind: "owed", amountMinor: 29_174 }),
+      formatBalanceHeroText({ kind: "owed", amountMinor: fiatMinor(29_174) }),
     ).toBe("You owe ฿291.74");
     expect(
       formatBalanceHeroText({
@@ -153,7 +154,7 @@ describe("Story 7.1 — balance hero", () => {
   // POLISH-SPEC §2.3: the label and the figure must be separable so the figure
   // can be laid out on its own line and never truncated.
   it("splits the label from the figure", () => {
-    expect(formatBalanceHeroParts({ kind: "owed", amountMinor: 184_000 as never })).toEqual({
+    expect(formatBalanceHeroParts({ kind: "owed", amountMinor: fiatMinor(184_000) })).toEqual({
       label: "You owe",
       figure: "฿1,840.00",
     });
@@ -167,7 +168,7 @@ describe("Story 7.1 — balance hero", () => {
   });
 
   it("AC3 — amounts stated to full precision", () => {
-    const text = formatBalanceHeroText({ kind: "owed", amountMinor: 29_173 });
+    const text = formatBalanceHeroText({ kind: "owed", amountMinor: fiatMinor(29_173) });
     expect(text).toBe("You owe ฿291.73");
   });
 
@@ -180,7 +181,7 @@ describe("Story 7.1 — balance hero", () => {
           billId: "b1",
           debtorUserId: "viewer",
           creditorUserId: "other",
-          amountMinor: 500,
+          amountMinor: fiatMinor(500),
           revision: 1,
           superseded: false,
         },

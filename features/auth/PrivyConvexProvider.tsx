@@ -48,16 +48,37 @@ function LivePrivyConvexProvider({
 }
 
 /**
+ * Announces a Convex-less tree once, on the client, rather than failing open in
+ * silence. Both branches below render an app that cannot read or write anything
+ * — every `use*Data` seam falls back to its fixture — and a build that reaches
+ * a user in that state is a misconfiguration, not a mode.
+ */
+function warnConvexless(reason: string) {
+  if (typeof window === "undefined" || warnConvexless.warned) {
+    return;
+  }
+  warnConvexless.warned = true;
+  console.warn(
+    `[my-tab] No Convex client mounted (${reason}). Every surface is running on ` +
+      "fixtures: reads return demo data and all mutations are no-ops. Set " +
+      "NEXT_PUBLIC_CONVEX_URL and NEXT_PUBLIC_PRIVY_APP_ID for live data.",
+  );
+}
+warnConvexless.warned = false;
+
+/**
  * Bridges Privy access tokens into Convex via ConvexProviderWithAuth (Story 1.5).
  * Skips the Convex client in fixture mode (no Privy app id or Convex URL).
  */
 export function PrivyConvexProvider({ children }: PrivyConvexProviderProps) {
   if (isConvexAuthFixtureMode()) {
+    warnConvexless("NEXT_PUBLIC_PRIVY_APP_ID or NEXT_PUBLIC_CONVEX_URL is unset");
     return <>{children}</>;
   }
 
   const convexUrl = getConvexUrl();
   if (!convexUrl) {
+    warnConvexless("NEXT_PUBLIC_CONVEX_URL is unset");
     return <>{children}</>;
   }
 

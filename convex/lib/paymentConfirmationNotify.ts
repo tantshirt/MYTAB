@@ -1,5 +1,8 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { renderTabStatusCard } from "../../lib/telegram/messages";
+import { deriveTabStatusFacts } from "./telegramStatusManager";
+import { publishTabStatusEvent } from "./telegramBot";
 
 export type PaymentProgressPayload = {
   tabId: Id<"tabs">;
@@ -9,42 +12,52 @@ export type PaymentProgressPayload = {
   billCompleted: boolean;
 };
 
-/** Group-fact status message — no individual amounts or payer identity (Story 6.8 AC3). */
+/**
+ * Group-fact progress line — counts only (Story 6.8 AC3).
+ *
+ * The payment-confirmed message says a payment landed. It never says who paid,
+ * how much, from where, or with what (NFR-7). That is why this function takes
+ * two counts and nothing else: there is no parameter here that could leak.
+ */
 export function formatPaymentProgressMessage(payload: PaymentProgressPayload): string {
   if (payload.billCompleted) {
-    return "This bill is all settled. Nice work, everyone.";
+    return `All ${payload.totalCount} shares settled.`;
   }
   return `${payload.settledCount} of ${payload.totalCount} shares settled`;
 }
 
 /**
- * Updates the tab status message with settlement progress (Story 6.8 AC1).
- * Edits the existing message rather than posting a new one.
+ * Moves the tab's one status card forward after a confirmed payment
+ * (Story 6.8 AC1, AC4).
+ *
+ * Never posts: the card already exists and is edited in place. When the last
+ * share clears, the same card becomes the bill-completed card — completion is
+ * derived here from the counts the settlement path computed, never claimed by
+ * a caller.
  */
 export async function queuePaymentProgressUpdate(
   ctx: MutationCtx,
   payload: PaymentProgressPayload,
 ): Promise<{ updated: boolean; messageText: string }> {
-  const statusMessage = await ctx.db
-    .query("telegramStatusMessages")
-    .withIndex("by_tab_id", (q) => q.eq("tabId", payload.tabId))
-    .unique();
-
   const messageText = formatPaymentProgressMessage(payload);
-  const now = Date.now();
+  const event = payload.billCompleted ? "bill_completed" : "payment_confirmed";
 
-  if (!statusMessage) {
-    return { updated: false, messageText };
-  }
-
-  await ctx.db.patch(statusMessage._id, {
-    settledObligationCount: payload.settledCount,
-    totalObligationCount: payload.totalCount,
-    eventVersion: statusMessage.eventVersion + 1,
-    lastEditedAt: now,
+  const published = await publishTabStatusEvent(ctx, {
+    tabId: payload.tabId,
+    event,
   });
 
-  return { updated: true, messageText };
+  return { updated: published.published, messageText };
+}
+
+/** The exact text the group will read for a tab, right now. Used by tests. */
+export async function previewTabStatusCard(
+  ctx: MutationCtx,
+  tabId: Id<"tabs">,
+  event: "tab_opened" | "bill_ready" | "payment_confirmed" | "bill_completed",
+): Promise<string | null> {
+  const facts = await deriveTabStatusFacts(ctx, tabId, event);
+  return facts ? renderTabStatusCard(facts) : null;
 }
 
 /** Counts confirmed obligations for a tab — submitted-but-unconfirmed excluded (Story 6.7 AC3). */

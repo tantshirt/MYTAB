@@ -1,41 +1,36 @@
 "use client";
 
-import { use, useCallback, useMemo, useState } from "react";
+import { use, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
-import { ReceiptReview, FIXTURE_PARSED_RECEIPT } from "@/features/receipts";
-import type { ParsedReceipt } from "@/lib/domain/receiptParse";
+import { ReceiptReview } from "@/features/receipts";
+import { useReceiptData } from "@/features/receipts/useReceiptData";
+import { useResolvedTab } from "@/features/tabs/useTabData";
+import { useLiveMutation } from "@/features/convex/useConvexData";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { ParsedReceiptLine } from "@/lib/domain/receiptParse";
+import type { FiatMinor } from "@/lib/domain/money";
 
 type ReceiptPageProps = {
   params: Promise<{ publicToken: string }>;
 };
 
-type ReceiptData = {
-  parsed: ParsedReceipt;
-  /** Right of the merchant in the header strip. Absent when the import has no date. */
-  capturedAtLabel?: string;
-};
-
-/**
- * Single prop-resolution point for Receipt Review.
- *
- * TODO(live-data): replace the fixture with
- * `useQuery(api.receipts.getImport, { publicToken })`, and route `onConfirm`
- * at `api.receipts.confirmReceipt` and `onUseSampleReceipt` at
- * `api.receipts.useSampleReceipt`.
- */
-function useReceiptData(publicToken: string): ReceiptData {
-  return useMemo(
-    () => ({ parsed: FIXTURE_PARSED_RECEIPT, capturedAtLabel: "Tonight" }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- publicToken is the seam key.
-    [publicToken],
-  );
-}
-
 function ReceiptSurface({ publicToken }: { publicToken: string }) {
   const router = useRouter();
-  const { parsed, capturedAtLabel } = useReceiptData(publicToken);
+  const session = useResolvedTab(publicToken);
+  const tabId = session.status === "ready" ? session.tabId : null;
+
+  /*
+   * The second argument is the import this session created, which supersedes
+   * the cold read from the tab. This route has no capture step of its own —
+   * `finalizeUpload` runs in `features/receipts/ReceiptCapture` — so it always
+   * reads the tab's newest live import.
+   */
+  const { importId, parsed, capturedAtLabel } = useReceiptData(tabId, null);
+
+  const confirmReceipt = useLiveMutation(api.receipts.confirmReceipt);
 
   /*
    * §1.5 requires the Confirm action pinned, and it cannot pin from inside
@@ -46,38 +41,48 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
    */
   const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null);
 
-  const handleConfirm = useCallback(() => {
-    // Confirmed items become claimable, so the person lands on the Claim Board.
-    router.push(`/tabs/${publicToken}`);
-  }, [router, publicToken]);
+  /**
+   * `api.receipts.confirmReceipt` re-checks reconciliation server-side and
+   * rejects a shortfall, so the client never has the last word on the total.
+   */
+  const handleConfirm = useCallback(
+    (lines: ParsedReceiptLine[], receiptTotalMinor: FiatMinor) => {
+      const land = () => router.push(`/tabs/${publicToken}`);
+
+      if (!confirmReceipt || !importId) {
+        land();
+        return;
+      }
+
+      void confirmReceipt({
+        importId: importId as Id<"receiptImports">,
+        lines: lines.map((line) => ({
+          name: line.name,
+          quantity: line.quantity,
+          unitPriceMinor: BigInt(line.unitPriceMinor),
+        })),
+        receiptTotalMinor: BigInt(receiptTotalMinor),
+      })
+        // Confirmed items become claimable, so the person lands on the Claim Board.
+        .then(land)
+        .catch(() => {
+          /* The discrepancy card is already the surface's own rejection path. */
+        });
+    },
+    [confirmReceipt, importId, router, publicToken],
+  );
 
   const handleManualEntry = useCallback(() => {
     router.push("/tabs/new");
   }, [router]);
 
-  /*
-   * Demo affordance only — `ReceiptReview` renders the link behind
-   * `isDemoModeEnabled()`, so off-demo this handler is unreachable. Remounting
-   * the surface reseeds it from the sample extraction and discards any edits,
-   * which is exactly what the affordance promises.
-   *
-   * TODO(live-data): `api.receipts.useSampleReceipt` seeds the import server-side
-   * and the reactive read replaces this remount.
-   */
-  const [sampleNonce, setSampleNonce] = useState(0);
-  const handleUseSampleReceipt = useCallback(() => {
-    setSampleNonce((value) => value + 1);
-  }, []);
-
   return (
     <AppShell footer={<div ref={setFooterSlot} />}>
       <ReceiptReview
-        key={sampleNonce}
         parsed={parsed}
         capturedAtLabel={capturedAtLabel}
         onConfirm={handleConfirm}
         onManualEntry={handleManualEntry}
-        onUseSampleReceipt={handleUseSampleReceipt}
         footerSlot={footerSlot}
       />
     </AppShell>

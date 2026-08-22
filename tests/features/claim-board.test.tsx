@@ -3,13 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   ClaimBoard,
-  FIXTURE_CLAIM_BOARD,
   claimFooterAction,
   unassignedPhrase,
   type ClaimBoardProps,
 } from "@/features/claims/ClaimBoard";
 import { claimRowAriaLabel, claimRowStateTag } from "@/components/claim-row";
-import { FIXTURE_BILL_REVIEW } from "@/features/claims/BillReview";
+import { FIXTURE_BILL_REVIEW, FIXTURE_CLAIM_BOARD } from "@/tests/fixtures/claims";
 import { WhoHasThisSheet } from "@/features/claims/WhoHasThisSheet";
 import { formatFiatMinorThb, perHeadDisplayMinor, thbMinorFromInteger } from "@/lib/domain";
 

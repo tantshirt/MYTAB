@@ -85,6 +85,12 @@ type SheetLineProps = {
   valueColor?: string;
   valueWeight?: number;
   valueA11yLabel?: string;
+  /**
+   * The value is a sentence, not a figure — "Covered by My Tab". It drops the
+   * tabular/`data-mytab-amount` marking (it is not an amount) and is allowed to
+   * wrap, which is what keeps the row inside 320px at 200% platform text.
+   */
+  valueIsProse?: boolean;
 };
 
 /**
@@ -99,6 +105,7 @@ function SheetLine({
   valueColor = MYTAB_COLORS.ink,
   valueWeight = 500,
   valueA11yLabel,
+  valueIsProse = false,
 }: SheetLineProps) {
   return (
     <div
@@ -107,8 +114,12 @@ function SheetLine({
     >
       <span className="mytab-row__label">{label}</span>
       <span
-        className="mytab-row__amount mytab-tabular"
-        data-mytab-amount
+        className={
+          valueIsProse
+            ? "mytab-row__amount mytab-row__amount--text"
+            : "mytab-row__amount mytab-tabular"
+        }
+        data-mytab-amount={valueIsProse ? undefined : true}
         aria-label={valueA11yLabel}
         style={{ fontSize: size, fontWeight: valueWeight, color: valueColor }}
       >
@@ -399,6 +410,7 @@ export function PaymentSheet({
                 value="Covered by My Tab"
                 size={MYTAB_TYPOGRAPHY.meta.size}
                 valueColor={MYTAB_COLORS.settled}
+                valueIsProse
               />
               {rateLabel ? (
                 <SheetLine

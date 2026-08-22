@@ -4,12 +4,13 @@ import { useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangleIcon } from "@/components/icons";
 import { EmptyState } from "@/components/primitives/empty-state";
+import { VisuallyHidden } from "@/components/primitives/visually-hidden";
 import type { ParsedReceipt, ParsedReceiptLine } from "@/lib/domain/receiptParse";
 import { formatDiscrepancyCopy, recomputeReconciliation } from "@/lib/domain/receiptParse";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import type { FiatMinor } from "@/lib/domain/money";
-import { isDemoModeEnabled, isReceiptScanEnabled } from "@/lib/features/flags";
+import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS, MYTAB_LAYOUT, MYTAB_RADIUS } from "@/lib/theme/tokens";
 
 export type DiscrepancyCardProps = {
@@ -73,11 +74,6 @@ export type ReceiptReviewProps = {
   /** Only wired when receipt scanning is on; otherwise the affordance is absent. */
   onScanReceipt?: () => void;
   /**
-   * Demo affordance. Rendered only when `isDemoModeEnabled()` — EXPERIENCE
-   * calls it "deliberately hidden from judges" (POLISH-SPEC §1.5, §8 item 3).
-   */
-  onUseSampleReceipt?: () => void;
-  /**
    * Where the Confirm action is pinned. §1.5 requires it pinned, and it cannot
    * pin from inside this component: `AppShell`'s content column sets
    * `overflow-x: hidden`, which makes it a scroll container and renders any
@@ -86,18 +82,6 @@ export type ReceiptReviewProps = {
    * tests, any non-`AppShell` mount) it renders inline, exactly as before.
    */
   footerSlot?: HTMLElement | null;
-};
-
-const SR_ONLY: CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-  border: 0,
 };
 
 /**
@@ -137,9 +121,16 @@ function flagStyle(flagged: boolean): CSSProperties {
   };
 }
 
+/**
+ * Every field on this surface is a control someone has to hit with a thumb to
+ * correct a misread price, so each one carries the 44px floor from EXPERIENCE's
+ * *Accessibility Floor*. They were 21–25px tall: the type is unchanged, the box
+ * around it is not.
+ */
 const BARE_FIELD: CSSProperties = {
   width: "100%",
   minWidth: 0,
+  minHeight: "44px",
   appearance: "none",
   WebkitAppearance: "none",
   background: "transparent",
@@ -150,6 +141,13 @@ const BARE_FIELD: CSSProperties = {
   fontWeight: 500,
   lineHeight: 1.4,
 };
+
+/**
+ * The item name is the one field on this surface that holds Thai — every line
+ * of the canonical fixture does — so its line box comes from `.mytab-item-name`
+ * rather than from the numeric fields' 1.4.
+ */
+const NAME_FIELD: CSSProperties = { ...BARE_FIELD, lineHeight: undefined, color: "inherit" };
 
 function helperCopy(reconciled: boolean, flaggedCount: number): string {
   if (reconciled) {
@@ -171,7 +169,6 @@ export function ReceiptReview({
   onConfirm,
   onManualEntry,
   onScanReceipt,
-  onUseSampleReceipt,
   footerSlot,
 }: ReceiptReviewProps) {
   const [lines, setLines] = useState(parsed.lines);
@@ -243,13 +240,6 @@ export function ReceiptReview({
           The items and the receipt total have to match first.
         </p>
       ) : null}
-      {isDemoModeEnabled() && onUseSampleReceipt ? (
-        <div style={{ textAlign: "center", marginTop: 12 }}>
-          <button type="button" className="mytab-link-button" onClick={onUseSampleReceipt}>
-            Use sample receipt
-          </button>
-        </div>
-      ) : null}
     </>
   );
 
@@ -279,7 +269,7 @@ export function ReceiptReview({
           }}
         >
           <span
-            className="mytab-type-micro-label"
+            className="mytab-type-micro-label mytab-name"
             style={{
               flexGrow: 1,
               minWidth: 0,
@@ -333,17 +323,36 @@ export function ReceiptReview({
                   </p>
                 ) : null}
 
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/*
+                  Three columns whose widths are in `em`, not px.
+                  A px column cannot hold a figure that grew with the platform
+                  text setting: at 200% these were 40px and 104px boxes holding
+                  32px type, and the price — an AMOUNT — was clipped. In `em`
+                  each column is a multiple of its own field's type, so it grows
+                  with the figure and the amount is never cut. `flexWrap` is the
+                  release valve past that: when the three columns genuinely
+                  cannot share 320px, the price drops to its own line rather
+                  than pushing the card off the screen.
+                */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    rowGap: 4,
+                    columnGap: 12,
+                  }}
+                >
                   <label
                     style={{
                       flex: "none",
                       display: "flex",
                       alignItems: "center",
-                      width: 40,
+                      fontSize: "14px",
                       color: MYTAB_COLORS.inkMuted,
                     }}
                   >
-                    <span style={SR_ONLY}>Quantity for {line.name}</span>
+                    <VisuallyHidden>Quantity for {line.name}</VisuallyHidden>
                     <input
                       inputMode="numeric"
                       value={String(line.quantity)}
@@ -352,19 +361,38 @@ export function ReceiptReview({
                         updateLine(index, { quantity: Math.max(1, Number(digits) || 1) });
                       }}
                       className="mytab-tabular"
-                      style={{ ...BARE_FIELD, fontSize: "14px", color: "inherit" }}
+                      style={{
+                        ...BARE_FIELD,
+                        fontSize: "14px",
+                        // 44px at this type, and 44px-worth at any larger
+                        // platform setting. The 40px column it replaced put the
+                        // quantity field 12px under the touch floor.
+                        width: "3.143em",
+                        minWidth: "44px",
+                        color: "inherit",
+                      }}
                     />
                     <span aria-hidden="true" style={{ fontSize: "14px" }}>
                       &#215;
                     </span>
                   </label>
 
-                  <label style={{ flexGrow: 1, minWidth: 0, ...flagStyle(line.flagged) }}>
-                    <span style={SR_ONLY}>Item name</span>
+                  <label
+                    style={{
+                      // `flex-basis: 0` so the name never inflates the row's
+                      // wrap calculation; the 3.5em floor is what makes the
+                      // price wrap instead of the name vanishing.
+                      flex: "1 1 0%",
+                      minWidth: "3.5em",
+                      ...flagStyle(line.flagged),
+                    }}
+                  >
+                    <VisuallyHidden>Item name</VisuallyHidden>
                     <input
                       value={line.name}
                       onChange={(event) => updateLine(index, { name: event.target.value })}
-                      style={{ ...BARE_FIELD, color: "inherit" }}
+                      className="mytab-item-name"
+                      style={NAME_FIELD}
                     />
                   </label>
 
@@ -374,11 +402,13 @@ export function ReceiptReview({
                       display: "flex",
                       alignItems: "center",
                       gap: 1,
-                      width: 104,
+                      marginLeft: "auto",
+                      fontSize: "15px",
+                      width: "6.933em",
                       ...flagStyle(line.flagged),
                     }}
                   >
-                    <span style={SR_ONLY}>Unit price in baht</span>
+                    <VisuallyHidden>Unit price in baht</VisuallyHidden>
                     <span aria-hidden="true" style={{ fontSize: "15px", fontWeight: 500 }}>
                       ฿
                     </span>
@@ -441,7 +471,22 @@ export function ReceiptReview({
             </span>
             <span
               className="mytab-row__amount"
-              style={{ display: "flex", alignItems: "center", gap: 1, width: 116 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                fontSize: "15px",
+                /*
+                 * `.mytab-row__amount` pins `min-width: max-content` so a
+                 * rendered figure can never be squeezed. This cell holds an
+                 * `<input>`, whose max-content width is the control's default
+                 * ~20-character size — 375px, which pushed the card 120px past
+                 * a 320px screen. The width below is the figure's real budget
+                 * and grows with the type, so the amount is still never cut.
+                 */
+                minWidth: 0,
+                width: "7.733em",
+              }}
             >
               <span aria-hidden="true" style={{ fontSize: "15px", fontWeight: 600 }}>
                 ฿

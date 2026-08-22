@@ -4,9 +4,8 @@ import { CANONICAL_ADJUSTMENT_ORDER } from "../lib/domain/bill";
 import { computeBillBreakdown } from "../lib/domain/bill";
 import { fiatMinorFromInteger } from "../lib/domain/money";
 import { formatFiatMinorThb } from "../lib/domain/format";
-import { thbMinorToUsdcAtomicFixture } from "../lib/domain/fxFixture";
 import { getCurrentUser, requireGroupMember } from "./lib/auth";
-import { createFixtureFxSnapshot } from "./lib/fxSnapshotSync";
+import { resolveFxSnapshotIdForTab, usdcAtomicFromSnapshot } from "./lib/fxSnapshotSync";
 import {
   assertDistinctPayerRecipient,
   assertRecipientWalletReady,
@@ -222,9 +221,11 @@ export const saveTabSetup = mutation({
       throw new Error("INVALID_TITLE");
     }
 
+    // A tab keeps the snapshot it was created with; it is never swapped for a
+    // newer rate mid-authoring, and locking freezes it permanently.
     let fxSnapshotId = tab.fxSnapshotId;
     if (!fxSnapshotId && args.displayCurrency === "THB") {
-      fxSnapshotId = await createFixtureFxSnapshot(ctx, now);
+      fxSnapshotId = await resolveFxSnapshotIdForTab(ctx, now);
     }
 
     await ctx.db.patch(args.tabId, {
@@ -253,7 +254,7 @@ export const saveTabSetup = mutation({
             totalDisplay: formatFiatMinorThb(breakdown.totalMinor),
             usdcAtomic:
               fxSnapshot && args.displayCurrency === "THB"
-                ? thbMinorToUsdcAtomicFixture(breakdown.totalMinor).toString()
+                ? usdcAtomicFromSnapshot(fxSnapshot, breakdown.totalMinor).toString()
                 : null,
           }
         : null,

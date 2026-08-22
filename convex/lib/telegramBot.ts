@@ -1,134 +1,68 @@
+/**
+ * The group card, from the domain's point of view.
+ *
+ * Domain code says *what happened*; it never says what the group should read.
+ * The rendering lives in `lib/telegram/messages.ts` and the delivery lives in
+ * `convex/internal/telegramDelivery.ts`. This file is the seam, and its job is
+ * to refuse anything that is not one of the five sanctioned events.
+ */
+
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { buildTelegramDeepLink, isTelegramPreviewEnvironment } from "./telegramDeepLink";
+import { internal } from "../_generated/api";
+import {
+  TELEGRAM_POSTING_EVENTS,
+  UnsanctionedTelegramEventError,
+  isPostingEvent,
+  type TelegramStatusEvent,
+} from "../../lib/telegram/messages";
+import { recordTabStatusEvent } from "./telegramStatusManager";
 
-export type TelegramBotMessageResult = {
-  ok: true;
-  messageId: number;
-  deepLinkUrl?: string;
-};
+export { TELEGRAM_POSTING_EVENTS };
+export type { TelegramStatusEvent };
 
-export type TelegramStatusEvent =
-  | "tab_opened"
-  | "bill_ready"
-  | "payment_confirmed"
-  | "bill_completed"
-  | "tip_confirmed";
+/** Every event allowed to reach a group. Exactly five, and no sixth. */
+export type TelegramPostingEvent = (typeof TELEGRAM_POSTING_EVENTS)[number];
 
-const SANCTIONED_EVENTS = new Set<TelegramStatusEvent>([
-  "tab_opened",
-  "bill_ready",
-  "payment_confirmed",
-  "bill_completed",
-  "tip_confirmed",
-]);
-
-let fixtureMessageCounter = 1000;
-
-function nextFixtureMessageId(): number {
-  fixtureMessageCounter += 1;
-  return fixtureMessageCounter;
-}
-
-/** Fixture stub — posts or skips Telegram messages based on preview guard (Story 2.4 AC5). */
-export async function postTelegramStatusMessage(
-  _ctx: MutationCtx,
-  input: {
-    chatId: string;
-    tabName: string;
-    event: TelegramStatusEvent;
-    opaqueToken: string;
-    participantCount?: number;
-  },
-): Promise<TelegramBotMessageResult> {
-  if (!SANCTIONED_EVENTS.has(input.event)) {
-    throw new Error("UNSUPPORTED_TELEGRAM_EVENT");
-  }
-
-  if (isTelegramPreviewEnvironment()) {
-    return { ok: true, messageId: nextFixtureMessageId() };
-  }
-
-  const deepLinkUrl = buildTelegramDeepLink(input.opaqueToken);
-  console.info("[telegram/bot] post status message", {
-    chatId: input.chatId,
-    event: input.event,
-    tabName: input.tabName,
-    buttonLabel: "Open tab",
-    deepLinkUrl,
-    participantCount: input.participantCount ?? 1,
-  });
-
-  return {
-    ok: true,
-    messageId: nextFixtureMessageId(),
-    deepLinkUrl,
-  };
-}
-
-/** Edits an existing status message in place (Story 2.4 AC1). */
-export async function editTelegramStatusMessage(
-  _ctx: MutationCtx,
-  input: {
-    chatId: string;
-    messageId: number;
-    tabName: string;
-    event: TelegramStatusEvent;
-    opaqueToken: string;
-    participantCount?: number;
-  },
-): Promise<TelegramBotMessageResult> {
-  if (isTelegramPreviewEnvironment()) {
-    return { ok: true, messageId: input.messageId };
-  }
-
-  console.info("[telegram/bot] edit status message", {
-    chatId: input.chatId,
-    messageId: input.messageId,
-    event: input.event,
-    tabName: input.tabName,
-    participantCount: input.participantCount,
-  });
-
-  return { ok: true, messageId: input.messageId };
-}
-
-/** Stores or replaces the canonical status message id for a tab. */
-export async function upsertTelegramStatusMessageRecord(
+/**
+ * Records a card event and asks for delivery.
+ *
+ * Scheduling is idempotent by construction: the delivery action claims the tab
+ * row, and a claim that is already held is a no-op. So callers may fire this
+ * from any path that changed the facts without coordinating with each other.
+ */
+export async function publishTabStatusEvent(
   ctx: MutationCtx,
   input: {
     tabId: Id<"tabs">;
-    chatId: string;
-    messageId: number;
-    eventVersion: number;
-    now: number;
+    event: TelegramStatusEvent;
+    now?: number;
   },
-): Promise<Id<"telegramStatusMessages">> {
-  const existing = await ctx.db
-    .query("telegramStatusMessages")
-    .withIndex("by_tab_id", (q) => q.eq("tabId", input.tabId))
-    .unique();
-
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      chatId: input.chatId,
-      messageId: input.messageId,
-      eventVersion: input.eventVersion,
-      lastEditedAt: input.now,
-    });
-    return existing._id;
+): Promise<{ published: boolean; reason?: string }> {
+  if (!isPostingEvent(input.event)) {
+    throw new UnsanctionedTelegramEventError(input.event);
   }
 
-  return ctx.db.insert("telegramStatusMessages", {
+  const recorded = await recordTabStatusEvent(ctx, {
     tabId: input.tabId,
-    chatId: input.chatId,
-    messageId: input.messageId,
-    eventVersion: input.eventVersion,
-    lastEditedAt: input.now,
+    event: input.event,
+    now: input.now,
   });
+
+  if (!recorded.recorded) {
+    return { published: false, reason: recorded.reason };
+  }
+
+  await ctx.scheduler.runAfter(
+    0,
+    internal.internal.telegramDelivery.runStatusDelivery,
+    { tabId: input.tabId },
+  );
+
+  return { published: true };
 }
 
-/** Publishes tab-opened card and records the status message (Stories 2.3, 2.4). */
+/** Publishes the tab-opened card for a freshly started tab (Stories 2.3, 2.4). */
 export async function publishTabOpenedCard(
   ctx: MutationCtx,
   input: {
@@ -139,19 +73,9 @@ export async function publishTabOpenedCard(
     now: number;
   },
 ): Promise<void> {
-  const post = await postTelegramStatusMessage(ctx, {
-    chatId: input.chatId,
-    tabName: input.tabName,
-    event: "tab_opened",
-    opaqueToken: input.opaqueToken,
-    participantCount: 1,
-  });
-
-  await upsertTelegramStatusMessageRecord(ctx, {
+  await publishTabStatusEvent(ctx, {
     tabId: input.tabId,
-    chatId: input.chatId,
-    messageId: post.messageId,
-    eventVersion: 1,
+    event: "tab_opened",
     now: input.now,
   });
 }

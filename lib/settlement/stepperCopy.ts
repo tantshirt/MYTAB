@@ -1,4 +1,17 @@
 import { SETTLEMENT_STATUS, type SettlementStatus } from "@/convex/lib/settlementState";
+/*
+ * Plain named causes for Payment Progress (POLISH-SPEC §4.3) are owned by
+ * `lib/domain/paymentState` and are not restated here. A payment row in a list
+ * and the stepper on Payment Progress are two renderings of one failure, so
+ * there is one map, and it lives in the pure layer both of them can reach.
+ * Re-exported under the names this module has always published.
+ */
+import {
+  DEFAULT_FAILURE_CAUSE,
+  describeSettlementFailure,
+} from "@/lib/domain/paymentState";
+
+export { DEFAULT_FAILURE_CAUSE, describeSettlementFailure };
 
 /** The four forward-only steps. A step never moves backward; a failure replaces one in place. */
 export type SettlementStepKey = "wallet" | "verify" | "send" | "confirm";
@@ -46,18 +59,6 @@ export type StepperCopyInput = {
   recipientReceivesLabel?: string | null;
 };
 
-/**
- * Plain named causes for Payment Progress (POLISH-SPEC §4.3).
- * Never a generic: EXPERIENCE requires the cause be named.
- */
-const FAILURE_CAUSE: Record<string, string> = {
-  QUOTE_EXPIRED: "Quote expired. Refresh it.",
-  CONFIRMATION_REJECTED: "The network didn't confirm this payment.",
-  TARGET_ALREADY_SETTLED: "This one was already settled.",
-  INVALID_INTENT_STATUS: "This payment is no longer valid. Start again from the tab.",
-  MESSAGE_HASH_MISMATCH: "The payment details changed. Start again from the tab.",
-};
-
 const FAILURE_STEP: Record<string, SettlementStepKey> = {
   QUOTE_EXPIRED: "wallet",
   INVALID_INTENT_STATUS: "verify",
@@ -65,14 +66,6 @@ const FAILURE_STEP: Record<string, SettlementStepKey> = {
   CONFIRMATION_REJECTED: "send",
   TARGET_ALREADY_SETTLED: "send",
 };
-
-/** POLISH-SPEC §4.3, "Failed — unknown cause". */
-export const DEFAULT_FAILURE_CAUSE = "This payment didn't go through.";
-
-export function describeSettlementFailure(failureCode?: string | null): string {
-  if (!failureCode) return DEFAULT_FAILURE_CAUSE;
-  return FAILURE_CAUSE[failureCode] ?? DEFAULT_FAILURE_CAUSE;
-}
 
 const IN_FLIGHT_FOOTNOTE = "You can close this — we'll update the tab either way.";
 const UNKNOWN_FOOTNOTE = "Still checking — don't pay again.";

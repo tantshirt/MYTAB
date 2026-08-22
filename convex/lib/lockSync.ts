@@ -8,13 +8,18 @@ import { USDC_MINT } from "../../lib/solana/constants";
 import {
   computeTabBreakdowns,
   countUnassignedItems,
-  fixtureFxFields,
   loadItemClaimRows,
   persistComputedAllocations,
 } from "./allocationSync";
+import {
+  fxFieldsFromSnapshot,
+  fxRationalFromSnapshot,
+  requireLockableFxSnapshot,
+} from "./fxSnapshotSync";
 import { getDefaultReceivingWalletForUser } from "./walletSync";
 import { SETTLEMENT_STATUS } from "./settlementState";
 import { AuthError } from "./auth";
+import { publishTabStatusEvent } from "./telegramBot";
 
 export const LOCK_FAILURE = {
   UNASSIGNED_ITEMS: "UNASSIGNED_ITEMS",
@@ -108,8 +113,14 @@ export async function lockBillCore(
     throw new AuthError(LOCK_FAILURE.RECIPIENT_WALLET_REQUIRED);
   }
 
-  const fx = fixtureFxFields();
-  const obligations = buildObligationSnapshots(breakdowns);
+  // Locking is where the rate stops being advisory: these amounts are what the
+  // recipient is paid. Fail closed rather than lock against a fixture rate.
+  const fxSnapshot = await requireLockableFxSnapshot(ctx, tab.fxSnapshotId, args.now);
+  const fx = fxFieldsFromSnapshot(fxSnapshot);
+  const obligations = buildObligationSnapshots(
+    breakdowns,
+    fxRationalFromSnapshot(fxSnapshot),
+  );
   const payload = {
     revision,
     totals,
@@ -166,6 +177,14 @@ export async function lockBillCore(
     lockedAt: args.now,
     billTotalMinor: BigInt(totals.billTotalMinor),
     updatedAt: args.now,
+  });
+
+  // "Bill ready to settle" — the second of the five events that reach a group.
+  // Fired after the obligations exist so the card's counts are already true.
+  await publishTabStatusEvent(ctx, {
+    tabId: args.tabId,
+    event: "bill_ready",
+    now: args.now,
   });
 
   return { snapshotId, revision, obligationIds };

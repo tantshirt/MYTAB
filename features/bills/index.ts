@@ -1,8 +1,4 @@
-export {
-  BillAuthoringSurface,
-  FIXTURE_BILL_AUTHORING,
-  FIXTURE_EMPTY_BILL,
-} from "./BillAuthoringSurface";
+export { BillAuthoringSurface } from "./BillAuthoringSurface";
 export type { BillAuthoringSurfaceProps } from "./BillAuthoringSurface";
 export { BillEmptyState } from "./BillEmptyState";
 export { BillSkeleton } from "./BillSkeleton";
@@ -12,5 +8,10 @@ export { ItemRow } from "./ItemRow";
 export { NewTabForm } from "./NewTabForm";
 export type { CaptureMethod, NewTabFormPatch, NewTabFormProps } from "./NewTabForm";
 export { OfflineBar } from "./OfflineBar";
-export { FIXTURE_BILL_AUTHORING as FIXTURE_BILL } from "./fixtures";
-export type { BillAuthoringFixture, BillItemView, BillMemberOption } from "./fixtures";
+export { FX_FIXTURE_BADGE } from "./fxBadge";
+export type {
+  BillAdjustmentView,
+  BillAuthoringData,
+  BillItemView,
+  BillMemberOption,
+} from "./types";

@@ -166,6 +166,7 @@ function MemberColumn({ member, tint }: { member: GroupMemberView; tint: string 
         ) : null}
       </span>
       <span
+        className="mytab-name"
         style={{
           display: "block",
           minWidth: 0,
@@ -259,7 +260,7 @@ export function GroupSurface({
       <OutsideTelegramBar visible={!inTelegram} />
 
       <SurfaceErrorBoundary headline={GROUP_COPY.error} retryLabel={GROUP_COPY.retry}>
-        <h1 className="mytab-type-title" style={{ margin: "16px 0 0" }}>
+        <h1 className="mytab-type-title mytab-name" style={{ margin: "16px 0 0" }}>
           {groupName}
         </h1>
         <p className="mytab-type-meta" style={{ margin: "6px 0 0" }}>
@@ -463,50 +464,3 @@ const START_TAB_STYLE = {
   fontWeight: 600,
   cursor: "pointer",
 } as const;
-
-export const FIXTURE_GROUP_SURFACE: GroupSurfaceProps = {
-  groupId: "groups:fixture-sukhumvit",
-  groupName: "Sukhumvit Dinner",
-  defaultCurrency: "THB",
-  recipientAsset: "USDC",
-  position: {
-    amountLabel: "฿291.74",
-    amountA11yLabel: "291 baht 74",
-    subLine: "You owe Maya",
-    tone: "owed",
-    settleHref: "/?settle=obl-1",
-  },
-  members: [
-    {
-      telegramUserId: "user-andre",
-      displayName: "Andre",
-      walletReady: true,
-      settled: false,
-    },
-    {
-      telegramUserId: "user-maya",
-      displayName: "Maya",
-      walletReady: true,
-      settled: true,
-    },
-    {
-      telegramUserId: "user-lin",
-      displayName: "Lin",
-      walletReady: false,
-      settled: false,
-    },
-  ],
-  openTabs: [
-    {
-      _id: "tabs:fixture-primary",
-      name: "Sukhumvit Dinner",
-      status: "open",
-      updatedAt: Date.now(),
-      peopleCount: 5,
-      totalLabel: "฿1,840.00",
-      settledCount: 1,
-      totalCount: 5,
-    },
-  ],
-  activity: [],
-};

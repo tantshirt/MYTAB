@@ -4,4 +4,4 @@ export {
   PRIVY_JWT_ISSUERS,
   buildJwksDataUri,
   buildPrivyAuthProviders,
-} from "../../convex/lib/privyAuth";
+} from "./authProviders";

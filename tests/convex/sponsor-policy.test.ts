@@ -6,6 +6,7 @@ import {
   isSponsorPaused,
   type SponsorUsageSnapshot,
 } from "../../convex/sponsorPolicy";
+import { TOKEN_PROGRAM_ID, USDC_MINT } from "../../lib/solana/constants";
 
 const EMPTY_USAGE: SponsorUsageSnapshot = {
   userDayReserved: 0n,
@@ -16,8 +17,9 @@ const EMPTY_USAGE: SponsorUsageSnapshot = {
 };
 
 const ALLOWLIST = {
-  programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-  mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  programId: TOKEN_PROGRAM_ID,
+  // Cluster-resolved, never a mainnet literal.
+  mint: USDC_MINT,
   recipientAddress: "Recip1111111111111111111111111111111111111",
   instructionKind: "transferChecked",
 };

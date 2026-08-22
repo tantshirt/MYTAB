@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIXTURE_CLAIM_BOARD } from "@/features/claims/ClaimBoard";
-import { FIXTURE_BILL_REVIEW } from "@/features/claims/BillReview";
+import { FIXTURE_BILL_REVIEW, FIXTURE_CLAIM_BOARD } from "@/tests/fixtures/claims";
 
 /**
  * The canonical demo dataset, locked.

@@ -4,7 +4,8 @@ import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
 import { useOffline } from "@/components/primitives/use-offline";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
-import { ActivitySurface, useActivityData } from "@/features/balances";
+import { ActivitySurface } from "@/features/balances";
+import { useActivityData } from "@/features/balances/useActivityData";
 
 /** Prop wiring only — the surface owns the title, the rhythm and every state. */
 function Activity() {
