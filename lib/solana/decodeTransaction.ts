@@ -153,7 +153,6 @@ export function base64ToBytes(value: string): Uint8Array {
       }
       return out;
     }
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins
     return new Uint8Array(Buffer.from(value, "base64"));
   } catch {
     throw new TransactionDecodeError(DECODE_FAILURE.BAD_BASE64);

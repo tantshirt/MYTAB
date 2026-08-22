@@ -84,7 +84,10 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
   const [importId, setImportId] = useState<string | null>(null);
   const { parsed, capturedAtLabel } = useReceiptData(importId);
 
-  const useSampleReceipt = useLiveMutation(api.receipts.useSampleReceipt);
+  // Named `seedSampleReceipt`, not `useSampleReceipt`: it is a mutation function,
+  // not a hook. The `use` prefix made react-hooks/rules-of-hooks reject the call
+  // inside the callback below — correctly, since the name claims it is a hook.
+  const seedSampleReceipt = useLiveMutation(api.receipts.useSampleReceipt);
   const confirmReceipt = useLiveMutation(api.receipts.confirmReceipt);
 
   /*
@@ -142,14 +145,14 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
    */
   const [sampleNonce, setSampleNonce] = useState(0);
   const handleUseSampleReceipt = useCallback(() => {
-    if (!useSampleReceipt || !tabId) {
+    if (!seedSampleReceipt || !tabId) {
       setSampleNonce((value) => value + 1);
       return;
     }
-    void useSampleReceipt({ tabId: tabId as Id<"tabs"> })
+    void seedSampleReceipt({ tabId: tabId as Id<"tabs"> })
       .then((seeded) => setImportId(seeded.importId))
       .catch(() => setSampleNonce((value) => value + 1));
-  }, [useSampleReceipt, tabId]);
+  }, [seedSampleReceipt, tabId]);
 
   return (
     <AppShell footer={<div ref={setFooterSlot} />}>

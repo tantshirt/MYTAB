@@ -1,6 +1,6 @@
 import type { GenericQueryCtx } from "convex/server";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
-import { fiatMinorFromInteger, type FiatMinor } from "../../lib/domain/money";
+import type { FiatMinor } from "../../lib/domain/money";
 import type { GroupBalanceSummary, UserNetPosition } from "../../lib/domain/balance";
 import {
   deriveWithinGroupBalance,
@@ -331,9 +331,4 @@ export function deriveGroupBalance(input: {
     components,
     isAllSquare: positionsAtomic.length === 0,
   };
-}
-
-/** Zero position for a viewer with nothing outstanding anywhere. */
-export function emptyViewerNet(): { netMinor: number; netAtomic: bigint } {
-  return { netMinor: fiatMinorFromInteger(0), netAtomic: 0n };
 }

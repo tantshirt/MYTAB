@@ -139,6 +139,41 @@ export const getImport = query({
   },
 });
 
+/**
+ * The newest live import for a tab (Story 8.4).
+ *
+ * Receipt Review is routed by tab, not by import, so a cold load of that URL
+ * has no `importId` to read. This resolves one from the tab through
+ * `by_tab_id`. Discarded imports — deleted, rejected — are never resurrected.
+ * Same authorization as `getImport`: a member of the tab's group.
+ */
+export const latestImportForTab = query({
+  args: {
+    tabId: v.id("tabs"),
+  },
+  handler: async (ctx, args) => {
+    const tab = await ctx.db.get(args.tabId);
+    if (!tab) {
+      return null;
+    }
+
+    await requireGroupMember(ctx, tab.groupId);
+
+    const imports = await ctx.db
+      .query("receiptImports")
+      .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
+      .order("desc")
+      .collect();
+
+    return (
+      imports.find(
+        (receiptImport) =>
+          receiptImport.status !== "deleted" && receiptImport.status !== "rejected",
+      ) ?? null
+    );
+  },
+});
+
 /** Confirms reviewed receipt and creates items (Story 8.5). */
 export const confirmReceipt = mutation({
   args: {

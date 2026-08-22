@@ -11,6 +11,7 @@
 import type * as activity from "../activity.js";
 import type * as adjustments from "../adjustments.js";
 import type * as allocations from "../allocations.js";
+import type * as balances from "../balances.js";
 import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
 import type * as fxSnapshots from "../fxSnapshots.js";
@@ -64,6 +65,7 @@ import type * as lib_telegramNotify from "../lib/telegramNotify.js";
 import type * as lib_telegramUpdateSync from "../lib/telegramUpdateSync.js";
 import type * as lib_telegramVerify from "../lib/telegramVerify.js";
 import type * as lib_telegramWebhook from "../lib/telegramWebhook.js";
+import type * as lib_viewerScope from "../lib/viewerScope.js";
 import type * as lib_walletSync from "../lib/walletSync.js";
 import type * as obligations from "../obligations.js";
 import type * as receipts from "../receipts.js";
@@ -85,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   adjustments: typeof adjustments;
   allocations: typeof allocations;
+  balances: typeof balances;
   crons: typeof crons;
   demo: typeof demo;
   fxSnapshots: typeof fxSnapshots;
@@ -138,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   "lib/telegramUpdateSync": typeof lib_telegramUpdateSync;
   "lib/telegramVerify": typeof lib_telegramVerify;
   "lib/telegramWebhook": typeof lib_telegramWebhook;
+  "lib/viewerScope": typeof lib_viewerScope;
   "lib/walletSync": typeof lib_walletSync;
   obligations: typeof obligations;
   receipts: typeof receipts;
