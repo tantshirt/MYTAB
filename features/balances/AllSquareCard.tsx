@@ -21,13 +21,23 @@ export type AllSquareCardProps = {
   members: AllSquareMember[];
   onDismiss: () => void;
   /**
-   * Posts the completion card to the group through the bot (§1.10). Optional
-   * because the surface that mounts this card may have no way to post — and a
-   * visible button that does nothing is worse than an absent one, so when it is
-   * absent `Done` is promoted to the primary rather than sitting under a dead
-   * `Share to group`.
+   * Hands the completion to Telegram's own share sheet (§1.10).
+   *
+   * NOT a bot post: the five sanctioned group events are already complete by
+   * the time this card is on screen, and `bill_completed` posted itself. This
+   * opens `WebApp.shareMessage`, where the *person* picks the chat.
+   *
+   * Optional, and the gate is the whole point — outside Telegram, or below Bot
+   * API 8.0, there is no share sheet to open, so the button is **absent**
+   * rather than disabled and `Done` is promoted to the primary. A visible
+   * button that does nothing is worse than an absent one.
    */
   onShare?: () => void;
+  /**
+   * One plain line when a share genuinely failed. Never set for a person who
+   * simply closed the share sheet — that is not a failure and gets no copy.
+   */
+  shareError?: string | null;
   reduceMotion?: boolean;
 };
 
@@ -35,6 +45,12 @@ export const ALL_SQUARE_COPY = {
   headline: "All square",
   closing: "Your group tab. Settled.",
   share: "Share to group",
+  /**
+   * §4.0 — a failure names its next action in the same breath, never
+   * apologises, and never explains the mechanism. The next action is the button
+   * still sitting underneath it.
+   */
+  shareFailed: "Couldn't share that. Try again.",
   dismiss: "Done",
   /** "5 of 5 settled" — a count of shares on ONE bill, never a group net position. */
   settledCount: (settled: number, total: number) => `${settled} of ${total} settled`,
@@ -147,6 +163,7 @@ export function AllSquareCard({
   members,
   onDismiss,
   onShare,
+  shareError = null,
   reduceMotion = false,
 }: AllSquareCardProps) {
   // The whole cast in one stack, so the set-aware allocator: no two faces here
@@ -414,6 +431,24 @@ export function AllSquareCard({
           flexShrink: 0,
         }}
       >
+        {/*
+          * A live region, not an alert: the moment is already a polite
+          * announcement and a share that missed should not talk over it.
+          */}
+        {onShare && shareError ? (
+          <p
+            role="status"
+            className="mytab-type-meta"
+            style={{
+              margin: 0,
+              textAlign: "center",
+              color: MYTAB_COLORS.inkMuted,
+            }}
+          >
+            {shareError}
+          </p>
+        ) : null}
+
         {onShare ? (
           <button
             type="button"

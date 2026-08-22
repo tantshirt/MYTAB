@@ -4,6 +4,14 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   /*
+   * The build output directory, overridable per-invocation. `npm run sweep`
+   * needs its own bundle — one built in fixture mode, so every route renders
+   * its real surface instead of the Launch screen — and it must not clobber the
+   * `.next/` that `npm run smoke` and `next start` are pointing at. Unset
+   * everywhere else, which leaves the default untouched.
+   */
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  /*
    * Astryx ships untranspiled ESM. `transpilePackages` is what lets
    * `@astryxdesign/core/astryx.css` and the `<Theme>` component be
    * imported from app code at all (POLISH-SPEC §2.11). StyleX itself stays

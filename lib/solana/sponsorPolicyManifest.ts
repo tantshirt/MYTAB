@@ -78,6 +78,8 @@ export type SponsorPolicyManifest = {
   /** The only mint the recipient may be credited in. */
   outputMint: string;
   outputDecimals: number;
+  /** The routed aggregator program, or undefined on the direct path. */
+  routerProgramId?: string;
   allowedInstructionDiscriminators: Readonly<Record<string, readonly number[]>>;
   maxInstructions: number;
   maxComputeUnits: number;
@@ -116,13 +118,16 @@ export function buildSponsorPolicyManifest(input: {
   const config = getClusterConfig(cluster);
   const isDflow = input.routingKind === "dflow_sync";
 
+  // Routed path: ComputeBudget and the aggregator, nothing else.
+  //
+  // Token and ATA were previously allowlisted at top level here. Removed after
+  // decoding real DFlow orders across four input mints and two trade sizes: a
+  // sponsored user-executed order is ALWAYS exactly SetComputeUnitLimit +
+  // SetComputeUnitPrice + one aggregator instruction. The aggregator CPIs into
+  // Token/ATA itself. Leaving them on the top-level allowlist bought nothing and
+  // permitted a bare top-level token transfer riding alongside the swap.
   const allowedPrograms = isDflow
-    ? [
-        COMPUTE_BUDGET_PROGRAM_ID,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-        config.dflowAggregatorProgramId,
-      ]
+    ? [COMPUTE_BUDGET_PROGRAM_ID, config.dflowAggregatorProgramId]
     : [
         COMPUTE_BUDGET_PROGRAM_ID,
         TOKEN_PROGRAM_ID,
@@ -149,11 +154,13 @@ export function buildSponsorPolicyManifest(input: {
     ),
     outputMint: config.usdcMint,
     outputDecimals: config.usdcDecimals,
+    routerProgramId: isDflow ? config.dflowAggregatorProgramId : undefined,
     allowedInstructionDiscriminators: Object.freeze(
       allowedInstructionDiscriminators,
     ),
-    // ComputeBudget×2 + optional ATA create + transfer + optional memo.
-    maxInstructions: isDflow ? 8 : 5,
+    // Direct: ComputeBudget×2 + optional ATA create + transfer + optional memo.
+    // Routed: ComputeBudget×2 + exactly one aggregator instruction, +1 slack.
+    maxInstructions: isDflow ? 4 : 5,
     maxComputeUnits: SPONSOR_MAX_COMPUTE_UNITS,
     maxPriorityFeeLamports: SPONSOR_MAX_PRIORITY_FEE_LAMPORTS,
     maxAtaCreates: SPONSOR_MAX_ATA_CREATES,

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "dflow-market-data": {
+      "source": "DFlowProtocol/dflow-skills",
+      "sourceType": "github",
+      "skillPath": "skills/dflow-market-data/SKILL.md",
+      "computedHash": "583a68267460f6021ecbcd9d760c70c56e907a6e77f579ec06d22a9381d7948b"
+    },
+    "dflow-proof-kyc": {
+      "source": "DFlowProtocol/dflow-skills",
+      "sourceType": "github",
+      "skillPath": "skills/dflow-proof-kyc/SKILL.md",
+      "computedHash": "ebac563c5a1e9e8899e2d0c6fb85d7203080f2c6e4bb10192860b2d59cc090c3"
+    },
+    "dflow-spot-trading": {
+      "source": "DFlowProtocol/dflow-skills",
+      "sourceType": "github",
+      "skillPath": "skills/dflow-spot-trading/SKILL.md",
+      "computedHash": "872dfa6bc2f713bafc356ae006e054acb798687b333cef6b43663fe1c5fe61f5"
+    }
+  }
+}

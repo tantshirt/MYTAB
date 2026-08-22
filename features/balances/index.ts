@@ -6,8 +6,8 @@ export { AllSquareCard, ALL_SQUARE_COPY, hasSeenAllSquare, markAllSquareSeen } f
 export type { AllSquareCardProps, AllSquareMember } from "./AllSquareCard";
 export { AllSquareWatcher } from "./AllSquareWatcher";
 export type { AllSquareWatchTab, AllSquareWatcherProps } from "./AllSquareWatcher";
-export { useAllSquareTrigger } from "./useAllSquareTrigger";
-export type { AllSquareMoment } from "./useAllSquareTrigger";
+export { useAllSquareShare, useAllSquareTrigger } from "./useAllSquareTrigger";
+export type { AllSquareMoment, AllSquareShare } from "./useAllSquareTrigger";
 export { ActivityFeed, ActivityRow, ACTIVITY_COPY, formatRelativeTime } from "./ActivityFeed";
 export type { ActivityRowData } from "./ActivityFeed";
 export { ActivitySurface } from "./ActivitySurface";

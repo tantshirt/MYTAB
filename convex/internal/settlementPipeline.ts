@@ -23,6 +23,9 @@ import {
   parseFinalizedConfirmation,
 } from "./confirmations";
 import { SponsorCoSignError, coSignAndBroadcast } from "./privy";
+import { loadLookupTablesForTransaction } from "./dflow";
+import { decodeTransactionBase64 } from "../../lib/solana/decodeTransaction";
+import type { AddressLookupTableAccount } from "../../lib/solana/addressLookupTable";
 import {
   SolanaRpcError,
   createSolanaRpcClient,
@@ -306,6 +309,35 @@ async function buildPreSponsorContext(
         })
       : undefined;
 
+  // A routed transaction carries address lookup tables — DFlow returns them on
+  // every order — so the full account set must be re-derived from the CHAIN
+  // here, immediately before the sponsor key, and not carried over from build
+  // time. Nothing about this transaction is trusted because an earlier gate
+  // already saw it: the tables are read again, at a slot no older than the one
+  // the route was priced at. If they cannot be read, the gate fails closed with
+  // DFLOW_ROUTED_VALIDATION_INCOMPLETE and the sponsor never signs.
+  let resolvedAddressTables: AddressLookupTableAccount[] | undefined;
+
+  if (routingKind === "dflow_sync" && !isSolanaFixtureMode()) {
+    let tableAddresses: string[] = [];
+    try {
+      tableAddresses = decodeTransactionBase64(
+        intent.partialSignedTx ?? intent.serializedMessage ?? "",
+      ).message.addressTableLookups.map((lookup) => lookup.accountKey);
+    } catch {
+      tableAddresses = [];
+    }
+    if (tableAddresses.length > 0) {
+      const loaded = await loadLookupTablesForTransaction({
+        rpc: createSolanaRpcClient(),
+        tableAddresses,
+      });
+      if (loaded.ok) {
+        resolvedAddressTables = loaded.tables;
+      }
+    }
+  }
+
   return {
     ...buildValidationContext(intent, payerAddress, sponsorAddress, {
       blockhash: intent.blockhash ?? "",
@@ -313,6 +345,8 @@ async function buildPreSponsorContext(
       status: SETTLEMENT_STATUS.USER_SIGNED,
     }),
     routingKind,
+    resolvedAddressTables,
+    dflowContextSlot: intent.dflowContextSlot,
     intentId: intent._id as string,
     currentTabRevision: tab?.lockedRevision ?? tab?.revision,
     nowMs: Date.now(),

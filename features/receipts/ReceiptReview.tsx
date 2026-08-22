@@ -126,9 +126,16 @@ function flagStyle(flagged: boolean): CSSProperties {
   };
 }
 
+/**
+ * Every field on this surface is a control someone has to hit with a thumb to
+ * correct a misread price, so each one carries the 44px floor from EXPERIENCE's
+ * *Accessibility Floor*. They were 21–25px tall: the type is unchanged, the box
+ * around it is not.
+ */
 const BARE_FIELD: CSSProperties = {
   width: "100%",
   minWidth: 0,
+  minHeight: "44px",
   appearance: "none",
   WebkitAppearance: "none",
   background: "transparent",
@@ -329,13 +336,32 @@ export function ReceiptReview({
                   </p>
                 ) : null}
 
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/*
+                  Three columns whose widths are in `em`, not px.
+                  A px column cannot hold a figure that grew with the platform
+                  text setting: at 200% these were 40px and 104px boxes holding
+                  32px type, and the price — an AMOUNT — was clipped. In `em`
+                  each column is a multiple of its own field's type, so it grows
+                  with the figure and the amount is never cut. `flexWrap` is the
+                  release valve past that: when the three columns genuinely
+                  cannot share 320px, the price drops to its own line rather
+                  than pushing the card off the screen.
+                */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    rowGap: 4,
+                    columnGap: 12,
+                  }}
+                >
                   <label
                     style={{
                       flex: "none",
                       display: "flex",
                       alignItems: "center",
-                      width: 40,
+                      fontSize: "14px",
                       color: MYTAB_COLORS.inkMuted,
                     }}
                   >
@@ -348,14 +374,32 @@ export function ReceiptReview({
                         updateLine(index, { quantity: Math.max(1, Number(digits) || 1) });
                       }}
                       className="mytab-tabular"
-                      style={{ ...BARE_FIELD, fontSize: "14px", color: "inherit" }}
+                      style={{
+                        ...BARE_FIELD,
+                        fontSize: "14px",
+                        // 44px at this type, and 44px-worth at any larger
+                        // platform setting. The 40px column it replaced put the
+                        // quantity field 12px under the touch floor.
+                        width: "3.143em",
+                        minWidth: "44px",
+                        color: "inherit",
+                      }}
                     />
                     <span aria-hidden="true" style={{ fontSize: "14px" }}>
                       &#215;
                     </span>
                   </label>
 
-                  <label style={{ flexGrow: 1, minWidth: 0, ...flagStyle(line.flagged) }}>
+                  <label
+                    style={{
+                      // `flex-basis: 0` so the name never inflates the row's
+                      // wrap calculation; the 3.5em floor is what makes the
+                      // price wrap instead of the name vanishing.
+                      flex: "1 1 0%",
+                      minWidth: "3.5em",
+                      ...flagStyle(line.flagged),
+                    }}
+                  >
                     <VisuallyHidden>Item name</VisuallyHidden>
                     <input
                       value={line.name}
@@ -371,7 +415,9 @@ export function ReceiptReview({
                       display: "flex",
                       alignItems: "center",
                       gap: 1,
-                      width: 104,
+                      marginLeft: "auto",
+                      fontSize: "15px",
+                      width: "6.933em",
                       ...flagStyle(line.flagged),
                     }}
                   >
@@ -438,7 +484,22 @@ export function ReceiptReview({
             </span>
             <span
               className="mytab-row__amount"
-              style={{ display: "flex", alignItems: "center", gap: 1, width: 116 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                fontSize: "15px",
+                /*
+                 * `.mytab-row__amount` pins `min-width: max-content` so a
+                 * rendered figure can never be squeezed. This cell holds an
+                 * `<input>`, whose max-content width is the control's default
+                 * ~20-character size — 375px, which pushed the card 120px past
+                 * a 320px screen. The width below is the figure's real budget
+                 * and grows with the type, so the amount is still never cut.
+                 */
+                minWidth: 0,
+                width: "7.733em",
+              }}
             >
               <span aria-hidden="true" style={{ fontSize: "15px", fontWeight: 600 }}>
                 ฿

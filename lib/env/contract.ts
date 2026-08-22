@@ -15,6 +15,11 @@ export const VERCEL_ONLY_KEYS = [
 /** Keys that must only exist in the Convex Cloud runtime. */
 export const CONVEX_ONLY_KEYS = [
   "DFLOW_API_KEY",
+  /** Host override. Convex-only because the Trading API serves no CORS: every
+   * call must originate server-side, never from the browser. */
+  "DFLOW_API_BASE_URL",
+  /** Optional — unlocks the keyed Jupiter Token API tier; the lite tier needs none. */
+  "JUPITER_API_KEY",
   "PRIVY_APP_ID",
   "PRIVY_VERIFICATION_KEY",
   "TELEGRAM_BOT_TOKEN",

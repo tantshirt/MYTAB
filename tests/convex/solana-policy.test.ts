@@ -42,6 +42,14 @@ import {
 } from "../../lib/solana/constants";
 import { getClusterConfig } from "../../lib/solana/cluster";
 import { DFLOW_FIXTURE_PROGRAM_ID } from "../../lib/dflow/constants";
+import {
+  ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+  decodeAddressLookupTable,
+  type AddressLookupTableAccount,
+} from "../../lib/solana/addressLookupTable";
+import { decodeTransactionBase64 } from "../../lib/solana/decodeTransaction";
+import { ATA_RENT_LAMPORTS } from "../../lib/solana/constants";
+import dflowFixture from "../fixtures/dflow-order-mainnet.json";
 import { SETTLEMENT_STATUS } from "../../convex/lib/settlementState";
 import {
   BLOCKHASH,
@@ -55,6 +63,52 @@ import {
 
 const actors = makeActors();
 const AMOUNT = 1_000_000n;
+
+// ---------------------------------------------------------------------------
+// A REAL DFlow order, captured live from the developer host. Real mainnet route,
+// real signed response, real on-chain lookup table bytes. Nothing below is
+// synthesised, which is the point: a hand-built "routed" transaction would prove
+// only that the gate accepts what the test author imagined.
+// ---------------------------------------------------------------------------
+const DFLOW_KEYS = dflowFixture.keys;
+const DFLOW_ORDER = dflowFixture.order;
+const DFLOW_BODY = JSON.parse(
+  Buffer.from(dflowFixture.response.bodyBase64, "base64").toString("utf8"),
+) as {
+  transaction: string;
+  inAmount: string;
+  addressLookupTables: { address: string; addresses: Record<string, string> }[];
+};
+const DFLOW_TRANSACTION_BASE64 = DFLOW_BODY.transaction;
+const DFLOW_INPUT_ATOMIC = DFLOW_BODY.inAmount;
+const DFLOW_DECLARED_TABLES = DFLOW_BODY.addressLookupTables;
+const DFLOW_TABLE_DATA = dflowFixture.lookupTableAccounts as Record<
+  string,
+  { owner: string; dataBase64: string }
+>;
+const DFLOW_TABLE_ADDRESSES = Object.keys(DFLOW_TABLE_DATA);
+const MAINNET = getClusterConfig("mainnet-beta");
+/** An unrelated, well-formed wallet address used for negative cases. */
+const OTHER_WALLET = "8xeaWCsJYxRoudEZGJWURdfrtFhLYZz9b4iHJnW5tb3d";
+
+function dflowBlockhash(): string {
+  return decodeTransactionBase64(DFLOW_TRANSACTION_BASE64).message.recentBlockhash;
+}
+
+function dflowTables(): AddressLookupTableAccount[] {
+  return DFLOW_TABLE_ADDRESSES.map((address) => {
+    const decoded = decodeAddressLookupTable({
+      address,
+      owner: DFLOW_TABLE_DATA[address]!.owner,
+      dataBase64: DFLOW_TABLE_DATA[address]!.dataBase64,
+      observedSlot: DFLOW_ORDER.contextSlot,
+    });
+    if (!decoded.ok) {
+      throw new Error(`fixture lookup table failed to decode: ${decoded.code}`);
+    }
+    return decoded.table;
+  });
+}
 
 function context(
   status: string = SETTLEMENT_STATUS.READY_FOR_SIGNATURE,
@@ -688,18 +742,201 @@ describe("state, pause and reservation gates", () => {
   });
 });
 
-describe("routed (DFlow) path", () => {
-  it("never reaches sponsor co-sign until lookup tables are resolved", () => {
-    const tx = buildTx({ actors, includeMemo: false });
-    const result = validateBeforeSponsorCoSign(toBase64(tx), {
-      ...context(),
-      routingKind: "dflow_sync",
+/**
+ * Routed (DFlow) path — address lookup tables.
+ *
+ * The original guard here asserted `DFLOW_ROUTED_VALIDATION_INCOMPLETE`
+ * unconditionally, because no routed transaction could be validated at all. The
+ * property it protected — AD-10, "no unresolved account may be signed" — is
+ * unchanged and is asserted BELOW, in a stronger form, against a real DFlow
+ * transaction and real on-chain lookup table data.
+ *
+ * Constraining routing so that no lookup table appears is NOT available: every
+ * live `/order` response carries two, including single-venue `onlyDirectRoutes`
+ * routes, because DFlow's aggregator uses its own common table structurally.
+ * Tightening `maxAccounts` to 24 produced `route_not_found`, never a
+ * lookup-free transaction. So the tables are resolved against the chain and the
+ * fully expanded account set faces the identical deny-by-default rules.
+ */
+describe("routed (DFlow) path — address lookup tables", () => {
+  const routedContext = () => ({
+    ...context(SETTLEMENT_STATUS.QUOTING),
+    intent: {
+      payerAddress: DFLOW_KEYS.user,
+      recipientAddress: DFLOW_KEYS.recipient,
+      inputMint: MAINNET.wrappedSolMint,
+      outputMint: MAINNET.usdcMint,
+      targetOutputAtomic: DFLOW_ORDER.otherAmountThreshold,
+      maxInputAtomic: DFLOW_INPUT_ATOMIC,
+      minimumOutputAtomic: DFLOW_ORDER.otherAmountThreshold,
+      quotedOtherAmountThreshold: DFLOW_ORDER.otherAmountThreshold,
+      status: SETTLEMENT_STATUS.QUOTING,
+    },
+    expectedMemo: undefined,
+    routingKind: "dflow_sync" as const,
+    cluster: "mainnet-beta" as const,
+    sponsorAddress: DFLOW_KEYS.sponsor,
+    blockhash: dflowBlockhash(),
+    lastValidBlockHeight: DFLOW_ORDER.lastValidBlockHeight,
+    dflowContextSlot: DFLOW_ORDER.contextSlot,
+  });
+
+  it("resolves lookup tables against the chain and passes the identical rules", () => {
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      resolvedAddressTables: dflowTables(),
+      declaredAddressTables: DFLOW_DECLARED_TABLES,
+    });
+    expect(result.ok, `unexpected rejection: ${JSON.stringify(result)}`).toBe(true);
+  });
+
+  it("HARD-REJECTS a routed transaction whose lookup tables were never resolved", () => {
+    // The AD-10 property, verbatim: an account we cannot see is an account the
+    // sponsor never signs. This is the assertion the original test protected.
+    const result = validateBeforeSponsorCoSign(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      intent: { ...routedContext().intent, status: SETTLEMENT_STATUS.USER_SIGNED },
       reservationActive: true,
       reservationOwnerIntentId: context().intentId,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("DFLOW_ROUTED_VALIDATION_INCOMPLETE");
+    }
+  });
+
+  it("rejects when one referenced table is missing from the resolved set", () => {
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      resolvedAddressTables: dflowTables().slice(0, 1),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("ADDRESS_TABLE_UNRESOLVED");
+    }
+  });
+
+  it("rejects a lookup index past the end of the table it names", () => {
+    const truncated = dflowTables().map((table) => ({
+      ...table,
+      addresses: table.addresses.slice(0, 1),
+    }));
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      resolvedAddressTables: truncated,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("ADDRESS_TABLE_INDEX_OUT_OF_RANGE");
+    }
+  });
+
+  it("rejects an account that is not owned by the lookup-table program", () => {
+    const decoded = decodeAddressLookupTable({
+      address: DFLOW_TABLE_ADDRESSES[0]!,
+      owner: TOKEN_PROGRAM_ID,
+      dataBase64: DFLOW_TABLE_DATA[DFLOW_TABLE_ADDRESSES[0]!]!.dataBase64,
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.code).toBe("ADDRESS_TABLE_OWNER_INVALID");
+    }
+  });
+
+  it("rejects when the router's declared entry disagrees with the chain", () => {
+    const lied = DFLOW_DECLARED_TABLES.map((table, index) =>
+      index === 0
+        ? {
+            address: table.address,
+            addresses: Object.fromEntries(
+              Object.entries(table.addresses).map(([key], position) =>
+                position === 0 ? [key, DFLOW_KEYS.sponsor] : [key, table.addresses[key]!],
+              ),
+            ),
+          }
+        : table,
+    );
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      resolvedAddressTables: dflowTables(),
+      declaredAddressTables: lied,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("ADDRESS_TABLE_DECLARATION_MISMATCH");
+    }
+  });
+
+  it("rejects a table read at a slot older than the route was priced at", () => {
+    const stale = dflowTables().map((table) => ({ ...table, observedSlot: 1 }));
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      resolvedAddressTables: stale,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("ADDRESS_TABLE_SLOT_TOO_OLD");
+    }
+  });
+
+  it("rejects a deactivating table outright", () => {
+    const data = Buffer.from(
+      DFLOW_TABLE_DATA[DFLOW_TABLE_ADDRESSES[0]!]!.dataBase64,
+      "base64",
+    );
+    data.writeBigUInt64LE(123_456n, 4);
+    const decoded = decodeAddressLookupTable({
+      address: DFLOW_TABLE_ADDRESSES[0]!,
+      owner: ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+      dataBase64: data.toString("base64"),
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.code).toBe("ADDRESS_TABLE_DEACTIVATED");
+    }
+  });
+
+  it("rejects when the resolved output no longer reaches the recipient", () => {
+    // Same real transaction, a different recipient in the intent. The routed
+    // backstop's anchor is that the recipient's USDC token account is present
+    // and writable in the RESOLVED set — this is what makes `destinationWallet`
+    // a verified fact rather than a request we hope the router honoured.
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      // A well-formed address that is not a signer, so this reaches the routed
+      // backstop rather than tripping the earlier signer-set rule.
+      intent: { ...routedContext().intent, recipientAddress: OTHER_WALLET },
+      resolvedAddressTables: dflowTables(),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("RECIPIENT_TOKEN_ACCOUNT_MISSING");
+    }
+  });
+
+  it("still rejects lookup tables outright on the direct exact-USDC path", () => {
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      routingKind: "exact_usdc",
+      resolvedAddressTables: dflowTables(),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("ADDRESS_TABLE_LOOKUP_PRESENT");
+    }
+  });
+
+  it("charges the sponsor for token-account rent the aggregator creates by CPI", () => {
+    const result = validateBeforeClientExposure(DFLOW_TRANSACTION_BASE64, {
+      ...routedContext(),
+      resolvedAddressTables: dflowTables(),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // No top-level ATA instruction exists to count, but the sponsor pays for
+      // it all the same. Budgeting the observed zero would understate exposure.
+      expect(result.ataCreates).toBe(0);
+      expect(result.sponsorExposureLamports).toBeGreaterThanOrEqual(ATA_RENT_LAMPORTS);
     }
   });
 });

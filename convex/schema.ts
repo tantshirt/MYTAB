@@ -596,6 +596,73 @@ export default defineSchema({
     .index("by_group_id", ["groupId"])
     .index("by_obligation_id", ["obligationId"]),
 
+  /**
+   * Token metadata cache (symbols, names, decimals, logos, verification).
+   *
+   * Server-side only, and never shipped whole. The registry this is populated
+   * from is megabytes; the Mini App's First Load JS is already the product's
+   * weak point, and a payer on restaurant wifi must not download a token list
+   * to read the word "USDC". Reads go through `api.tokens.getTokenMetadata`,
+   * which takes an explicit set of mints and returns only those rows.
+   *
+   * Keyed by (cluster, mint). The cluster is part of the key rather than a
+   * filter because devnet USDC and mainnet USDC are different addresses, and a
+   * row from the wrong cluster is not stale data — it is the wrong token.
+   *
+   * A row with no `symbol` is a NEGATIVE cache entry: we asked, and no registry
+   * lists this mint. It is kept so a payer holding an obscure token does not
+   * re-trigger a registry fetch on every render, and so the sheet can tell
+   * "unlisted but real" apart from "never looked".
+   */
+  tokenMetadata: defineTable({
+    cluster: v.union(v.literal("devnet"), v.literal("mainnet-beta")),
+    mint: v.string(),
+    /** Absent for a negative entry — the mint is in no registry we consulted. */
+    symbol: v.optional(v.string()),
+    name: v.optional(v.string()),
+    /**
+     * Chain truth once `decimalsVerifiedAt` is set; until then it is the
+     * registry's claim and must not scale an amount we are about to transact.
+     */
+    decimals: v.optional(v.number()),
+    logoUri: v.optional(v.string()),
+    /** Never true for a mint the registry does not vouch for. */
+    verified: v.boolean(),
+    source: v.union(
+      v.literal("cluster_pin"),
+      v.literal("jupiter"),
+      v.literal("chain"),
+    ),
+    /** Absent when the mint account has not been read yet. */
+    existsOnChain: v.optional(v.boolean()),
+    fetchedAt: v.number(),
+    /** When `decimals` was last proven equal to the mint account. */
+    decimalsVerifiedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_cluster_and_mint", ["cluster", "mint"])
+    .index("by_cluster_and_fetched", ["cluster", "fetchedAt"]),
+
+  /**
+   * One row per cluster recording the health of the registry fetch path.
+   *
+   * Exists so "the list is unavailable" is an observable state rather than an
+   * inference from rows quietly ageing. It also carries the cooldown that stops
+   * a render loop from turning every cache miss into an outbound request.
+   */
+  tokenSourceStatus: defineTable({
+    cluster: v.union(v.literal("devnet"), v.literal("mainnet-beta")),
+    source: v.union(v.literal("jupiter")),
+    lastSuccessAt: v.optional(v.number()),
+    lastAttemptAt: v.number(),
+    lastFailureAt: v.optional(v.number()),
+    lastFailureCode: v.optional(v.string()),
+    consecutiveFailures: v.number(),
+    /** No outbound fetch is attempted before this instant. */
+    cooldownUntil: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_cluster_and_source", ["cluster", "source"]),
+
   receiptImports: defineTable({
     tabId: v.id("tabs"),
     uploadedBy: v.id("users"),

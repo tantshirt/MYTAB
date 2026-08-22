@@ -23,4 +23,16 @@ crons.interval(
   internal.internal.fx.refreshFxSnapshot,
 );
 
+/**
+ * Keeps cached token metadata inside its freshness window (see
+ * `lib/tokens/policy.ts`). A safety net behind the on-demand refresh, so a mint
+ * nobody happened to open for a week does not hit the expiry cliff and become
+ * unpayable at the till. One bounded batch per run.
+ */
+crons.interval(
+  "refresh stale token metadata",
+  { hours: 1 },
+  internal.tokens.refreshStaleTokens,
+);
+
 export default crons;

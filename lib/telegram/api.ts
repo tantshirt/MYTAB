@@ -302,3 +302,84 @@ export function getMe(
 ): Promise<TelegramCallResult<{ id: number; username?: string }>> {
   return callTelegramApi<{ id: number; username?: string }>(botToken, "getMe", {}, options);
 }
+
+/**
+ * `InlineQueryResultArticle` — the only inline result this product ever builds.
+ *
+ * Bot API: `type` must be `article`; `id` is 1–64 **bytes**; `title` and
+ * `input_message_content` are required. Everything else is optional and
+ * deliberately left off — no `url`, no `thumbnail_url`, no `reply_markup`,
+ * because a link out of the shared card is exactly what NFR-7 forbids.
+ */
+export type InlineQueryResultArticle = {
+  type: "article";
+  id: string;
+  title: string;
+  description?: string;
+  input_message_content: {
+    message_text: string;
+    /** Bot API 7.0 replacement for `disable_web_page_preview`. */
+    link_preview_options?: { is_disabled: true };
+  };
+};
+
+/** The `PreparedInlineMessage` returned by `savePreparedInlineMessage`. */
+export type PreparedInlineMessage = {
+  /** Unique identifier of the prepared message — what `WebApp.shareMessage` takes. */
+  id: string;
+  /** Unix seconds. Expired prepared messages can no longer be used. */
+  expiration_date: number;
+};
+
+/** Bot API caps an inline result id at 64 bytes. */
+export const PREPARED_INLINE_RESULT_ID_MAX_BYTES = 64;
+
+/** Truncates an inline result id to the Bot API's 64-byte ceiling. */
+export function clampInlineResultId(id: string): string {
+  const encoded = new TextEncoder().encode(id);
+  if (encoded.length <= PREPARED_INLINE_RESULT_ID_MAX_BYTES) {
+    return id;
+  }
+  return new TextDecoder().decode(
+    encoded.slice(0, PREPARED_INLINE_RESULT_ID_MAX_BYTES),
+  );
+}
+
+/**
+ * Bot API 8.0 `savePreparedInlineMessage`.
+ *
+ * Mints a message the *person* may then send from Telegram's own share sheet
+ * via `WebApp.shareMessage`. The bot never picks the chat and never posts, so
+ * this is not one of the five sanctioned bot events.
+ *
+ * The four `allow_*` flags are the whole security surface of the call: they
+ * decide which chat types the share sheet will even offer. Channels and bots
+ * are off — a tab is a conversation between people, not a broadcast.
+ */
+export function savePreparedInlineMessage(
+  botToken: string,
+  input: {
+    /** Telegram user id of the ONE person allowed to send this message. */
+    userId: string;
+    result: InlineQueryResultArticle;
+    allowUserChats?: boolean;
+    allowBotChats?: boolean;
+    allowGroupChats?: boolean;
+    allowChannelChats?: boolean;
+  },
+  options?: TelegramCallOptions,
+): Promise<TelegramCallResult<PreparedInlineMessage>> {
+  return callTelegramApi<PreparedInlineMessage>(
+    botToken,
+    "savePreparedInlineMessage",
+    {
+      user_id: Number(input.userId),
+      result: input.result,
+      allow_user_chats: input.allowUserChats ?? false,
+      allow_bot_chats: input.allowBotChats ?? false,
+      allow_group_chats: input.allowGroupChats ?? false,
+      allow_channel_chats: input.allowChannelChats ?? false,
+    },
+    options,
+  );
+}

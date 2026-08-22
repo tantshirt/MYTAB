@@ -12,6 +12,7 @@ import type * as activity from "../activity.js";
 import type * as adjustments from "../adjustments.js";
 import type * as allocations from "../allocations.js";
 import type * as balances from "../balances.js";
+import type * as completionShare from "../completionShare.js";
 import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
 import type * as fxSnapshots from "../fxSnapshots.js";
@@ -80,6 +81,7 @@ import type * as settlements from "../settlements.js";
 import type * as sponsorPolicy from "../sponsorPolicy.js";
 import type * as tabs from "../tabs.js";
 import type * as tips from "../tips.js";
+import type * as tokens from "../tokens.js";
 import type * as users from "../users.js";
 import type * as wallets from "../wallets.js";
 
@@ -94,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   adjustments: typeof adjustments;
   allocations: typeof allocations;
   balances: typeof balances;
+  completionShare: typeof completionShare;
   crons: typeof crons;
   demo: typeof demo;
   fxSnapshots: typeof fxSnapshots;
@@ -162,6 +165,7 @@ declare const fullApi: ApiFromModules<{
   sponsorPolicy: typeof sponsorPolicy;
   tabs: typeof tabs;
   tips: typeof tips;
+  tokens: typeof tokens;
   users: typeof users;
   wallets: typeof wallets;
 }>;

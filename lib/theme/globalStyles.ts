@@ -1,4 +1,10 @@
-import { MYTAB_COLORS, MYTAB_ELEVATION, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "./tokens";
+import {
+  MYTAB_COLORS,
+  MYTAB_ELEVATION,
+  MYTAB_RADIUS,
+  MYTAB_SPACING,
+  MYTAB_TYPOGRAPHY,
+} from "./tokens";
 
 /**
  * Splices the Thai face in directly behind the Latin one.
@@ -56,7 +62,20 @@ export const MYTAB_GLOBAL_CSS = `
     padding: 0;
     width: 100%;
     max-width: 100%;
-    overflow-x: hidden;
+    /*
+     * clip, never hidden.
+     *
+     * Both stop a horizontal scrollbar, but overflow-x: hidden makes the
+     * element a SCROLL CONTAINER, and CSS then computes the other axis from
+     * visible to auto. On body — whose height is its content — that produces a
+     * scrollport that can never scroll, and every position: sticky descendant
+     * resolves against it instead of the viewport. Measured in Chrome at HEAD:
+     * the tab bar and the sticky claim footer sat at the BOTTOM OF THE
+     * DOCUMENT and moved 1:1 with the scroll, i.e. they were never pinned at
+     * all. overflow: clip is not a scroll container, leaves overflow-y alone,
+     * and clips exactly the same.
+     */
+    overflow-x: clip;
     overscroll-behavior-y: none;
   }
 
@@ -202,6 +221,20 @@ export const MYTAB_GLOBAL_CSS = `
     font-feature-settings: "tnum" 1, "lnum" 1;
   }
 
+  /*
+   * The value column when it carries WORDS rather than a figure — "Covered by
+   * My Tab" is the only such value in the product. The base rule pins
+   * min-width to max-content and forbids wrapping, which is exactly right for
+   * an amount and exactly wrong for a sentence: at 320px with the platform
+   * text setting at 200% that sentence pushed the row 9px past the viewport.
+   * A sentence may wrap. An amount still may not.
+   */
+  .mytab-row__amount--text {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   /* ---------------------------------------------------------------------
      Names — the one place Thai and Latin share a line (DESIGN.md, *Typography*).
 
@@ -295,6 +328,29 @@ export const MYTAB_GLOBAL_CSS = `
     appearance: none;
     cursor: pointer;
     transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  /* ---------------------------------------------------------------------
+     A row of equal chips where every chip has to clear the 44px touch floor.
+
+     The gap is spacing/2, and compresses to spacing/1 below the 390px design
+     width: six 44px chips plus five 8px gaps need 304px, and a 320px screen
+     offers 288 after its gutters. The gap gives way, never the target — and
+     only on the screens that cannot afford it, so the 390px design is
+     untouched. Wrapping is the last resort past that, for the largest
+     platform text setting.
+     --------------------------------------------------------------------- */
+
+  .mytab-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: ${MYTAB_SPACING["2"]};
+  }
+
+  @media (max-width: 359px) {
+    .mytab-chip-row {
+      gap: ${MYTAB_SPACING["1"]};
+    }
   }
 
   /* Content-width variant, for chip rows and side-by-side inline actions. */

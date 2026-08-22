@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useLiveQuery } from "@/features/convex/useConvexData";
-import { hasSeenAllSquare, markAllSquareSeen } from "./AllSquareCard";
+import { useLiveAction, useLiveQuery } from "@/features/convex/useConvexData";
+import { useShareMessage } from "@/features/telegram/useShareMessage";
+import { ALL_SQUARE_COPY, hasSeenAllSquare, markAllSquareSeen } from "./AllSquareCard";
 
 export type AllSquareMoment = {
   tabId: string;
@@ -123,4 +124,103 @@ export function useAllSquareTrigger(tabId: string | null): {
   }, [data]);
 
   return { moment, dismiss };
+}
+
+export type AllSquareShare = {
+  /**
+   * The handler, or `undefined` when there is nothing behind it.
+   *
+   * Undefined is the *only* signal the card takes: it renders `Share to group`
+   * when a handler exists and promotes `Done` to primary when one does not.
+   * So every reason sharing cannot work — outside Telegram, Bot API below 8.0,
+   * a client without the method, no Convex client to mint a prepared message —
+   * lands here as absence, never as a disabled button.
+   */
+  onShare?: () => void;
+  /** One plain line, only for a real failure. Never for a closed share sheet. */
+  shareError: string | null;
+};
+
+/**
+ * "Share to group", which is not a bot post.
+ *
+ * EXPERIENCE allows exactly five bot events into a group, and `bill_completed`
+ * is one of them — it has already posted itself by the time this card appears.
+ * A sixth is forbidden. So this hands the moment to Telegram's own share sheet
+ * instead: the server mints a prepared inline message, `WebApp.shareMessage`
+ * opens Telegram's chat picker, and the *person* chooses where it goes. The bot
+ * is not the author and does not choose a destination.
+ *
+ * The four outcomes, and why only one of them speaks:
+ *
+ * | outcome              | what it means                     | copy      |
+ * |----------------------|-----------------------------------|-----------|
+ * | sent                 | it went                           | none      |
+ * | `USER_DECLINED`      | they closed the sheet             | **none**  |
+ * | `UNSUPPORTED`        | the client cannot do this after all | one line |
+ * | `MESSAGE_EXPIRED`    | the prepared message aged out     | one line  |
+ * | `MESSAGE_SEND_FAILED`| Telegram refused the send         | one line  |
+ * | `UNKNOWN_ERROR`      | anything else                     | one line  |
+ *
+ * A decline is a person changing their mind, the same act as a cancelled wallet
+ * prompt — "a cancelled wallet prompt is not a failure" — so it produces no
+ * error copy at all, not even a quieter one.
+ */
+export function useAllSquareShare(tabId: string | null): AllSquareShare {
+  const { available, share } = useShareMessage();
+  const prepare = useLiveAction(api.completionShare.prepareCompletionShare);
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  // Late outcomes must not repaint a card that has already been dismissed.
+  const liveRef = useRef(true);
+  useEffect(() => {
+    liveRef.current = true;
+    return () => {
+      liveRef.current = false;
+    };
+  }, []);
+
+  const run = useCallback(async () => {
+    if (!prepare || !tabId) {
+      return;
+    }
+    if (liveRef.current) {
+      setShareError(null);
+    }
+
+    let preparedMessageId: string;
+    try {
+      const prepared = await prepare({ tabId: tabId as Id<"tabs"> });
+      if (!prepared.ok) {
+        if (liveRef.current) {
+          setShareError(ALL_SQUARE_COPY.shareFailed);
+        }
+        return;
+      }
+      preparedMessageId = prepared.preparedMessageId;
+    } catch {
+      // Authorization refusals land here too. The card does not explain the
+      // mechanism — one line, same as any other miss (§4.0).
+      if (liveRef.current) {
+        setShareError(ALL_SQUARE_COPY.shareFailed);
+      }
+      return;
+    }
+
+    const outcome = await share(preparedMessageId);
+    if (!liveRef.current) {
+      return;
+    }
+    // `sent` and `declined` are both endings a person chose. Neither speaks.
+    if (outcome.status === "failed") {
+      setShareError(ALL_SQUARE_COPY.shareFailed);
+    }
+  }, [prepare, share, tabId]);
+
+  const ready = available && prepare !== null && tabId !== null;
+
+  return {
+    onShare: ready ? () => void run() : undefined,
+    shareError,
+  };
 }

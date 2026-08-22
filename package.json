@@ -13,6 +13,7 @@
     "check:env-contract": "vitest run tests/convex/env-contract.test.ts",
     "setup:telegram": "node scripts/setup-telegram.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "sweep": "node scripts/sweep.mjs",
     "analyze": "ANALYZE=true next build"
   },
   "dependencies": {

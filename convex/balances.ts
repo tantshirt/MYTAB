@@ -362,11 +362,57 @@ export const listOpenTabsForViewer = query({
  * the first; `forViewer().isAllSquare` answers the second. The once-per-bill
  * completion card listens to this one.
  */
+export type BillCompletion = {
+  tabId: Id<"tabs">;
+  billId: string | null;
+  revision: number;
+  totalCount: number;
+  settledCount: number;
+  complete: boolean;
+};
+
+/**
+ * The completion arithmetic, with no authorization of its own.
+ *
+ * Split out so that everything which needs to know "is this bill finished?"
+ * asks the SAME question — the completion card's subscription and the share
+ * authorization both land here, and neither can drift into a looser test than
+ * the other.
+ */
+export async function computeBillCompletion(
+  ctx: BalancesCtx,
+  tab: Doc<"tabs">,
+): Promise<BillCompletion> {
+  const obligations = await ctx.db
+    .query("obligations")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", tab._id))
+    .collect();
+
+  const rows = await loadGroupBalanceRows(ctx, tab.groupId);
+  const offsets = confirmedOffsetMinorByObligation(rows.ledgerEvents);
+
+  const active = obligations.filter((o) => o.status !== "superseded");
+  const settled = active.filter(
+    (o) =>
+      o.status === "settled" ||
+      (offsets.get(o._id) ?? 0n) >= o.displayAmountThbMinor,
+  );
+
+  return {
+    tabId: tab._id,
+    billId: active[0] ? billIdForObligation(active[0]) : null,
+    revision: tab.lockedRevision ?? tab.revision ?? 0,
+    totalCount: active.length,
+    settledCount: settled.length,
+    complete: active.length > 0 && settled.length === active.length,
+  };
+}
+
 export const billCompletion = query({
   args: {
     tabId: v.id("tabs"),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<BillCompletion | null> => {
     const tab = await ctx.db.get(args.tabId);
     if (!tab) {
       return null;
@@ -375,28 +421,6 @@ export const billCompletion = query({
     // Id-keyed read: deny by default rather than degrade to an empty payload.
     await requireGroupMember(ctx, tab.groupId);
 
-    const obligations = await ctx.db
-      .query("obligations")
-      .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
-      .collect();
-
-    const rows = await loadGroupBalanceRows(ctx, tab.groupId);
-    const offsets = confirmedOffsetMinorByObligation(rows.ledgerEvents);
-
-    const active = obligations.filter((o) => o.status !== "superseded");
-    const settled = active.filter(
-      (o) =>
-        o.status === "settled" ||
-        (offsets.get(o._id) ?? 0n) >= o.displayAmountThbMinor,
-    );
-
-    return {
-      tabId: tab._id,
-      billId: active[0] ? billIdForObligation(active[0]) : null,
-      revision: tab.lockedRevision ?? tab.revision ?? 0,
-      totalCount: active.length,
-      settledCount: settled.length,
-      complete: active.length > 0 && settled.length === active.length,
-    };
+    return computeBillCompletion(ctx, tab);
   },
 });

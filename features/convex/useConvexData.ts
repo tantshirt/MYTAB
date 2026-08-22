@@ -135,6 +135,28 @@ export function useLiveMutation<Mutation extends FunctionReference<"mutation">>(
 }
 
 /**
+ * A Convex action, or `null` when there is no client.
+ *
+ * Same contract as `useLiveMutation` — callers read the `null` as "this cannot
+ * reach the server", and a control that depends on it renders as absent rather
+ * than as a button that does nothing.
+ */
+export function useLiveAction<Action extends FunctionReference<"action">>(
+  actionRef: Action,
+): ((args: FunctionArgs<Action>) => Promise<FunctionReturnType<Action>>) | null {
+  const convex = useOptionalConvex();
+  const live = convex !== undefined && !isConvexAuthFixtureMode();
+
+  return useMemo(() => {
+    if (!live || convex === undefined) {
+      return null;
+    }
+    return (args: FunctionArgs<Action>) => convex.action(actionRef, args);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convex, live]);
+}
+
+/**
  * The group this surface is scoped to.
  *
  * Every group-scoped Convex read (`activity.listForGroup`,

@@ -122,7 +122,17 @@ function TipComposerSurface() {
   );
 
   return (
-    <AppShell>
+    /*
+     * `fullBleed`: the tip composer draws its own 16px gutters and its own
+     * full-width footer bar, so nesting it inside AppShell's gutters gave this
+     * one surface 32px screen margins — twice DESIGN.md's `spacing/4` — and an
+     * action bar whose surface fill and top hairline stopped 16px short of each
+     * screen edge, which is the "floating" bar DESIGN.md forbids. Dropping the
+     * outer gutter restores the product-wide 16px and gives the 320px layout
+     * back the 32px the preset and reaction rows need to hold every chip at the
+     * 44px touch floor.
+     */
+    <AppShell fullBleed>
       <TipComposer
         members={members}
         viewerUserId={viewerUserId}

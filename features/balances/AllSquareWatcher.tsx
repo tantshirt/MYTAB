@@ -2,7 +2,7 @@
 
 import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { AllSquareCard, type AllSquareMember } from "./AllSquareCard";
-import { useAllSquareTrigger } from "./useAllSquareTrigger";
+import { useAllSquareShare, useAllSquareTrigger } from "./useAllSquareTrigger";
 
 export type AllSquareWatchTab = {
   tabId: string;
@@ -14,7 +14,12 @@ export type AllSquareWatchTab = {
 export type AllSquareWatcherProps = {
   tabs: AllSquareWatchTab[];
   members: AllSquareMember[];
-  /** Posts the completion card to the group. Absent → the card offers only `Done`. */
+  /**
+   * An override for the share action. Almost never passed: each watch already
+   * wires Telegram's own share sheet for its own tab, which is the only thing
+   * that can know *which* bill completed. Kept so a surface with a different
+   * idea of sharing can still supply one.
+   */
   onShare?: () => void;
 };
 
@@ -60,6 +65,17 @@ function BillCompletionWatch({
   const { moment, dismiss } = useAllSquareTrigger(tab.tabId);
   const reduceMotion = useReducedMotion();
 
+  /*
+   * The share is wired here, not at the route, because only this watch knows
+   * which bill just completed — and a prepared message is minted for one bill.
+   *
+   * It resolves to `undefined` outside Telegram, below Bot API 8.0, and with no
+   * Convex client, so the card falls back to promoting `Done`. That absence is
+   * the version gate: POLISH-SPEC — "a visible button that does nothing is
+   * worse than an absent one."
+   */
+  const nativeShare = useAllSquareShare(tab.tabId);
+
   if (!moment) {
     return null;
   }
@@ -71,7 +87,8 @@ function BillCompletionWatch({
       settledCount={moment.settledCount}
       totalCount={moment.totalCount}
       members={members}
-      onShare={onShare}
+      onShare={onShare ?? nativeShare.onShare}
+      shareError={onShare ? null : nativeShare.shareError}
       onDismiss={dismiss}
       reduceMotion={reduceMotion}
     />

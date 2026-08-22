@@ -209,3 +209,44 @@ export function renderNotAMemberMessage(): string {
 export function renderRateLimitedMessage(): string {
   return "That's a lot of tabs. Finish one of the open ones first.";
 }
+
+/**
+ * The completion moment, prepared for Telegram's OWN share sheet.
+ *
+ * This is not a sixth event. The five sanctioned events are what the *bot*
+ * posts; `WebApp.shareMessage` posts nothing — it hands a prepared message to
+ * the person, who chooses the chat. The bot's `bill_completed` card has already
+ * gone out on its own by the time this can be tapped.
+ *
+ * The words are the `bill_completed` card verbatim, taken from
+ * `renderTabStatusCard` rather than written again here: one copy vocabulary,
+ * one place it can drift. Which also means NFR-7 is inherited rather than
+ * re-argued — group facts only, no individual amounts, no names, no addresses,
+ * no links.
+ *
+ * `title` and `description` are what Telegram's share sheet shows in its own
+ * preview row before a chat is picked; they are the first two lines of the same
+ * card, so the preview and the sent message never say different things.
+ */
+export type CompletionShareCopy = {
+  /** The share sheet's preview title. */
+  title: string;
+  /** The share sheet's preview subtitle. */
+  description: string;
+  /** The message text that actually lands in the chosen chat. */
+  messageText: string;
+};
+
+export function renderCompletionShare(
+  facts: Omit<TabStatusFacts, "event">,
+): CompletionShareCopy {
+  const messageText = renderTabStatusCard({ ...facts, event: "bill_completed" });
+  const [headlineLine = "", factsLine = ""] = messageText.split("\n");
+
+  return {
+    // The emoji is the card's, not the sheet's — Telegram draws its own row.
+    title: headlineLine.replace(/^\p{Extended_Pictographic}\s*/u, ""),
+    description: factsLine,
+    messageText,
+  };
+}

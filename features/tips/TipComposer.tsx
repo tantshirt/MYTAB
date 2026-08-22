@@ -414,13 +414,17 @@ export function TipComposer({
           ) : null}
         </div>
 
+        {/*
+          Five chips on one line at 320px, each at or above the 44px floor.
+          `flex: 1` with an `auto` basis sized them by their own text, which
+          left the two shortest presets at 39.6px — under the floor — while
+          "Custom" took the slack. A 44px basis makes the floor the starting
+          point, and `wrap` is what stops the row running off the screen when
+          the platform text setting doubles every label.
+        */}
         <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            padding: "0 16px",
-            marginBottom: "30px",
-          }}
+          className="mytab-chip-row"
+          style={{ padding: "0 16px", marginBottom: "30px" }}
         >
           {TIP_PRESET_WHOLE_BAHT.map((wholeBaht) => {
             const presetMinor = thbMinorFromWholeBaht(wholeBaht);
@@ -505,13 +509,8 @@ export function TipComposer({
               color: note ? MYTAB_COLORS.ink : MYTAB_COLORS.inkMuted,
             }}
           />
-          <div
-            style={{
-              display: "flex",
-              gap: "8px",
-              marginTop: "12px",
-            }}
-          >
+          {/* Six chips, each at the 44px floor — see `.mytab-chip-row`. */}
+          <div className="mytab-chip-row" style={{ marginTop: "12px" }}>
             {TIP_REACTIONS.map((glyph) => {
               const selected = reaction === glyph;
               return (
@@ -521,7 +520,8 @@ export function TipComposer({
                   aria-pressed={selected}
                   onClick={() => setReaction(selected ? null : glyph)}
                   style={{
-                    flex: 1,
+                    flex: "1 1 44px",
+                    minWidth: "44px",
                     minHeight: "44px",
                     fontSize: "20px",
                     borderRadius: MYTAB_RADIUS.full,
@@ -568,7 +568,10 @@ export function TipComposer({
       <div
         style={{
           position: "sticky",
-          bottom: 0,
+          // Above the tab bar, never behind it. `AppShell`'s own footer uses the
+          // same measured variable; this bar is hand-rolled and has to say so
+          // itself.
+          bottom: "var(--tab-bar-height, 0px)",
           background: MYTAB_COLORS.surface,
           borderTop: `1px solid ${MYTAB_COLORS.border}`,
           padding: "14px 16px 22px",
@@ -662,8 +665,22 @@ function SendTipGlyph() {
 
 function presetChipStyle(selected: boolean): React.CSSProperties {
   return {
-    flex: 1,
+    /*
+     * Basis 44px, and no `min-width` override — `min-width: auto` on a flex
+     * item is its content minimum, so "Custom" claims the width its label
+     * actually needs and the four presets share what is left, all of them at or
+     * above the floor. Pinning `min-width: 44px` here instead made every chip
+     * an equal 51.2px at 320 and clipped "Custom" by 9px.
+     */
+    flex: "1 1 44px",
     minHeight: "44px",
+    /*
+     * A flex item's automatic minimum size is its CONTENT minimum — but only
+     * while its overflow is visible. Chrome's UA stylesheet clips buttons, so
+     * without this every preset shrank to an equal share and "Custom" lost 9px
+     * of its label at 320px.
+     */
+    overflow: "visible",
     borderRadius: MYTAB_RADIUS.full,
     fontSize: "14px",
     fontWeight: 600,

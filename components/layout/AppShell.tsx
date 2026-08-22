@@ -388,7 +388,12 @@ export function AppShell({
           margin: "0 auto",
           paddingLeft: fullBleed ? undefined : MYTAB_LAYOUT.gutter,
           paddingRight: fullBleed ? undefined : MYTAB_LAYOUT.gutter,
-          overflowX: "hidden",
+          // `clip`, not `hidden`: `hidden` makes this column a scroll
+          // container, which silently renders every `position: sticky`
+          // descendant inert (that is why Receipt Review has to portal its
+          // action bar out to `AppShell`'s footer). `clip` stops the same
+          // horizontal overflow without creating a scrollport.
+          overflowX: "clip",
           display: fullBleed ? "flex" : undefined,
           flexDirection: fullBleed ? "column" : undefined,
         }}

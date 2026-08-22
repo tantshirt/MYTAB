@@ -3,22 +3,36 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
+import { DFLOW_SOLVER_RESERVED_ATTEMPTS } from "../../lib/dflow/constants";
 import {
-  DFLOW_ORDER_PARAMS,
-  DFLOW_SOLVER_RESERVED_ATTEMPTS,
-} from "../../lib/dflow/constants";
+  DFLOW_SUPPORTED_CLUSTER,
+  isDflowRoutingAvailable,
+} from "../../lib/dflow/config";
 import {
-  buildDflowFixtureQuote,
-  isDflowFixtureMode,
-} from "../../lib/dflow/fixture";
-import { parseDflowOrderResponse } from "../../lib/dflow/schema";
+  buildDflowOrderRequestParams,
+  type DflowOrderRequestParams,
+} from "../../lib/dflow/orderRequest";
+import { fetchDflowOrder } from "../../lib/dflow/client";
+import {
+  guaranteedOutputAtomic,
+  parseDflowOrderResponse,
+  type DflowOrderResponse,
+} from "../../lib/dflow/schema";
 import { solveTargetOutputQuote } from "../../lib/dflow/quoteSolver";
 import { sha256Hex } from "../../lib/crypto/convexCrypto";
 import { SETTLEMENT_STATUS } from "../lib/settlementState";
 import { validateBeforeClientExposure } from "../../lib/solana/validateTransactionMessage";
+import { decodeTransactionBase64 } from "../../lib/solana/decodeTransaction";
+import {
+  decodeAddressLookupTable,
+  type AddressLookupTableAccount,
+} from "../../lib/solana/addressLookupTable";
+import { createSolanaRpcClient, SolanaRpcClient } from "../../lib/solana/rpc";
 import { resolveSponsorWalletAddress } from "../../lib/solana/fixture";
 import { buildValidationContext } from "./solanaPolicy";
-import { assertFixturePathAllowed } from "../../lib/solana/runtimeGuard";
+
+export { buildDflowOrderRequestParams };
+export type { DflowOrderRequestParams };
 
 type DflowLogFields = {
   intentId: string;
@@ -32,57 +46,102 @@ function logSolverEvent(fields: DflowLogFields): void {
   console.log(JSON.stringify(fields));
 }
 
-export type DflowOrderRequestParams = {
-  inputMint: string;
-  outputMint: string;
-  amount: string;
-  userPublicKey: string;
-  destinationWallet: string;
-  sponsor: string;
-  sponsorExec: false;
-  allowSyncExec: true;
-  allowAsyncExec: false;
-  includeAddressLookupTables: true;
-};
-
-/** Builds fixed-parameter DFlow order request (Story 6.2 AC1). feeAccount unset — platform fee zero. */
-export function buildDflowOrderRequestParams(input: {
-  inputMint: string;
-  outputMint: string;
-  inputAmountAtomic: bigint;
-  payerAddress: string;
-  recipientAddress: string;
-  sponsorAddress: string;
-}): DflowOrderRequestParams {
-  return {
-    inputMint: input.inputMint,
-    outputMint: input.outputMint,
-    amount: input.inputAmountAtomic.toString(),
-    userPublicKey: input.payerAddress,
-    destinationWallet: input.recipientAddress,
-    sponsor: input.sponsorAddress,
-    ...DFLOW_ORDER_PARAMS,
-  };
-}
-
-/** Validates and normalizes a DFlow order response (Story 6.2 AC2). */
+/** Validates and normalizes a DFlow order response (spec-6-2 AC2). */
 export function validateDflowOrderResponse(payload: unknown) {
   return parseDflowOrderResponse(payload);
 }
 
+export const DFLOW_ACTION_FAILURE = {
+  UNAVAILABLE_ON_CLUSTER: "DFLOW_UNAVAILABLE_ON_CLUSTER",
+  LOOKUP_TABLE_FETCH_FAILED: "DFLOW_LOOKUP_TABLE_FETCH_FAILED",
+} as const;
+
+/**
+ * Reads every address lookup table a routed transaction references.
+ *
+ * The router's `contextSlot` is the floor: the table must be observed at or
+ * after the slot the route was priced at. Lookup table entries are append-only,
+ * so a later read can only ever contain MORE — never a different address at an
+ * index the router already used.
+ */
+export async function loadLookupTablesForTransaction(input: {
+  rpc: Pick<SolanaRpcClient, "getAccountInfo" | "getSlot">;
+  tableAddresses: readonly string[];
+}): Promise<
+  | { ok: true; tables: AddressLookupTableAccount[] }
+  | { ok: false; failureCode: string; detail?: string }
+> {
+  if (input.tableAddresses.length === 0) {
+    return { ok: true, tables: [] };
+  }
+
+  let observedSlot: number;
+  try {
+    observedSlot = await input.rpc.getSlot("confirmed");
+  } catch (error) {
+    return {
+      ok: false,
+      failureCode: DFLOW_ACTION_FAILURE.LOOKUP_TABLE_FETCH_FAILED,
+      detail: error instanceof Error ? error.message : "getSlot",
+    };
+  }
+
+  const tables: AddressLookupTableAccount[] = [];
+  for (const address of input.tableAddresses) {
+    let account;
+    try {
+      account = await input.rpc.getAccountInfo(address, "confirmed");
+    } catch (error) {
+      return {
+        ok: false,
+        failureCode: DFLOW_ACTION_FAILURE.LOOKUP_TABLE_FETCH_FAILED,
+        detail: error instanceof Error ? error.message : address,
+      };
+    }
+    if (!account) {
+      return {
+        ok: false,
+        failureCode: DFLOW_ACTION_FAILURE.LOOKUP_TABLE_FETCH_FAILED,
+        detail: `${address} not found`,
+      };
+    }
+    const decoded = decodeAddressLookupTable({
+      address,
+      owner: account.owner,
+      dataBase64: account.dataBase64,
+      observedSlot,
+    });
+    if (!decoded.ok) {
+      return { ok: false, failureCode: decoded.code, detail: decoded.detail };
+    }
+    tables.push(decoded.table);
+  }
+
+  return { ok: true, tables };
+}
+
 type DflowBuildResult =
-  | { ok: false; failureCode: string }
+  | { ok: false; failureCode: string; detail?: string }
   | {
       ok: true;
       status: string;
       messageHash: string;
-      fixtureMode: boolean;
+      /** DFlow's enforced floor — the "receives at least" figure, verbatim. */
+      guaranteedOutputAtomic: string;
+      solvedInputAtomic: string;
+      requestCount: number;
       reservedAttempts: number;
     };
 
 /**
- * DFlow order + bounded solver action (Stories 6.2, 6.3).
- * Fixture mode when DFLOW_API_KEY is absent.
+ * DFlow order + bounded solver action (spec-6-2, spec-6-3).
+ *
+ * Cluster-gated. DFlow's Trading API indexes mainnet-beta liquidity only
+ * (verified: a devnet USDC mint returns `route_not_found`, and transactions from
+ * the developer host carry mainnet blockhashes). On devnet this fails closed
+ * with `DFLOW_UNAVAILABLE_ON_CLUSTER` rather than routing nowhere or quietly
+ * substituting a fixture; the direct exact-USDC path is unaffected and remains
+ * the devnet settlement route.
  */
 export const buildDflowSettlementAction = internalAction({
   args: {
@@ -100,6 +159,28 @@ export const buildDflowSettlementAction = internalAction({
 
     if (intent.routingKind !== "dflow_sync") {
       return { ok: false as const, failureCode: "INVALID_ROUTING_KIND" };
+    }
+
+    // Cluster gate first: no budget is spent and no order is sent on a cluster
+    // DFlow cannot route.
+    if (!isDflowRoutingAvailable()) {
+      await ctx.runMutation(internal.settlements.markFailedInternal, {
+        intentId: args.intentId,
+        failureCode: DFLOW_ACTION_FAILURE.UNAVAILABLE_ON_CLUSTER,
+        releaseReservation: false,
+      });
+      logSolverEvent({
+        intentId: args.intentId,
+        requestCount: 0,
+        durationMs: Date.now() - startedAt,
+        outcome: "cluster_unsupported",
+        failureCode: DFLOW_ACTION_FAILURE.UNAVAILABLE_ON_CLUSTER,
+      });
+      return {
+        ok: false as const,
+        failureCode: DFLOW_ACTION_FAILURE.UNAVAILABLE_ON_CLUSTER,
+        detail: `DFlow serves ${DFLOW_SUPPORTED_CLUSTER} only`,
+      };
     }
 
     await ctx.runMutation(internal.settlements.markQuotingInternal, {
@@ -141,41 +222,39 @@ export const buildDflowSettlementAction = internalAction({
     }
 
     const sponsorAddress = resolveSponsorWalletAddress();
-    const orderParams = buildDflowOrderRequestParams({
-      inputMint: intent.inputMint,
-      outputMint: intent.outputMint,
-      inputAmountAtomic: intent.maximumInputAtomic,
-      payerAddress: wallet.solanaAddress,
-      recipientAddress: intent.recipientAddress,
-      sponsorAddress,
-    });
 
-    void orderParams;
-
-    const solverResult = solveTargetOutputQuote({
-      inputMint: intent.inputMint,
-      outputMint: intent.outputMint,
-      inputAmountAtomic: intent.maximumInputAtomic,
-      minimumOutputAtomic: intent.minimumOutputAtomic,
-      sponsorAddress,
-      destinationWallet: intent.recipientAddress,
-      payerAddress: wallet.solanaAddress,
-      requestQuote: (inputAmountAtomic) => {
-        // A fabricated quote must never stand in for a real router response on
-        // a deployment: it would move an intent to ready_for_signature and
-        // reserve sponsor budget against numbers no solver ever returned.
-        assertFixturePathAllowed("dflow.buildDflowFixtureQuote");
-        const raw = buildDflowFixtureQuote({
+    // The solver searches the INPUT amount; the target is the recipient's locked
+    // USDC and the cap is what the payer authorised.
+    let lastFailure: string | undefined;
+    const solverResult = await solveTargetOutputQuote<DflowOrderResponse>({
+      targetOutputAtomic: intent.minimumOutputAtomic,
+      maxInputAtomic: intent.maximumInputAtomic,
+      initialInputAtomic: intent.maximumInputAtomic,
+      requestQuote: async (inputAtomic) => {
+        const params = buildDflowOrderRequestParams({
           inputMint: intent.inputMint,
           outputMint: intent.outputMint,
-          inputAmountAtomic,
-          minimumOutputAtomic: intent.minimumOutputAtomic,
-          sponsorAddress,
-          destinationWallet: intent.recipientAddress,
+          inputAmountAtomic: inputAtomic,
           payerAddress: wallet.solanaAddress,
+          recipientAddress: intent.recipientAddress,
+          sponsorAddress,
         });
-        validateDflowOrderResponse(raw);
-        return raw;
+        const outcome = await fetchDflowOrder(params);
+        if (!outcome.ok) {
+          lastFailure = outcome.failureCode;
+          // `route_not_found` at one size is a routing answer, not a fault: the
+          // solver steps and tries again. Anything else — a bad signature, a
+          // malformed body, an async order — is fatal and stops the search.
+          if (outcome.failureCode === "DFLOW_ORDER_REJECTED") {
+            return null;
+          }
+          throw new Error(outcome.failureCode);
+        }
+        return {
+          inputAtomic,
+          guaranteedOutputAtomic: guaranteedOutputAtomic(outcome.order),
+          payload: outcome.order,
+        };
       },
     });
 
@@ -193,32 +272,79 @@ export const buildDflowSettlementAction = internalAction({
       requestCount: solverResult.requestCount,
       durationMs: solverResult.durationMs,
       outcome: solverResult.ok ? "quoted" : "failed",
-      failureCode: solverResult.ok ? undefined : solverResult.failureCode,
+      failureCode: solverResult.ok ? undefined : (lastFailure ?? solverResult.failureCode),
     });
 
     if (!solverResult.ok) {
+      const failureCode =
+        solverResult.failureCode === "SOLVER_QUOTE_FAILED" && lastFailure
+          ? lastFailure
+          : solverResult.failureCode;
       await ctx.runMutation(internal.settlements.markFailedInternal, {
         intentId: args.intentId,
-        failureCode: solverResult.failureCode,
+        failureCode,
         releaseReservation: false,
       });
-      return { ok: false as const, failureCode: solverResult.failureCode };
+      return { ok: false as const, failureCode };
     }
 
-    const quote = solverResult.quote;
+    const order = solverResult.quote.payload;
+
+    // Decode once; the blockhash and the message hash both come from the bytes
+    // DFlow actually returned, never from a field alongside them.
+    let decoded;
+    try {
+      decoded = decodeTransactionBase64(order.transaction);
+    } catch {
+      await ctx.runMutation(internal.settlements.markFailedInternal, {
+        intentId: args.intentId,
+        failureCode: "MESSAGE_DECODE_FAILED",
+        releaseReservation: false,
+      });
+      return { ok: false as const, failureCode: "MESSAGE_DECODE_FAILED" };
+    }
+
+    const messageHash = sha256Hex(decoded.message.serialized);
+    const tableAddresses = decoded.message.addressTableLookups.map(
+      (lookup) => lookup.accountKey,
+    );
+
+    const rpc = createSolanaRpcClient();
+    const lookupTables = await loadLookupTablesForTransaction({
+      rpc,
+      tableAddresses,
+    });
+    if (!lookupTables.ok) {
+      await ctx.runMutation(internal.settlements.markFailedInternal, {
+        intentId: args.intentId,
+        failureCode: lookupTables.failureCode,
+        releaseReservation: false,
+      });
+      return {
+        ok: false as const,
+        failureCode: lookupTables.failureCode,
+        detail: lookupTables.detail,
+      };
+    }
+
     const tab = intent.tabId
       ? await ctx.runQuery(internal.settlements.getTabInternal, { tabId: intent.tabId })
       : null;
 
-    const validation = validateBeforeClientExposure(quote.serializedTransactionBase64, {
+    const threshold = guaranteedOutputAtomic(order);
+
+    const validation = validateBeforeClientExposure(order.transaction, {
       ...buildValidationContext(intent, wallet.solanaAddress, sponsorAddress, {
-        blockhash: quote.blockhash,
-        lastValidBlockHeight: quote.lastValidBlockHeight,
+        blockhash: decoded.message.recentBlockhash,
+        lastValidBlockHeight: order.lastValidBlockHeight ?? 0,
         status: SETTLEMENT_STATUS.QUOTING,
       }),
       routingKind: "dflow_sync",
       intentId: args.intentId,
       currentTabRevision: tab?.lockedRevision ?? tab?.revision,
+      resolvedAddressTables: lookupTables.tables,
+      declaredAddressTables: order.addressLookupTables,
+      dflowContextSlot: order.contextSlot,
       intent: {
         payerAddress: wallet.solanaAddress,
         recipientAddress: intent.recipientAddress,
@@ -227,7 +353,7 @@ export const buildDflowSettlementAction = internalAction({
         targetOutputAtomic: intent.minimumOutputAtomic.toString(),
         maxInputAtomic: intent.maximumInputAtomic.toString(),
         minimumOutputAtomic: intent.minimumOutputAtomic.toString(),
-        quotedOtherAmountThreshold: quote.otherAmountThreshold,
+        quotedOtherAmountThreshold: threshold.toString(),
         status: SETTLEMENT_STATUS.QUOTING,
         lockedRevision: intent.tabRevision,
         expiresAt: intent.expiresAt,
@@ -240,19 +366,26 @@ export const buildDflowSettlementAction = internalAction({
         failureCode: validation.code,
         releaseReservation: false,
       });
-      return { ok: false as const, failureCode: validation.code };
+      return {
+        ok: false as const,
+        failureCode: validation.code,
+        detail: validation.detail,
+      };
     }
 
     const ready = await ctx.runMutation(internal.settlements.applyDflowQuoteInternal, {
       intentId: args.intentId,
-      serializedMessage: quote.serializedTransactionBase64,
-      messageHash: quote.messageHash,
-      blockhash: quote.blockhash,
-      lastValidBlockHeight: quote.lastValidBlockHeight,
-      sponsorExposureLamports: BigInt(quote.sponsorExposureLamports),
-      quotedOtherAmountThreshold: BigInt(quote.otherAmountThreshold),
-      dflowContextSlot: quote.contextSlot,
-      maximumInputAtomic: BigInt(quote.outAmount),
+      serializedMessage: order.transaction,
+      messageHash,
+      blockhash: decoded.message.recentBlockhash,
+      lastValidBlockHeight: order.lastValidBlockHeight ?? 0,
+      sponsorExposureLamports: BigInt(validation.sponsorExposureLamports),
+      quotedOtherAmountThreshold: threshold,
+      dflowContextSlot: order.contextSlot,
+      // The INPUT the solver settled on, not `outAmount`. Recording the output
+      // here would have let the pipeline compare a USDC figure against a
+      // wrapped-SOL cap.
+      maximumInputAtomic: solverResult.quote.inputAtomic,
     });
 
     if (!ready.ok) {
@@ -262,14 +395,16 @@ export const buildDflowSettlementAction = internalAction({
     return {
       ok: true as const,
       status: ready.status,
-      messageHash: quote.messageHash,
-      fixtureMode: isDflowFixtureMode(),
+      messageHash,
+      guaranteedOutputAtomic: threshold.toString(),
+      solvedInputAtomic: solverResult.quote.inputAtomic.toString(),
+      requestCount: solverResult.requestCount,
       reservedAttempts: DFLOW_SOLVER_RESERVED_ATTEMPTS,
     };
   },
 });
 
-/** Verifies byte preservation after partial signing (Story 6.2 AC4). */
+/** Verifies byte preservation after partial signing (spec-6-2 AC4). */
 export function verifyDflowBytePreservation(
   partialSignedTxBase64: string,
   storedMessageHash: string,

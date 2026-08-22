@@ -34,6 +34,12 @@ import {
 } from "./decodeTransaction";
 import { deriveAssociatedTokenAddress } from "./pda";
 import {
+  resolveAddressTableLookups,
+  assertDeclaredTablesMatch,
+  type AddressLookupTableAccount,
+  type AltFailureCode,
+} from "./addressLookupTable";
+import {
   ATA_IX,
   COMPUTE_BUDGET_IX,
   TOKEN_IX,
@@ -89,12 +95,33 @@ export type SettlementIntentValidationContext = {
   reservationOwnerIntentId?: string;
   intentId?: string;
   /**
-   * Set only once a routed (DFlow) transaction has had every address-lookup
-   * table resolved against the RPC at or after contextSlot and the resolved
-   * account list compared to the router's declared entries. Until that exists,
-   * a routed transaction cannot reach sponsor co-sign.
+   * Every address-lookup table the routed message references, already read from
+   * the RPC at or after `dflowContextSlot` and decoded.
+   *
+   * This is the ONLY way a message carrying lookups can pass. It is not a flag
+   * a caller can assert — supplying the wrong tables fails resolution, and
+   * supplying none fails as unresolved. The previous `routedAccountsResolved`
+   * boolean was removed for exactly that reason: it let a caller vouch for work
+   * it had not done.
    */
-  routedAccountsResolved?: boolean;
+  resolvedAddressTables?: readonly AddressLookupTableAccount[];
+  /**
+   * The router's own claim about which table entries it used
+   * (`addressLookupTables` in the `/order` response). Used only to reject: the
+   * chain is authoritative and any disagreement fails.
+   */
+  declaredAddressTables?: readonly {
+    address: string;
+    addresses: Readonly<Record<string, string>>;
+  }[];
+  /** `contextSlot` from the order response — tables must be no older. */
+  dflowContextSlot?: number;
+  /**
+   * Set true only when the recipient's USDC token account was OBSERVED to exist
+   * on chain. Routed sponsor-rent budgeting depends on it; when it is unknown
+   * the worst case is charged, never the best.
+   */
+  recipientTokenAccountExists?: boolean;
 };
 
 export type ValidationFailureCode =
@@ -144,7 +171,10 @@ export type ValidationFailureCode =
   | "SPONSOR_PAUSED"
   | "RESERVATION_MISSING"
   | "RESERVATION_OWNER_MISMATCH"
-  | "DFLOW_ROUTED_VALIDATION_INCOMPLETE";
+  | "DFLOW_ROUTED_VALIDATION_INCOMPLETE"
+  | "ROUTER_INSTRUCTION_COUNT"
+  | "RECIPIENT_TOKEN_ACCOUNT_MISSING"
+  | AltFailureCode;
 
 export type ValidationResult =
   | {
@@ -208,8 +238,9 @@ type ResolvedInstruction = {
 
 function resolveInstructions(
   message: DecodedMessage,
+  accountKeysAll: readonly string[],
 ): ResolvedInstruction[] | null {
-  const keyCount = message.staticAccountKeys.length;
+  const keyCount = accountKeysAll.length;
   const resolved: ResolvedInstruction[] = [];
   for (const ix of message.instructions as readonly DecodedInstruction[]) {
     if (ix.programIdIndex >= keyCount) {
@@ -220,10 +251,10 @@ function resolveInstructions(
       if (index >= keyCount) {
         return null;
       }
-      accountKeys.push(message.staticAccountKeys[index]!);
+      accountKeys.push(accountKeysAll[index]!);
     }
     resolved.push({
-      programId: message.staticAccountKeys[ix.programIdIndex]!,
+      programId: accountKeysAll[ix.programIdIndex]!,
       accountKeys,
       accountIndexes: ix.accountKeyIndexes,
       data: ix.data,
@@ -412,12 +443,6 @@ export function validateTransactionMessage(
     ) {
       return fail("INTENT_STATUS_INVALID", "expired");
     }
-    // Routed transactions carry accounts we cannot derive without resolving the
-    // router's address-lookup tables against the RPC. Until that resolution is
-    // implemented, the routed path cannot reach the sponsor's key.
-    if (isDflow && !context.routedAccountsResolved) {
-      return fail("DFLOW_ROUTED_VALIDATION_INCOMPLETE");
-    }
   }
 
   // ---- Phase 1: decode ---------------------------------------------------
@@ -439,16 +464,56 @@ export function validateTransactionMessage(
   // table we never fetched. An unresolved account can be anything, including a
   // writable account the sponsor is paying to modify (AD-10: "no unresolved
   // account may be signed").
+  //
+  // The direct exact-USDC path never legitimately carries lookups, so it still
+  // rejects them outright. The routed path cannot avoid them — DFlow returns
+  // lookup tables on every order, including single-venue direct routes — so it
+  // resolves them here against tables the caller already read from the RPC, and
+  // every rule below then runs over the RESOLVED account set. Nothing is trusted
+  // that was not read from the chain.
+  let accountKeysAll: readonly string[] = message.staticAccountKeys;
+  let isWritable = (index: number) => isWritableIndex(message, index);
+  let isSigner = (index: number) => isSignerIndex(message, index);
+
   if (message.addressTableLookups.length > 0) {
-    return fail(
-      "ADDRESS_TABLE_LOOKUP_PRESENT",
-      `${message.addressTableLookups.length} table(s)`,
-    );
+    if (!isDflow) {
+      return fail(
+        "ADDRESS_TABLE_LOOKUP_PRESENT",
+        `${message.addressTableLookups.length} table(s)`,
+      );
+    }
+    if (!context.resolvedAddressTables) {
+      return fail(
+        "DFLOW_ROUTED_VALIDATION_INCOMPLETE",
+        `${message.addressTableLookups.length} unresolved table(s)`,
+      );
+    }
+    if (context.declaredAddressTables) {
+      const declared = assertDeclaredTablesMatch({
+        declared: context.declaredAddressTables,
+        tables: context.resolvedAddressTables,
+      });
+      if (!declared.ok) {
+        return fail(declared.code, declared.detail);
+      }
+    }
+    const resolution = resolveAddressTableLookups({
+      message,
+      tables: context.resolvedAddressTables,
+      minSlot: context.dflowContextSlot,
+    });
+    if (!resolution.ok) {
+      return fail(resolution.code, resolution.detail);
+    }
+    const resolved = resolution.resolved;
+    accountKeysAll = resolved.keys;
+    isWritable = (index: number) => resolved.writable[index] === true;
+    isSigner = (index: number) => resolved.signer[index] === true;
   }
 
   // Prevents an instruction referencing an index past the account list, which
   // some decoders silently read as undefined.
-  const instructions = resolveInstructions(message);
+  const instructions = resolveInstructions(message, accountKeysAll);
   if (!instructions) {
     return fail("ACCOUNT_INDEX_OUT_OF_RANGE");
   }
@@ -508,8 +573,15 @@ export function validateTransactionMessage(
 
   // Prevents the payer's own wallet key being marked writable, which would let a
   // CPI move its lamports.
+  //
+  // The routed path is exempt, and only the routed path. A swap that consumes
+  // native SOL must debit the payer's wallet to fund the wrapped-SOL account,
+  // so DFlow marks it writable on every order (verified across SOL, USDT, BONK
+  // and JUP inputs). The payer is a required signer authorising their own
+  // spend; the sponsor's exposure is unchanged, which is what this rule guards.
+  // On the direct path the server builds the message itself and never needs it.
   const payerIndex = accountKeys.indexOf(context.intent.payerAddress);
-  if (payerIndex >= 0 && isWritableIndex(message, payerIndex)) {
+  if (!isDflow && payerIndex >= 0 && isWritableIndex(message, payerIndex)) {
     return fail("UNEXPECTED_WRITABLE_ACCOUNT", "payer wallet writable");
   }
 
@@ -590,7 +662,7 @@ export function validateTransactionMessage(
     }
     // Prevents the funding slot being anything but the sponsor's writable signer.
     const fundingIndex = ix.accountIndexes[0]!;
-    if (!isSignerIndex(message, fundingIndex) || !isWritableIndex(message, fundingIndex)) {
+    if (!isSigner(fundingIndex) || !isWritable(fundingIndex)) {
       return fail("ATA_ACCOUNTS_INVALID", "funding role");
     }
   }
@@ -677,10 +749,7 @@ export function validateTransactionMessage(
     const authorityIndex = transfer.accountIndexes[
       discriminator === TOKEN_IX.TRANSFER ? 2 : 3
     ]!;
-    if (
-      authority !== context.intent.payerAddress ||
-      !isSignerIndex(message, authorityIndex)
-    ) {
+    if (authority !== context.intent.payerAddress || !isSigner(authorityIndex)) {
       return fail("TRANSFER_AUTHORITY_INVALID");
     }
 
@@ -759,20 +828,67 @@ export function validateTransactionMessage(
       recipientAta,
     ]);
 
-    for (let index = 0; index < accountKeys.length; index += 1) {
-      const key = accountKeys[index]!;
+    for (let index = 0; index < accountKeysAll.length; index += 1) {
+      const key = accountKeysAll[index]!;
       if (!expectedAccounts.has(key)) {
         return fail("UNEXPECTED_ACCOUNT", key);
       }
-      if (isWritableIndex(message, index) && !expectedWritable.has(key)) {
+      if (isWritable(index) && !expectedWritable.has(key)) {
         return fail("UNEXPECTED_WRITABLE_ACCOUNT", key);
       }
+    }
+  } else {
+    // ---- Routed backstop -------------------------------------------------
+    //
+    // A route's pool accounts are chosen by the router and cannot be enumerated
+    // server-side, so the exact-account allowlist above does not apply. What CAN
+    // be pinned is pinned, and the residual trust is stated plainly rather than
+    // papered over:
+    //
+    //  * exactly one aggregator instruction, alongside compute-budget only;
+    //  * the recipient's USDC token account is present AND writable, so the
+    //    output genuinely lands where the intent says (this is what makes
+    //    `destinationWallet` verifiable rather than merely requested);
+    //  * no account other than the sponsor and the payer is a signer (Phase 3);
+    //  * the sponsor is the fee payer and its lamport exposure is capped
+    //    (Phase 10).
+    //
+    // Residual: the aggregator program is trusted not to CPI a transfer out of
+    // the sponsor's wallet. That trust is irreducible for ANY routed swap the
+    // sponsor pays for — it is the same trust as allowlisting the program at all
+    // — and it is bounded to one allowlisted program id read from cluster config.
+    const routerInstructions = instructions.filter(
+      (ix) => ix.programId === manifest.routerProgramId,
+    );
+    if (routerInstructions.length !== 1) {
+      return fail("ROUTER_INSTRUCTION_COUNT", `${routerInstructions.length}`);
+    }
+
+    const recipientIndex = accountKeysAll.indexOf(recipientAta);
+    if (recipientIndex < 0) {
+      return fail("RECIPIENT_TOKEN_ACCOUNT_MISSING", recipientAta);
+    }
+    if (!isWritable(recipientIndex)) {
+      return fail("RECIPIENT_MISMATCH", "recipient token account not writable");
     }
   }
 
   // ---- Phase 10: sponsor exposure ---------------------------------------
 
-  const sponsorExposure = budget.priorityFeeLamports + ataRentLamports;
+  // On the routed path the sponsor still pays for token-account creation (DFlow:
+  // "the sponsor will pay the transaction fee AND for token account creation"),
+  // but the aggregator creates those accounts by CPI, so no top-level ATA
+  // instruction is visible to count. Budgeting the observed zero would let the
+  // sponsor sign for rent it never accounted for, so the routed path is charged
+  // the worst case the manifest permits unless the caller has proven the
+  // recipient's token account already exists.
+  const unobservedRoutedRent =
+    isDflow && context.recipientTokenAccountExists !== true
+      ? BigInt(manifest.maxAtaCreates) * BigInt(ATA_RENT_LAMPORTS)
+      : 0n;
+
+  const sponsorExposure =
+    budget.priorityFeeLamports + ataRentLamports + unobservedRoutedRent;
   if (sponsorExposure > BigInt(manifest.maxTotalSponsorLamports)) {
     return fail("SPONSOR_EXPOSURE_EXCEEDED", sponsorExposure.toString());
   }
