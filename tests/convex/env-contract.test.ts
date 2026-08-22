@@ -62,6 +62,16 @@ describe("env contract (AD-19)", () => {
     expect(result.violations.some((v) => v.key === "AI_GATEWAY_API_KEY")).toBe(true);
   });
 
+  it("fails when KIE_API_KEY is configured on Vercel (AD-19, U-8)", () => {
+    const result = validateEnvPlacement(
+      { KIE_API_KEY: "misplaced-kie-key" },
+      {},
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.violations.some((v) => v.key === "KIE_API_KEY")).toBe(true);
+  });
+
   it("fails when OPERATOR_RECONCILIATION_SECRET is configured on Vercel (AD-19, D-30)", () => {
     const result = validateEnvPlacement(
       { OPERATOR_RECONCILIATION_SECRET: "misplaced-operator-secret" },

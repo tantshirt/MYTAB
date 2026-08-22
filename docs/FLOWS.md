@@ -490,12 +490,14 @@ Craft first, motion second — the craft half ships something visibly better on 
 `npm run sweep` after every change in this phase. It is the only gate that catches an inert
 sticky element or a truncated amount, and it is not in CI.
 
-### Phase 5b — Card imagery · D-31 · **plumbing built; generation blocked on U-8**
+### Phase 5b — Card imagery · D-31 · U-8 resolved 2026-08-23
 
-`sendPhoto` / `editMessageCaption` exist. Caption clips at 1024. The status row
-may store `photoFileId`. Delivery uses the photo path **only when that id is
-already stored**. No image is generated: U-8 still decides what the photo
-depicts. Do not invent house-style vs merchant-derived.
+One house-style 35mm still, repeated — not derived from tab name or merchant.
+Asset at `public/tab-card/house.webp` (Kie `nano-banana-2`, 4:3 at 2K). First
+`tab_opened` `sendPhoto` uploads it; Telegram `file_id` is stored on
+`telegramStatusMessages.photoFileId` and reused. Later states `editMessageCaption`
+only. Runtime Convex does not call Kie. Missing `KIE_API_KEY` at generate-time
+is a hard fail, never a fixture photo (D-11).
 
 ### Phase 6 — Before mainnet, not before the demo · D-30 · implemented 2026-08-23
 
@@ -508,10 +510,7 @@ money. It does not block a demo; it blocks a cutover until the operator secret i
 
 ## Still open
 
-1. **What the card image depicts (U-8).** D-31 settles where it goes; not what it shows. A tab
-   has a name and a merchant — is the image drawn from those, or is it one house style
-   repeated? Do not invent this to unblock Phase 5b.
-2. **Wallet-standard on iOS (U-10).** Mobile Wallet Adapter is Android-oriented; on iOS the
+1. **Wallet-standard on iOS (U-10).** Mobile Wallet Adapter is Android-oriented; on iOS the
    practical path is per-wallet universal links. If that holds, the three named wallets are
    load-bearing on iOS rather than a convenience layer over a generic standard. **Verify
    before Phase 2 estimates are trusted.**

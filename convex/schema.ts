@@ -617,9 +617,9 @@ export default defineSchema({
     /** The Open tab token. Minted once at tab_opened and reused on every edit (D-06 B8). */
     deepLinkToken: v.optional(v.string()),
     /**
-     * Telegram file_id for a photo header (D-31). Absent until U-8 is decided
-     * and a photo is stored — delivery keeps sendMessage / editMessageText.
-     * Never generate this field from tab name or a house style in the meantime.
+     * Telegram file_id for the house-style photo header (D-31, U-8).
+     * Reused across tabs. First upload is sendPhoto of public/tab-card/house.webp;
+     * later deliveries pass this id and edit captions only.
      */
     photoFileId: v.optional(v.string()),
   }).index("by_tab_id", ["tabId"]),

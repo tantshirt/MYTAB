@@ -19,6 +19,7 @@ export const PREVIEW_BLOCKED_HOST_PATTERNS: RegExp[] = [
   /^quote-api\.dflow\.net$/i,
   /^api\.openai\.com$/i,
   /^ai-gateway\.vercel\.sh$/i,
+  /^api\.kie\.ai$/i,
   /^.*\.helius-rpc\.com$/i,
   /^.*\.quicknode\.com$/i,
   /^api\.mainnet-beta\.solana\.com$/i,

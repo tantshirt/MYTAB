@@ -589,7 +589,7 @@ Also fixed in the same window, and worth knowing about: a hardcoded 32 THB/USD l
 - The delivery path switches from `editMessageText` to `editMessageCaption` (`convex/internal/telegramDelivery.ts` L184, L192). The caption cap drops from 4096 characters to 1024. Every card renderer must fit.
 - The generation key is a **server secret** in Convex env. Never `NEXT_PUBLIC_`, never a committed file. Ask the owner for it; do not go looking in the transcript or the tree.
 - D-13's Mini App rule is unchanged: no photograph on any Mini App surface carrying an amount. A chat card is outside that rule. The same reasoning still applies — keep the image atmospheric, never let it sit behind a number.
-- **What the image depicts is not decided.** Derived from tab name and merchant, or one house style repeated. Do not resolve that silently.
+- **What the image depicts is decided (U-8):** one house style, repeated. A 35mm-feeling still of a sociable table, generated once via Kie Nano Banana 2, not from tab name or merchant.
 
 **Status:** binding · new. Does not amend D-13's Mini App photography rule. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
 
@@ -640,8 +640,8 @@ B1 and B4 are closed (D-18 H7, H9). B5 is closed: `TabDeepLinkSurface` no longer
 **U-7 · Nothing has run against a live cluster.**
 Repeated because it is the single most load-bearing caveat in this file. Every claim above about DFlow behaviour comes from live probes of the quote API; every claim about settlement comes from unit tests with injected transports. `docs/MAINNET-CUTOVER.md` §5 and §6 are the sequences that would change that, and neither has been executed.
 
-**U-8 · What the tab-card image depicts.**
-D-31 settles where generated imagery goes (photo header on the status card, plus the bot avatar, plus D-13's two Mini App screens). It does not settle what the image shows: derived from tab name and merchant, or one house style repeated. Delivery plumbing (`sendPhoto` / `editMessageCaption`, 1024-character caption, optional `photoFileId`) is in the tree and stays idle until this is decided. Do not pick one to generate a photo without an owner decision.
+**U-8 · What the tab-card image depicts. · resolved 2026-08-23**
+**One house style, repeated.** Not derived from tab name or merchant. A 35mm-feeling film still of a sociable table — alive, warm, a little grain, people and food in the same frame — matching the launch pair (`public/launch/`). No neon, no glass, no gradient, no money, no type on the image. Generated once via Kie.ai `nano-banana-2` (4:3 at 2K). Delivery uses `sendPhoto` / `editMessageCaption`; Telegram `file_id` is reused. `KIE_API_KEY` is Convex-only. Runtime Convex does not call Kie on every dinner.
 
 **U-9 · Where an organizer revokes a leaked link. · resolved 2026-08-22**
 Revoke from the **invite sheet** (next to Share + QR) **and** from a live-links list under **You**. Organizer-on-roster only; a stranger still gets 403, not 404-with-detail. `revokeToken` is the one mutation; do not invent a second revoke API. `consumeToken` stays for single-use action tokens.

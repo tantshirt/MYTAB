@@ -1,11 +1,11 @@
-# Handoff prompt — My Tab, 2026-08-22
+# Handoff prompt — My Tab, 2026-08-23
 
 Copy everything below the line into the next agent. It assumes the agent has the repo.
 
 ---
 
 You are picking up **My Tab**, a Telegram Mini App for splitting a restaurant bill, settled on
-Solana mainnet through DFlow. Phases 0–6 are **in the working tree and uncommitted**.
+Solana mainnet through DFlow. Phases 0–6 and the U-8 house-style tab card are **committed**.
 Do not re-implement them. Owner decisions below are what remain.
 
 ## Read these, in this order, before you touch anything
@@ -29,7 +29,7 @@ Do not re-implement them. Owner decisions below are what remain.
 - **Phase 0 is built:** `setMyCommands` / `setChatMenuButton`, private `/start`, Open-tab
   token reuse on the status card.
 
-## What was decided on 2026-08-22
+## What was decided on 2026-08-22 / 2026-08-23
 
 D-21 through D-32, listed in `docs/DECISIONS.md`. The five that reverse prior positions:
 
@@ -47,27 +47,30 @@ D-21 through D-32, listed in `docs/DECISIONS.md`. The five that reverse prior po
   not a raw `OPENAI_API_KEY`. First-candidate model `google/gemini-2.0-flash`. Do not vendor
   PaddleOCR, Donut, doctr, or Mindee. Copy: **Scan receipt**.
 
-**U-1 and U-9 are resolved.** D-30 / Phase 6 is **built** (held state + `reconciliationIncidents`).
-U-6 B5, B7, B8, B9 are closed. **U-8 remains open** (do not generate a card photo).
+**U-1, U-8, and U-9 are resolved.** D-30 / Phase 6 is **built** (held state +
+`reconciliationIncidents`). U-6 B5, B7, B8, B9 are closed.
+**U-8** is one house-style 35mm still (`public/tab-card/house.webp`), sent once via
+`sendPhoto`, reused by Telegram `file_id`. Runtime Convex does not call Kie.
 **U-10 is documented** (MWA is iOS-incompatible; named universal links are load-bearing);
 return-to-Telegram is still unproven on a physical iPhone.
 
-## Current state — Phases 1–6 landed in the tree (uncommitted)
+## Current state — Phases 1–6 and the tab card are committed
 
-Phase 5b is **plumbing only**: `sendPhoto` / `editMessageCaption` idle until U-8.
-Live receipt model pin still needs a Thai/English fixture eval against the gateway
-(`AI_GATEWAY_API_KEY` in Convex). Set `OPERATOR_RECONCILIATION_SECRET` in Convex
-for the operator list.
+Phase 5b is live plumbing: first `tab_opened` uploads the house still; later states
+edit the caption only. Live receipt model pin still needs a Thai/English fixture eval
+against the gateway (`AI_GATEWAY_API_KEY` in Convex). Set
+`OPERATOR_RECONCILIATION_SECRET` in Convex for the operator list. Rotate the kie.ai
+key that appeared in chat after `KIE_API_KEY` is set in Convex.
 
 ## Start here — remaining owner decisions, not silent code
 
-1. **U-8** — what the tab-card photo depicts. Then generate once at `tab_opened`.
-2. **U-10 device** — prove Phantom / Solflare / Backpack return into the Telegram
+1. **U-10 device** — prove Phantom / Solflare / Backpack return into the Telegram
    WebView on a real iPhone.
-3. **Receipt fixture eval** — pin `google/gemini-2.0-flash` or fall back to
+2. **Receipt fixture eval** — pin `google/gemini-2.0-flash` or fall back to
    `openai/gpt-4o-mini` after Thai/English restaurant photos.
-4. Secrets in Convex: `AI_GATEWAY_API_KEY`, `OPERATOR_RECONCILIATION_SECRET`,
-   rotated kie.ai key only after U-8.
+3. Secrets in Convex: confirm `AI_GATEWAY_API_KEY` and
+   `OPERATOR_RECONCILIATION_SECRET` are set (never `npx convex env list`). Rotate
+   `KIE_API_KEY` on kie.ai after the generate succeeded.
 
 ## Rules you will be tempted to break
 
@@ -93,23 +96,20 @@ for the operator list.
 
 ## Open questions — do not resolve these silently
 
-1. **What the tab card image depicts (U-8).** D-31 settles that generated imagery goes on the
-   tab status card as a photo header. It does not settle what the image shows: derived from
-   tab name and merchant, or one house style repeated. Phase 5b is blocked on this.
-2. **Wallet-standard on iOS (U-10).** Mobile Wallet Adapter is Android-oriented; on iOS the
+1. **Wallet-standard on iOS (U-10).** Mobile Wallet Adapter is Android-oriented; on iOS the
    practical path is per-wallet universal links. If that holds, Phantom / Solflare / Backpack
    are load-bearing on iOS rather than a convenience layer over a generic standard. **Verify
-   this before trusting the Phase 2 estimate.**
+   this on a physical iPhone** — return-to-Telegram after a universal-link sign is still
+   unproven.
 
 Plus everything in `docs/DECISIONS.md` §Unresolved that is still open.
 
 ## Secrets
 
 - **`AI_GATEWAY_API_KEY`** — Convex env only (D-32). Needed for Phase 1b. Never `NEXT_PUBLIC_`.
-- An image-generation key (kie.ai) is needed for Phase 5b. It is a **server secret**: it
-  belongs in Convex env, never in `NEXT_PUBLIC_`, never in a committed file. Ask the owner
-  for it; do not go looking for it in the transcript or the tree. Rotate any key that
-  appeared in an earlier transcript.
+- **`KIE_API_KEY`** — Convex env only (U-8). One-shot / owner-requested regenerate of the
+  house still. Never `NEXT_PUBLIC_`. Never a committed file. Runtime Convex does not call
+  Kie on every dinner. Rotate any key that appeared in a transcript.
 
 ## How to work
 

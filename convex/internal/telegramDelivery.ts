@@ -79,6 +79,7 @@ export const commitStatus = internalMutation({
     claimId: v.string(),
     messageId: v.number(),
     deliveredVersion: v.number(),
+    photoFileId: v.optional(v.string()),
   },
   handler: async (ctx, args) =>
     commitStatusDelivery(ctx, {
@@ -86,6 +87,7 @@ export const commitStatus = internalMutation({
       claimId: args.claimId,
       messageId: args.messageId,
       deliveredVersion: args.deliveredVersion,
+      ...(args.photoFileId ? { photoFileId: args.photoFileId } : {}),
     }),
 });
 
@@ -187,10 +189,11 @@ function telegramPort(botToken: string, buttonLabel: string): TelegramPort {
       const markup = input.buttonUrl
         ? { replyMarkup: singleButtonKeyboard(buttonLabel, input.buttonUrl) }
         : {};
-      if (input.photoFileId) {
+      const photo = input.photoFileId ?? input.photoUrl;
+      if (photo) {
         return sendPhoto(botToken, {
           chatId: input.chatId,
-          photoFileId: input.photoFileId,
+          photo,
           caption: clipTelegramPhotoCaption(input.text),
           ...markup,
         });

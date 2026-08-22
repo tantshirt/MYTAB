@@ -632,6 +632,132 @@ describe("deleted-message recovery posts exactly one replacement", () => {
     expect(outcome).toEqual({ delivered: true, unchanged: true });
     expect(store.telegramStatusMessages[0]?.messageId).toBe(900);
   });
+
+  it("sends the house still and persists Telegram file_id on first post", async () => {
+    const { ctx, store } = seedTab();
+    await recordTabStatusEvent(ctx, { tabId: TAB_ID, event: "tab_opened", now: 1_000 });
+    store.telegramStatusMessages[0]!.photoFileId = "AgAD-house";
+
+    const sent: Array<{ photoFileId?: string; photoUrl?: string }> = [];
+    const edited: Array<{ photoFileId?: string }> = [];
+
+    const outcome = await deliverTabStatus({
+      fixture: false,
+      port: {
+        send: async (input) => {
+          sent.push({
+            photoFileId: input.photoFileId,
+            photoUrl: input.photoUrl,
+          });
+          return {
+            ok: true as const,
+            result: {
+              message_id: 701,
+              photo: [
+                { file_id: "AgAD-small", width: 90, height: 67 },
+                { file_id: "AgAD-large", width: 1280, height: 960 },
+              ],
+            },
+          };
+        },
+        edit: async (input) => {
+          edited.push({ photoFileId: input.photoFileId });
+          throw new Error("must not edit on first post");
+        },
+        remove: async () => undefined,
+      },
+      claim: () => claimStatusDelivery(ctx, TAB_ID, 1_000),
+      reserveReplacement: (claimId) =>
+        reserveStatusReplacement(ctx, { tabId: TAB_ID, claimId, now: 1_010 }),
+      commit: (input) => commitStatusDelivery(ctx, { tabId: TAB_ID, ...input, now: 1_020 }),
+      fail: (input) => failStatusDelivery(ctx, { tabId: TAB_ID, ...input, now: 1_020 }),
+      reschedule: async () => undefined,
+    });
+
+    expect(outcome).toEqual({ delivered: true, recovered: false });
+    expect(sent).toEqual([{ photoFileId: "AgAD-house", photoUrl: undefined }]);
+    expect(edited).toEqual([]);
+    expect(store.telegramStatusMessages[0]?.photoFileId).toBe("AgAD-large");
+  });
+
+  it("edits the caption only when a photo file_id is already stored", async () => {
+    const { ctx, store } = await seedDelivered();
+    store.telegramStatusMessages[0]!.photoFileId = "AgAD-house";
+    store.telegramStatusMessages[0]!.deliveryState = "idle";
+    store.telegramStatusMessages[0]!.claimExpiresAt = 0;
+
+    const sent: unknown[] = [];
+    const edited: Array<{ photoFileId?: string; messageId: number }> = [];
+
+    const outcome = await deliverTabStatus({
+      fixture: false,
+      port: {
+        send: async (input) => {
+          sent.push(input);
+          throw new Error("must not re-upload");
+        },
+        edit: async (input) => {
+          edited.push({ photoFileId: input.photoFileId, messageId: input.messageId });
+          return { ok: true as const, result: { message_id: input.messageId } };
+        },
+        remove: async () => undefined,
+      },
+      claim: () => claimStatusDelivery(ctx, TAB_ID, 2_000),
+      reserveReplacement: (claimId) =>
+        reserveStatusReplacement(ctx, { tabId: TAB_ID, claimId, now: 2_010 }),
+      commit: (input) => commitStatusDelivery(ctx, { tabId: TAB_ID, ...input, now: 2_020 }),
+      fail: (input) => failStatusDelivery(ctx, { tabId: TAB_ID, ...input, now: 2_020 }),
+      reschedule: async () => undefined,
+    });
+
+    expect(outcome).toEqual({ delivered: true, recovered: false });
+    expect(sent).toEqual([]);
+    expect(edited).toEqual([{ photoFileId: "AgAD-house", messageId: 900 }]);
+  });
+});
+
+describe("house still reuse (U-8)", () => {
+  it("reuses another tab's stored file_id instead of uploading again", async () => {
+    const { ctx, store } = seedTab();
+    await recordTabStatusEvent(ctx, { tabId: TAB_ID, event: "tab_opened", now: 1_000 });
+    store.telegramStatusMessages.push({
+      _id: "telegramStatusMessages:other",
+      tabId: "tabs:other",
+      chatId: "-100999",
+      photoFileId: "AgAD-reused",
+      lastEditedAt: 0,
+    });
+
+    const claim = await claimStatusDelivery(ctx, TAB_ID, 1_000);
+    expect(claim.claimed).toBe(true);
+    if (!claim.claimed) {
+      return;
+    }
+    expect(claim.work.photoFileId).toBe("AgAD-reused");
+    expect(claim.work.photoUrl).toBeUndefined();
+  });
+
+  it("falls back to the hosted house URL when no file_id exists yet", async () => {
+    const previous = process.env.TELEGRAM_MINIAPP_URL;
+    process.env.TELEGRAM_MINIAPP_URL = "https://app.example.com/";
+    try {
+      const { ctx } = seedTab();
+      await recordTabStatusEvent(ctx, { tabId: TAB_ID, event: "tab_opened", now: 1_000 });
+      const claim = await claimStatusDelivery(ctx, TAB_ID, 1_000);
+      expect(claim.claimed).toBe(true);
+      if (!claim.claimed) {
+        return;
+      }
+      expect(claim.work.photoFileId).toBeUndefined();
+      expect(claim.work.photoUrl).toBe("https://app.example.com/tab-card/house.webp");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TELEGRAM_MINIAPP_URL;
+      } else {
+        process.env.TELEGRAM_MINIAPP_URL = previous;
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

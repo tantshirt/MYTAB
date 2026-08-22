@@ -52,9 +52,10 @@ import {
   type TabStatusFacts,
   type TelegramStatusEvent,
 } from "../../lib/telegram/messages";
+import { houseTabCardUrl } from "../../lib/telegram/tabCard";
 import { loadItemClaimRows } from "./allocationSync";
 import { mintSessionToken } from "./sessionTokenOps";
-import { buildTelegramDeepLink } from "./telegramDeepLink";
+import { buildTelegramDeepLink, getTelegramMiniAppHttpsUrl } from "./telegramDeepLink";
 
 /**
  * How long one worker owns the card. Longer than the worst-case delivery
@@ -81,8 +82,10 @@ export type StatusDeliveryWork = {
   buttonUrl: string;
   targetVersion: number;
   attempt: number;
-  /** Telegram file_id. Absent until U-8 decides what the photo depicts. */
+  /** Telegram file_id for the house still, reused across tabs (U-8). */
   photoFileId?: string;
+  /** HTTPS URL of the house still — first upload only, when no file_id yet. */
+  photoUrl?: string;
 };
 
 export type ClaimStatusDeliveryResult =
@@ -342,9 +345,38 @@ export async function claimStatusDelivery(
       buttonUrl: buildTelegramDeepLink(token),
       targetVersion: row.eventVersion,
       attempt: attempt + 1,
-      ...(row.photoFileId ? { photoFileId: row.photoFileId } : {}),
+      ...(await tabCardPhotoWork(ctx, row.photoFileId)),
     },
   };
+}
+
+async function resolveReusedHousePhotoFileId(
+  ctx: QueryCtx | MutationCtx,
+  ownFileId: string | undefined,
+): Promise<string | undefined> {
+  if (ownFileId) {
+    return ownFileId;
+  }
+  // Indexed collect so the fake db (and OCC) see a withIndex read. The house
+  // still is one file_id reused across tabs (U-8); the first row that stored
+  // it is enough.
+  const others = await ctx.db
+    .query("telegramStatusMessages")
+    .withIndex("by_tab_id")
+    .collect();
+  return others.find((other) => other.photoFileId)?.photoFileId;
+}
+
+async function tabCardPhotoWork(
+  ctx: QueryCtx | MutationCtx,
+  ownFileId: string | undefined,
+): Promise<{ photoFileId?: string; photoUrl?: string }> {
+  const photoFileId = await resolveReusedHousePhotoFileId(ctx, ownFileId);
+  if (photoFileId) {
+    return { photoFileId };
+  }
+  const photoUrl = houseTabCardUrl(getTelegramMiniAppHttpsUrl());
+  return photoUrl ? { photoUrl } : {};
 }
 
 export type ReserveReplacementResult =
@@ -409,6 +441,7 @@ export async function commitStatusDelivery(
     claimId: string;
     messageId: number;
     deliveredVersion: number;
+    photoFileId?: string;
     now?: number;
   },
 ): Promise<CommitStatusDeliveryResult> {
@@ -438,6 +471,7 @@ export async function commitStatusDelivery(
     nextAttemptAt: undefined,
     lastError: undefined,
     lastEditedAt: now,
+    ...(input.photoFileId ? { photoFileId: input.photoFileId } : {}),
   });
 
   return { committed: true, staleVersion: row.eventVersion > input.deliveredVersion };

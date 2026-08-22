@@ -50,6 +50,11 @@ export const CONVEX_ONLY_KEYS = [
    * Never NEXT_PUBLIC_. Missing secret fails closed — the list 403s.
    */
   "OPERATOR_RECONCILIATION_SECRET",
+  /**
+   * One-shot tab-card still (U-8 / D-31). Convex-only. Never NEXT_PUBLIC_.
+   * Runtime delivery reuses a Telegram file_id; this key is for generate/regenerate.
+   */
+  "KIE_API_KEY",
 ] as const;
 
 /** Client-safe public keys — the only allowed NEXT_PUBLIC_* server-adjacent vars. */

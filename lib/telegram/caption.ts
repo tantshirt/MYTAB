@@ -3,8 +3,8 @@
  * D-31 switches the status card to sendPhoto / editMessageCaption when a
  * photo exists, so every renderer must fit the caption budget.
  *
- * Generation of that photo is blocked on U-8. This helper is the plumbing
- * only: clip, never invent an image.
+ * The photo is the house still (U-8). This helper clips; it never invents
+ * an image.
  */
 
 export const TELEGRAM_PHOTO_CAPTION_MAX = 1024;

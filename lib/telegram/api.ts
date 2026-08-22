@@ -47,6 +47,7 @@ export type TelegramCallResult<T> =
 export type TelegramMessage = {
   message_id: number;
   chat?: { id: number };
+  photo?: ReadonlyArray<{ file_id: string; width?: number; height?: number }>;
 };
 
 export type TelegramChatMember = {
@@ -328,15 +329,15 @@ export function editMessageText(
 }
 
 /**
- * Photo header on the tab status card (D-31). `photo` is a Telegram `file_id`
- * already stored on the status row — this function never generates an image.
- * U-8 still blocks choosing what to generate.
+ * Photo header on the tab status card (D-31, U-8). `photo` is a Telegram
+ * `file_id` already stored, or the HTTPS house-still URL on first upload.
+ * This function never generates an image.
  */
 export function sendPhoto(
   botToken: string,
   input: {
     chatId: string;
-    photoFileId: string;
+    photo: string;
     caption: string;
     replyMarkup?: InlineKeyboardMarkup;
     disableNotification?: boolean;
@@ -348,7 +349,7 @@ export function sendPhoto(
     "sendPhoto",
     {
       chat_id: input.chatId,
-      photo: input.photoFileId,
+      photo: input.photo,
       caption: input.caption,
       ...(input.disableNotification ? { disable_notification: true } : {}),
       ...(input.replyMarkup ? { reply_markup: input.replyMarkup } : {}),

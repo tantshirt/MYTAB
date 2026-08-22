@@ -14,6 +14,7 @@ import {
   type TelegramCallResult,
   type TelegramMessage,
 } from "../../lib/telegram/api";
+import { extractPhotoFileId } from "../../lib/telegram/tabCard";
 import type {
   ClaimStatusDeliveryResult,
   CommitStatusDeliveryResult,
@@ -31,8 +32,8 @@ export type TelegramPort = {
     chatId: string;
     text: string;
     buttonUrl?: string;
-    /** Present only when a photo was stored. U-8 still blocks generation. */
     photoFileId?: string;
+    photoUrl?: string;
   }): Promise<TelegramCallResult<TelegramMessage>>;
   edit(input: {
     chatId: string;
@@ -57,6 +58,7 @@ export type StatusDeliveryDeps = {
     claimId: string;
     messageId: number;
     deliveredVersion: number;
+    photoFileId?: string;
   }) => Promise<CommitStatusDeliveryResult>;
   fail: (input: {
     claimId: string;
@@ -132,6 +134,7 @@ export async function deliverTabStatus(
         text: work.text,
         buttonUrl: work.buttonUrl,
         ...(work.photoFileId ? { photoFileId: work.photoFileId } : {}),
+        ...(work.photoUrl ? { photoUrl: work.photoUrl } : {}),
       });
       if (outcome.ok) {
         postedMessageId = outcome.result.message_id;
@@ -145,6 +148,7 @@ export async function deliverTabStatus(
       text: work.text,
       buttonUrl: work.buttonUrl,
       ...(work.photoFileId ? { photoFileId: work.photoFileId } : {}),
+      ...(work.photoUrl ? { photoUrl: work.photoUrl } : {}),
     });
     if (outcome.ok) {
       postedMessageId = outcome.result.message_id;
@@ -169,10 +173,14 @@ export async function deliverTabStatus(
     return { delivered: false, reason: "NO_MESSAGE_ID" };
   }
 
+  const resolvedPhotoFileId =
+    (outcome.ok ? extractPhotoFileId(outcome.result) : undefined) ?? work.photoFileId;
+
   const commit = await deps.commit({
     claimId: work.claimId,
     messageId,
     deliveredVersion: work.targetVersion,
+    ...(resolvedPhotoFileId ? { photoFileId: resolvedPhotoFileId } : {}),
   });
 
   if (!commit.committed) {
