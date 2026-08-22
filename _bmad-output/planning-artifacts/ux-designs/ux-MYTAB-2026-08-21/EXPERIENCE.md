@@ -11,6 +11,35 @@ sources:
 companion: ./DESIGN.md
 ---
 
+> ## ⚠ Amendment notice — read `docs/DECISIONS.md` first
+>
+> **This document remains the behavioral authority** for everything from the Claim Board
+> onward — states, journeys, component behavior, voice, the accessibility floor. Nothing
+> below is retired, and where a mock or artboard disagrees with it, this spine still wins.
+>
+> Superseded sections, with the reasoning in **`docs/DECISIONS.md`** (binding):
+>
+> - **D-06** — §Foundation, *"Membership is live trust… The bot must be a group
+>   administrator."* `tabParticipants` is the authoritative roster; the token admits, the
+>   roster authorizes; bot-admin is a group-door requirement, not a product prerequisite.
+> - **D-06** — §Information Architecture and §State Patterns: *"Open My Tab from a Telegram
+>   group to start a tab"* and *"Start one from any Telegram group"* are dead ends and are
+>   replaced by the First Screen. **`INVITE-FLOW.md` is the authority on ingress** — everything
+>   before the Claim Board. This document wins everywhere else.
+> - **D-07** — after lock, loss of group membership or bot-admin never blocks a person from
+>   paying what they already owe.
+> - **D-10** — §The Telegram Surface: the five-event rule is intact and is scoped to *group
+>   chats*. "Share to group" is Telegram's native share sheet sent **by the person**, not a
+>   sixth bot event.
+> - **D-11** — §Interaction Primitives: the demo-mode "Use sample receipt" affordance is
+>   **deleted**. No fixture or demo data ships in application source.
+> - **D-20** — §Foundation: *"five components are custom"* is a stale count. Astryx supplies
+>   the theme; the primitives are ours. The AD-20 prohibition on a second component system
+>   still binds.
+> - **D-17** — the five-minute Telegram context must be **renewed**; it expired mid-meal and
+>   every write failed silently.
+
+
 # My Tab — Experience Spine
 
 Behavior, information architecture, states, and journeys. Visual identity lives in `DESIGN.md`; tokens are referenced here as `{colors.owed}`, `{typography.amount-hero}`, `{spacing.4}`. Where this spine and any mock, wireframe, or generated artboard disagree, **this spine wins**.

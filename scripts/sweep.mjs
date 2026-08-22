@@ -66,8 +66,18 @@
  * when `NEXT_PUBLIC_PRIVY_APP_ID` is set, so measuring the shipped build would
  * measure the Launch screen ten times. This harness therefore builds its own
  * bundle with Privy and Convex unset — `isPrivyFixtureMode()` — into a separate
- * `distDir`, which is the mode every surface's fixture path already exists to
- * serve. Real surfaces, real fixture data, real measurements.
+ * `distDir`. Real surfaces rather than the Launch screen.
+ *
+ * Content: no fixture data exists under `app/`, `features/` or `components/`,
+ * so that bundle alone would render designed empty states — and an empty state
+ * has no amount column to truncate. The sweep's build therefore also sets
+ * `MYTAB_SWEEP_FIXTURES=1`, which `next.config.ts` turns into a webpack
+ * resolution rule: each `use*Data` seam resolves to a populated stand-in under
+ * `tests/sweep/`. It is a build-time substitution, not a runtime flag; nothing
+ * in shipped source branches on it, and `next.config.ts` throws rather than
+ * aliasing on any build that could be deployed. `POPULATED_MIN` then asserts
+ * per route that the substitution actually took, so a silently inert alias
+ * fails the run instead of quietly measuring blank screens.
  *
  * Zero dependencies, same as the smoke test: Node's global WebSocket plus
  * Chrome's HTTP target list is a complete CDP client.
@@ -213,8 +223,73 @@ function fixtureEnv() {
     NEXT_PUBLIC_PRIVY_APP_ID: "",
     NEXT_PUBLIC_CONVEX_URL: "",
     NEXT_DIST_DIR: SWEEP_DIST,
+    /*
+     * Populated surfaces, resolved at BUILD time.
+     *
+     * No fixture data survives under `app/`, `features/` or `components/`, so
+     * every surface in a normal build renders its designed empty state — and an
+     * empty state has no amount column to truncate, no name to clip and no
+     * dense row to overflow. Measuring one would be measuring nothing.
+     *
+     * `next.config.ts` reads this variable and, ONLY when the whole of the
+     * fixture-mode env above also holds, resolves each `use*Data` seam to a
+     * populated stand-in under `tests/sweep/`. It is a webpack resolution rule:
+     * there is no branch in shipped source, and nothing a deployed bundle can
+     * read. `next.config.ts` throws rather than aliasing if this variable is
+     * set on any build that is not this one.
+     *
+     * `POPULATED_MIN` below is the other half: it fails the sweep if a surface
+     * comes back with fewer amounts than the fixture puts on it, so a silently
+     * inert alias is a red run rather than ten misleading green rows.
+     */
+    MYTAB_SWEEP_FIXTURES: "1",
+    /*
+     * `next.config.ts` also refuses the substitution when `VERCEL`/`CI` say the
+     * build could be a deployment. This harness must still be runnable *in* CI —
+     * the whole point of a gate is that CI runs it — and its bundle is a
+     * throwaway that CI never publishes, so it clears those markers for its own
+     * build only. The guards that actually stop a shippable bundle carrying
+     * fixtures are the dist dir and the two empty credentials above, and those
+     * this harness cannot clear: they are what it genuinely is.
+     */
+    VERCEL: "",
+    VERCEL_ENV: "",
+    CI: "",
   };
 }
+
+/*
+ * The least each route must render for its measurement to mean anything.
+ *
+ * These are floors, not exact counts — the fixtures put considerably more on
+ * most of these surfaces. Every entry is the number of elements the audit
+ * classifies as an amount (`[data-mytab-amount]` and friends), which is exactly
+ * the population that check 3 measures for truncation.
+ *
+ * A route missing from this map is measured but not required to be populated:
+ * `/tabs/new` opens on the setup step, which is a form and legitimately has no
+ * amount column until items are added.
+ */
+const POPULATED_MIN = {
+  "/": 10,
+  "/activity": 5,
+  "/tabs/new": 6,
+  "/tips/new": 4,
+  [`/groups/${PARAM}`]: 6,
+  [`/pay/${PARAM}`]: 1,
+  [`/tabs/${PARAM}`]: 8,
+  [`/tabs/${PARAM}/bill`]: 30,
+  [`/tabs/${PARAM}/receipt`]: 10,
+  [`/tabs/${PARAM}?settle=ob_sweep`]: 16,
+  [`/tabs/new?group=g_sweep`]: 6,
+  [`/tips/new?to=maya&group=g_sweep`]: 4,
+  /*
+   * `/you` is the one surface with no amount column at all — §4.2 says it has
+   * no empty state because it has no list. It is measured, and its floor is
+   * honestly zero rather than a number invented to look thorough.
+   */
+  "/you": 0,
+};
 
 /*
  * `next build` rewrites tsconfig.json to add `<distDir>/types/**` to `include`
@@ -659,8 +734,23 @@ const AUDIT_SOURCE = String.raw`
     });
   }
 
+  /* ── 7. populated-ness, so an inert build cannot pass by rendering nothing ─ */
+
+  const amountCount = els.filter((el) => {
+    if (!el.matches(AMOUNT_SELECTOR)) return false;
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    if (invisible(el, cs, rect)) return false;
+    // Receipt Review's figures are editable <input>s: the value is the amount
+    // and textContent is empty, so counting text alone would call the densest
+    // amount column in the product unpopulated.
+    const shown = text(el) || (typeof el.value === "string" ? el.value.trim() : "");
+    return shown.length > 0;
+  }).length;
+
   return {
     vw,
+    amountCount,
     chars: (document.body.innerText || "").trim().length,
     shipped,
     offenders: offenders.slice(0, 12),
@@ -816,6 +906,30 @@ function defectsFor(result) {
 
   if (r.chars === 0) {
     found.push({ severity: "error", where, kind: "blank", detail: "rendered no text" });
+  }
+
+  /*
+   * The surface has to be POPULATED for the measurement to mean anything.
+   *
+   * Source carries no fixture data, so a build whose seam aliases failed to
+   * apply renders designed empty states — which have no amount column, no dense
+   * row and nothing to truncate. Every check above would pass, and the sweep
+   * would report ten green rows while measuring nothing at all. This turns that
+   * silence into a failure.
+   */
+  const route = `${new URL(result.url).pathname}${new URL(result.url).search}`;
+  const minimum = POPULATED_MIN[route];
+  if (minimum !== undefined && (r.amountCount ?? 0) < minimum) {
+    found.push({
+      severity: "error",
+      where,
+      kind: "unpopulated",
+      detail:
+        `rendered ${r.amountCount ?? 0} amount(s), expected at least ${minimum}. ` +
+        "The surface is empty, so nothing here was actually measured — the " +
+        "sweep's build-time seam aliases (next.config.ts, MYTAB_SWEEP_FIXTURES) " +
+        "did not apply.",
+    });
   }
 
   for (const o of r.offenders) {

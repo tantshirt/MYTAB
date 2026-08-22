@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ObligationPaymentSheet } from "./ObligationPaymentSheet";
+import { useSettleSheetData } from "@/features/settlement/useSettleSheetData";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
-import type { PaymentTokenOption } from "@/components/settlement-sheet/PaymentTokenSelector";
+import { ErrorState } from "@/components/primitives/error-state";
+import { STATE_COPY } from "@/components/primitives/state-copy";
 
 /**
  * The Payment Sheet is a *sheet*, not a route (POLISH-SPEC §1.0).
@@ -23,78 +25,8 @@ export function settleSearch(obligationId: string): string {
   return `?${SETTLE_PARAM}=${encodeURIComponent(obligationId)}`;
 }
 
-export type SettleSheetData = {
-  intentId: string;
-  billAmountLabel: string;
-  billAmount: string;
-  recipientName: string;
-  recipientId: string;
-  destinationAsset: string;
-  spendLabel: string;
-  maximumSpend: string;
-  minimumReceiveAmount: string;
-  rateLabel: string;
-  quoteRemainingMs: number;
-  quoteExpired: boolean;
-  /** `created` / `quoting` — the quote is not resolved yet and Pay is disabled. */
-  quoteResolving: boolean;
-  staleRevision: boolean;
-  roundUpLabel: string;
-  roundUpAmountLabel: string;
-  tokens: PaymentTokenOption[];
-};
-
-/**
- * Single prop-resolution point for the Payment Sheet.
- *
- * BLOCKED on Convex — this seam still returns the fixture.
- *
- * There is no `settlements.getObligationQuote`, and nothing equivalent:
- *
- *   - `api.settlements.getIntent` projects five fields (status, failure code,
- *     signature, expiry) and none of the sheet's amounts, quote, rate or
- *     token balances.
- *   - `api.settlements.createObligationIntent` / `refreshObligationIntent`
- *     take an `obligationId`, and no query returns one: `convex/obligations.ts`
- *     is a stub and the `obligations` table has no read path. The `?settle=`
- *     key the Claim Board passes today is therefore the tab token, not an
- *     obligation id (see `TabDeepLinkSurface`).
- *   - Wallet token balances have no Convex surface at all; only
- *     `wallets.defaultReceivingWallet` (an address) exists.
- *
- * Needed before this can be swapped: an `obligations.forViewer(tabId)` query
- * returning the viewer's obligation id and amount, and a quote read that
- * projects the live intent's quote — spend, minimum receive, rate, TTL,
- * `staleRevision` and the affordable token list.
- */
-function useSettleSheetData(obligationId: string): SettleSheetData {
-  return useMemo(
-    () => ({
-      intentId: `intent_${obligationId}`,
-      billAmountLabel: "your share of Sukhumvit Dinner",
-      billAmount: "฿291.74",
-      recipientName: "Maya",
-      recipientId: "maya",
-      destinationAsset: "USDC",
-      spendLabel: "≈ 0.0412 SOL",
-      maximumSpend: "0.0418 SOL",
-      minimumReceiveAmount: "8.25 USDC",
-      rateLabel: "฿35.36 per USDC",
-      quoteRemainingMs: 42_000,
-      quoteExpired: false,
-      quoteResolving: false,
-      staleRevision: false,
-      roundUpLabel: "Round up to ฿300",
-      roundUpAmountLabel: "+฿8.26",
-      tokens: [
-        { id: "usdc", name: "USDC", balanceLabel: "12.40 USDC", affordable: true },
-        { id: "sol", name: "SOL", balanceLabel: "0.0612 SOL", affordable: true },
-        { id: "usdt", name: "USDT", balanceLabel: "1.02 USDT", affordable: false },
-      ],
-    }),
-    [obligationId],
-  );
-}
+/** §4.3, Payment Sheet — the sheet exists, and there is no price to put in it. */
+export const NO_QUOTE_MESSAGE = "Couldn't get a price right now.";
 
 function SettleSheet({ obligationId }: { obligationId: string }) {
   const router = useRouter();
@@ -119,6 +51,23 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
     // Past this point the payment is in flight, so it becomes a route (§1.0).
     router.replace(`/pay/${data.intentId}`);
   }, [router, data.intentId]);
+
+  /*
+   * Every figure on this sheet is money — a spend, a floor, a rate, a balance.
+   * With no quote there is no honest placeholder for any of them, so the sheet
+   * says so and offers the one action that can change the answer. It never
+   * renders amounts nobody owes under a live Pay button.
+   */
+  if (data.status !== "ready") {
+    return (
+      <SheetContainer label="Payment sheet" dismissible onDismiss={dismiss}>
+        <ErrorState
+          headline={NO_QUOTE_MESSAGE}
+          actions={[{ label: STATE_COPY.retry, onPress: () => router.refresh() }]}
+        />
+      </SheetContainer>
+    );
+  }
 
   return (
     <SheetContainer label="Payment sheet" dismissible={!committed} onDismiss={dismiss}>

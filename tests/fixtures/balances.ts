@@ -6,10 +6,15 @@ import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { thbMinorFromInteger } from "@/lib/domain/parse";
 import { thbMinorToUsdcAtomicFixture } from "@/lib/domain/fxFixture";
 import { ACTIVITY_EVENT_TYPE } from "@/lib/domain/activityTypes";
-import type { ActivityRowData } from "./ActivityFeed";
-import type { TabCardProps } from "./TabCard";
+import type { ActivityRowData } from "@/features/balances/ActivityFeed";
+import type { TabCardProps } from "@/features/balances/TabCard";
 
-/** Demo protagonists (Story 7.10). */
+/**
+ * The Sukhumvit Dinner cast, for tests and for the responsive sweep only.
+ *
+ * Nothing under `app/`, `features/` or `components/` may import this file —
+ * `tests/features/no-fixtures-in-source.test.ts` fails the build if it does.
+ */
 export const FIXTURE_VIEWER_USER_ID = "user-andre";
 
 export const FIXTURE_GROUP = {

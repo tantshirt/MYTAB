@@ -4,8 +4,16 @@ import {
   timingSafeEqualHex,
   utf8ToBytes,
 } from "../crypto/convexCrypto";
+import { assertFixturePathAllowed } from "../solana/runtimeGuard";
 
-/** Fixture bot token when TELEGRAM_BOT_TOKEN is absent (local build/tests). */
+/**
+ * Bot token used to sign initData in tests.
+ *
+ * This value is published in this repository, so anything that verifies against
+ * it is unauthenticated. It is never substituted for a missing
+ * `TELEGRAM_BOT_TOKEN` — see `convex/lib/telegramVerify.getTelegramBotToken`,
+ * which throws instead.
+ */
 export const FIXTURE_TELEGRAM_BOT_TOKEN = "fixture-telegram-bot-token";
 
 /** Maximum age for Telegram initData auth_date (5 minutes). */
@@ -215,11 +223,18 @@ export function resolveChatIds(chat: TelegramInitDataChat | null): {
   };
 }
 
-/** Builds a signed initData query string for tests and fixture mode. */
+/**
+ * Builds a signed initData query string for tests.
+ *
+ * This function forges a credential: whatever `user` id it is handed comes back
+ * as a payload `verifyInitData` accepts. It is guarded rather than merely
+ * "test-only by convention" — on a deployment it throws.
+ */
 export function signTestInitData(
   fields: Record<string, string>,
   botToken: string = FIXTURE_TELEGRAM_BOT_TOKEN,
 ): string {
+  assertFixturePathAllowed("telegram.signTestInitData");
   const sortedKeys = Object.keys(fields).sort((a, b) => a.localeCompare(b));
   const dataCheckString = sortedKeys.map((key) => `${key}=${fields[key]}`).join("\n");
   const hash = computeInitDataHmac(dataCheckString, botToken);

@@ -1,4 +1,4 @@
-import type { YouSurfaceData } from "./types";
+import type { YouSurfaceData } from "@/features/you/types";
 
 /**
  * The You surface as the demo protagonist sees it (Sukhumvit Dinner cast).

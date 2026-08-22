@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   FIXTURE_PRIVY_WALLET_ID,
   FIXTURE_SOLANA_ADDRESS,
+} from "@/lib/privy/fixtures";
+import {
   coSignAndBroadcast,
   fetchPrivyEmbeddedWalletSnapshot,
   isPrivyFixtureActive,

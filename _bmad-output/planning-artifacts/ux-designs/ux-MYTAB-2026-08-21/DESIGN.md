@@ -102,6 +102,32 @@ components:
   - discrepancy-card
 ---
 
+> ## ⚠ Amendment notice — read `docs/DECISIONS.md` first
+>
+> **This document remains the sole visual authority** for palette, typography, spacing,
+> elevation, component appearance and the visual anti-patterns. Nothing below is retired.
+>
+> Specific sections have been superseded by evidence gathered after it was written, and the
+> reasoning for each change lives in **`docs/DECISIONS.md`**, which is binding:
+>
+> - **D-13** — photography on Launch and first run, `paper`-on-`ink` primary action over an
+>   image, monochrome lockup, navy scrim, Schibsted Grotesk wordmark. *(Already amended into
+>   §Colors and §Typography below; D-13 records why.)*
+> - **D-15** — §Layout: the 390px column is a **design width, not a layout cap**. The
+>   implemented cap is `min(100%, 480px)`.
+> - **D-16** — §Components, `all-square-card`: the wash is **46%**, not 40%, and uses two
+>   tokens this file does not define (`tip-wash-top`, `tip-wash-mid`), because `colors/tip` is
+>   too dark to sit behind 42px ink.
+> - **D-09 / U-1** — §Components, `token-chip` "**No token logos**" is unamended and still
+>   binding, but the product now consumes Jupiter token metadata (which includes logos) and
+>   carries a contractual attribution string containing a banned word. Unresolved; do not
+>   resolve it by adding a logo.
+> - **D-03** — the anti-swap-UI position is **strengthened**, not weakened, by DFlow routing.
+>
+> The canonical demo fixture named below (Sukhumvit Dinner, ฿1,840.00) is a **design
+> reference only**. Per **D-11**, no fixture or demo data ships in application source.
+
+
 ## Brand & Style
 
 **Authority.** This final file is the sole visual authority. `EXPERIENCE.md` is the behavioral authority; Stitch prompts and canvas artboards are reference outputs and must be corrected when they disagree. The canonical demo fixture is Sukhumvit Dinner, five people, ฿1,840.00 total, with Andre owing ฿291.74 (`240.00 + 24.00 + 18.48 + 9.25 + 0.01`).

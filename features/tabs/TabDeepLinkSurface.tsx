@@ -1,16 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
-import { ClaimBoard, FIXTURE_CLAIM_BOARD, type ClaimBoardProps } from "@/features/claims";
+import { ClaimBoard } from "@/features/claims";
+import { useClaimBoardData } from "@/features/claims/useClaimBoardData";
 import { SettleSheetHost, settleSearch } from "@/features/settlement/SettleSheetHost";
 import { useTelegramBackButton } from "@/features/telegram/useTelegramBackButton";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import {
   STALE_NOTICE,
   useLiveMutation,
-  useLiveQuery,
   useRetryNonce,
 } from "@/features/convex/useConvexData";
 import { api } from "@/convex/_generated/api";
@@ -18,118 +18,35 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AppShell } from "@/components/layout/AppShell";
-import { TAB_REFUSAL_ACTION_LABEL, useResolvedTab } from "./useTabData";
+import {
+  TAB_REFUSAL_ACTION_LABEL,
+  useResolvedTab,
+} from "@/features/tabs/useTabData";
+
+/**
+ * A text action that is still a 44px target.
+ *
+ * `padding: 0` on a 15px line box is a 19px tap target — under EXPERIENCE's
+ * hard floor, and `scripts/sweep.mjs` measures it. `inline-flex` with a
+ * `min-height` keeps the type where the design puts it and gives the finger
+ * somewhere to land.
+ */
+const TEXT_ACTION_STYLE = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "44px",
+  background: "none",
+  border: "none",
+  color: MYTAB_COLORS.primary,
+  fontSize: "15px",
+  fontWeight: 500,
+  padding: 0,
+  cursor: "pointer",
+} as const;
 
 type TabDeepLinkSurfaceProps = {
   publicToken: string;
 };
-
-type ClaimBoardData = {
-  status: "loading" | "ready" | "error";
-  board: ClaimBoardProps;
-};
-
-/** Real geometry, no fabricated money. Used for first paint and for errors. */
-const EMPTY_CLAIM_BOARD: ClaimBoardProps = {
-  tabName: "",
-  revision: 0,
-  isLocked: false,
-  isOrganizer: false,
-  viewerUserId: "",
-  organizerDisplayName: "Organizer",
-  participants: [],
-  items: [],
-  unassignedCount: 0,
-  viewerSubtotalMinor: 0,
-  viewerHasClaims: false,
-};
-
-/** `getClaimBoard` returns participants and the organizer's Telegram id, not a name. */
-function organizerNameFor(view: {
-  participants: Array<{ telegramUserId: string; displayName: string }>;
-  tab: { organizerTelegramUserId: string };
-}): string {
-  return (
-    view.participants.find(
-      (participant) => participant.telegramUserId === view.tab.organizerTelegramUserId,
-    )?.displayName ?? "Organizer"
-  );
-}
-
-/**
- * Single prop-resolution point for the deep-linked Claim Board.
- *
- * Live read: `api.allocations.getClaimBoard({ tabId })` — one reactive
- * subscription, so someone else's claim arrives in place and the board corrects
- * itself after a stale write with no reload (EXPERIENCE, *Concurrency and
- * Revision*).
- */
-function useClaimBoardData(
-  tabId: string | null,
-  tabName: string | null,
-): ClaimBoardData {
-  const result = useLiveQuery(
-    api.allocations.getClaimBoard,
-    tabId ? { tabId: tabId as Id<"tabs"> } : "skip",
-  );
-
-  const board = useMemo<ClaimBoardProps | null>(() => {
-    const view = result.data;
-    if (!view) {
-      return null;
-    }
-
-    return {
-      tabName: view.tab.name,
-      revision: view.tab.revision,
-      isLocked: view.isLocked,
-      isOrganizer: view.isOrganizer,
-      viewerUserId: view.viewerUserId,
-      organizerDisplayName: organizerNameFor(view),
-      participants: view.participants.map((participant) => ({
-        userId: participant.userId,
-        displayName: participant.displayName,
-        avatarUrl: participant.avatarUrl,
-      })),
-      items: view.items.map((item) => ({
-        id: item._id,
-        name: item.name,
-        lineTotalMinor: item.lineTotalMinor,
-        claimantIds: item.claimantIds,
-        viewerOwns: item.viewerOwns,
-        unassigned: item.unassigned,
-      })),
-      unassignedCount: view.unassignedCount,
-      viewerSubtotalMinor: view.viewerSubtotalMinor,
-      viewerHasClaims: view.viewerHasClaims,
-    };
-  }, [result.data]);
-
-  if (result.fixture) {
-    return {
-      status: "ready",
-      board: { ...FIXTURE_CLAIM_BOARD, tabName: tabName ?? FIXTURE_CLAIM_BOARD.tabName },
-    };
-  }
-
-  if (result.error) {
-    // §9.11 B5 — an error state renders an error state. Never the fixture
-    // board: fabricated money on screen behind a failure is worse than a
-    // failure.
-    return { status: "error", board: EMPTY_CLAIM_BOARD };
-  }
-
-  if (!board) {
-    // First paint: the board renders its own empty geometry rather than a
-    // spinner over nothing (EXPERIENCE, *State Patterns*).
-    return {
-      status: "loading",
-      board: { ...EMPTY_CLAIM_BOARD, tabName: tabName ?? "" },
-    };
-  }
-
-  return { status: "ready", board };
-}
 
 /**
  * The `[Open tab]` button in the group message always lands here, and this
@@ -185,15 +102,11 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
             <button
               type="button"
               onClick={onAction}
-              style={{
-                background: "none",
-                border: "none",
-                color: MYTAB_COLORS.primary,
-                fontSize: "15px",
-                fontWeight: 500,
-                padding: 0,
-                cursor: "pointer",
-              }}
+              // The refusal's only action, and now a reachable one: no
+              // deployment behind a link resolves here, so this button is on
+              // screen in the shipped app rather than only in a dead branch.
+              // EXPERIENCE's 44px floor applies to it like anything else.
+              style={TEXT_ACTION_STYLE}
             >
               {TAB_REFUSAL_ACTION_LABEL[session.action]}
             </button>
@@ -345,15 +258,7 @@ function DeepLinkedClaimBoard({
           <button
             type="button"
             onClick={onBack}
-            style={{
-              background: "none",
-              border: "none",
-              color: MYTAB_COLORS.primary,
-              fontSize: "15px",
-              fontWeight: 500,
-              padding: 0,
-              cursor: "pointer",
-            }}
+            style={TEXT_ACTION_STYLE}
           >
             ← Tabs
           </button>

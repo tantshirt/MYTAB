@@ -39,7 +39,15 @@ export const TABS_HOME_COPY = {
 } as const;
 
 export type TabsHomeSurfaceProps = LoadState & {
-  balanceHero: BalanceHeroState;
+  /**
+   * The viewer's net position. **Absent when no position has been read yet.**
+   *
+   * `BalanceHeroState` has no "unknown" variant, so a required prop would force
+   * every caller to assert `owed`, `settled` or `all_square` — and "All square"
+   * over unread debt is the trust defect *Money Legibility* forbids. The card is
+   * hidden when this is absent, exactly as `GroupSurface`'s `position` is.
+   */
+  balanceHero?: BalanceHeroState;
   openTabs: TabCardProps[];
   groups: Array<{ id: string; name: string; memberCount: number }>;
   recentActivity: ActivityRowData[];
@@ -62,6 +70,13 @@ export type TabsHomeSurfaceProps = LoadState & {
   onShareAllSquare?: () => void;
   inTelegram?: boolean;
 };
+
+/**
+ * The Telegram bot this deployment belongs to, from
+ * `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`. Inlined at build time by Next; empty on
+ * a deployment that has not set it, which is a real state and not an error.
+ */
+const BOT_HANDLE = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "").trim();
 
 const ACTION_BASE = {
   display: "flex",
@@ -98,21 +113,28 @@ function PrimaryActions({
         <p className="mytab-type-body" style={{ margin: 0, color: MYTAB_COLORS.inkMuted }}>
           {STATE_COPY.noGroupContext}
         </p>
-        <a
-          href="https://t.me/mytab_fixture_bot"
-          style={{
-            ...ACTION_BASE,
-            display: "inline-flex",
-            marginTop: "12px",
-            padding: "0 20px",
-            background: MYTAB_COLORS.primary,
-            color: "#fff",
-            textDecoration: "none",
-            boxShadow: MYTAB_ELEVATION.buttonInset,
-          }}
-        >
-          {TABS_HOME_COPY.openBot}
-        </a>
+        {/*
+          The bot handle is deployment configuration, not a constant. Where it
+          is unset there is no bot to open, so the sentence stands on its own
+          rather than linking at a handle nobody registered.
+        */}
+        {BOT_HANDLE ? (
+          <a
+            href={`https://t.me/${BOT_HANDLE}`}
+            style={{
+              ...ACTION_BASE,
+              display: "inline-flex",
+              marginTop: "12px",
+              padding: "0 20px",
+              background: MYTAB_COLORS.primary,
+              color: "#fff",
+              textDecoration: "none",
+              boxShadow: MYTAB_ELEVATION.buttonInset,
+            }}
+          >
+            {TABS_HOME_COPY.openBot}
+          </a>
+        ) : null}
       </div>
     );
   }
@@ -272,7 +294,7 @@ export function TabsHomeSurface({
           onShare={onShareAllSquare}
         />
 
-        <BalanceHero state={balanceHero} />
+        {balanceHero ? <BalanceHero state={balanceHero} /> : null}
         <PrimaryActions groups={groups} blockedReason={blockedReason} />
 
         <section style={{ marginTop: "32px" }}>

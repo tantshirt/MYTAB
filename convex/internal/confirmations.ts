@@ -28,15 +28,17 @@ import {
   TransactionDecodeError,
 } from "../../lib/solana/decodeTransaction";
 import { deriveRecipientUsdcAta } from "../../lib/solana/tokenAccount";
-import { TOKEN_PROGRAM_ID, USDC_DECIMALS } from "../../lib/solana/constants";
+import {
+  FIXTURE_TX_SIGNATURE,
+  TOKEN_PROGRAM_ID,
+  USDC_DECIMALS,
+} from "../../lib/solana/constants";
 import {
   safeU64FromJson,
   SolanaRpcError,
   type RpcTransactionResponse,
 } from "../../lib/solana/rpc";
 
-export const FIXTURE_TX_SIGNATURE =
-  "FixTureSig1111111111111111111111111111111111111111";
 
 /** Every way a finalized observation can fail to prove the settlement. */
 export const CONFIRMATION_FAILURE = {

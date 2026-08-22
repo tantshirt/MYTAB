@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import authConfig from "../../convex/auth.config";
 import { getViewerSubject } from "../../convex/lib/identity";
 import {
-  FIXTURE_PRIVY_APP_ID,
-  FIXTURE_PRIVY_VERIFICATION_KEY,
   PRIVY_JWT_ISSUERS,
   buildJwksDataUri,
   buildPrivyAuthProviders,
 } from "../../convex/lib/privyAuth";
+// The fixture credentials are NOT exported from any module under convex/.
+import {
+  FIXTURE_PRIVY_APP_ID,
+  FIXTURE_PRIVY_VERIFICATION_KEY,
+} from "../../lib/privy/authProviders";
+import { FixtureModeNotPermittedError } from "../../lib/solana/runtimeGuard";
 import { createPrivyConvexAuthAdapter } from "@/lib/privy/convex-auth";
 
 describe("Story 1.5 — Privy custom JWT auth config (AC1)", () => {
@@ -49,7 +53,7 @@ describe("Story 1.5 — Privy custom JWT auth config (AC1)", () => {
     expect(provider.jwks.startsWith("http")).toBe(false);
   });
 
-  it("falls back to fixture credentials when Convex env vars are absent", () => {
+  it("uses fixture credentials only under the test runner", () => {
     expect(authConfig.providers).toHaveLength(2);
     expect(authConfig.providers[0]).toMatchObject({
       type: "customJwt",
@@ -57,6 +61,45 @@ describe("Story 1.5 — Privy custom JWT auth config (AC1)", () => {
       algorithm: "ES256",
     });
     expect(authConfig.providers[0]?.jwks).toMatch(/^data:application\/json;base64,/);
+  });
+
+  it("refuses to build an auth config from fixture credentials on a deployment", () => {
+    // A fixture verification key on a deployment means Convex trusts whoever
+    // holds the matching private key — and looks completely healthy doing it.
+    const saved = {
+      CONVEX_CLOUD_URL: process.env.CONVEX_CLOUD_URL,
+      VITEST: process.env.VITEST,
+      VITEST_WORKER_ID: process.env.VITEST_WORKER_ID,
+      NODE_ENV: process.env.NODE_ENV,
+    };
+    process.env.CONVEX_CLOUD_URL = "https://example-deployment.convex.cloud";
+    delete process.env.VITEST;
+    delete process.env.VITEST_WORKER_ID;
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    try {
+      expect(() => buildPrivyAuthProviders({})).toThrow(FixtureModeNotPermittedError);
+      expect(() =>
+        buildPrivyAuthProviders({ appId: "real-app-id" }),
+      ).toThrow(FixtureModeNotPermittedError);
+      expect(() =>
+        buildPrivyAuthProviders({ verificationKey: FIXTURE_PRIVY_VERIFICATION_KEY }),
+      ).toThrow(FixtureModeNotPermittedError);
+      // Both credentials present — the live path still builds.
+      expect(
+        buildPrivyAuthProviders({
+          appId: "real-app-id",
+          verificationKey: FIXTURE_PRIVY_VERIFICATION_KEY,
+        }),
+      ).toHaveLength(2);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          (process.env as Record<string, string>)[key] = value;
+        }
+      }
+    }
   });
 
   it("buildJwksDataUri is deterministic for the fixture verification key", () => {

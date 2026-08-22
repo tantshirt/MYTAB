@@ -1,93 +1,35 @@
 "use client";
 
-import { use, useCallback, useMemo, useState } from "react";
+import { use, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
-import { ReceiptReview, FIXTURE_PARSED_RECEIPT } from "@/features/receipts";
+import { ReceiptReview } from "@/features/receipts";
+import { useReceiptData } from "@/features/receipts/useReceiptData";
 import { useResolvedTab } from "@/features/tabs/useTabData";
-import { useLiveMutation, useLiveQuery } from "@/features/convex/useConvexData";
+import { useLiveMutation } from "@/features/convex/useConvexData";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { ParsedReceipt, ParsedReceiptLine } from "@/lib/domain/receiptParse";
-import { fiatMinorFromInteger, type FiatMinor } from "@/lib/domain/money";
+import type { ParsedReceiptLine } from "@/lib/domain/receiptParse";
+import type { FiatMinor } from "@/lib/domain/money";
 
 type ReceiptPageProps = {
   params: Promise<{ publicToken: string }>;
 };
-
-type ReceiptData = {
-  parsed: ParsedReceipt;
-  /** Right of the merchant in the header strip. Absent when the import has no date. */
-  capturedAtLabel?: string;
-};
-
-const ZERO = fiatMinorFromInteger(0);
-
-/** Nothing extracted yet — an honest empty receipt, never a fixture over live data. */
-const EMPTY_RECEIPT: ParsedReceipt = {
-  lines: [],
-  reconciliation: {
-    linesTotalMinor: ZERO,
-    receiptTotalMinor: ZERO,
-    differenceMinor: ZERO,
-    reconciled: true,
-  },
-};
-
-function capturedAtLabelFrom(createdAt: number | undefined): string | undefined {
-  if (!createdAt) {
-    return undefined;
-  }
-  const sameDay = new Date(createdAt).toDateString() === new Date().toDateString();
-  return sameDay ? "Tonight" : undefined;
-}
-
-/**
- * Single prop-resolution point for Receipt Review.
- *
- * Live read: `api.receipts.getImport({ importId })`. The import document stores
- * the already-parsed extraction (`validateAndParseExtraction(...).parsed`), so
- * `extraction` *is* a `ParsedReceipt`.
- *
- * PARTIALLY BLOCKED: `getImport` is keyed on an `importId`, and the route is
- * keyed on a tab. There is no `receipts.latestImportForTab(tabId)` query, so a
- * cold load of this URL has no subject to read. The import id is therefore only
- * known once this session created it — `useSampleReceipt` (demo) or
- * `createUploadTicket` + `finalizeUpload` (capture). Until then the surface
- * renders an empty receipt rather than a fixture.
- */
-function useReceiptData(importId: string | null): ReceiptData {
-  const result = useLiveQuery(
-    api.receipts.getImport,
-    importId ? { importId: importId as Id<"receiptImports"> } : "skip",
-  );
-
-  return useMemo<ReceiptData>(() => {
-    if (result.fixture) {
-      return { parsed: FIXTURE_PARSED_RECEIPT, capturedAtLabel: "Tonight" };
-    }
-
-    const parsed = result.data?.extraction as ParsedReceipt | undefined;
-    return {
-      parsed: parsed ?? EMPTY_RECEIPT,
-      capturedAtLabel: capturedAtLabelFrom(result.data?.createdAt),
-    };
-  }, [result.fixture, result.data]);
-}
 
 function ReceiptSurface({ publicToken }: { publicToken: string }) {
   const router = useRouter();
   const session = useResolvedTab(publicToken);
   const tabId = session.status === "ready" ? session.tabId : null;
 
-  const [importId, setImportId] = useState<string | null>(null);
-  const { parsed, capturedAtLabel } = useReceiptData(importId);
+  /*
+   * The second argument is the import this session created, which supersedes
+   * the cold read from the tab. This route has no capture step of its own —
+   * `finalizeUpload` runs in `features/receipts/ReceiptCapture` — so it always
+   * reads the tab's newest live import.
+   */
+  const { importId, parsed, capturedAtLabel } = useReceiptData(tabId, null);
 
-  // Named `seedSampleReceipt`, not `useSampleReceipt`: it is a mutation function,
-  // not a hook. The `use` prefix made react-hooks/rules-of-hooks reject the call
-  // inside the callback below — correctly, since the name claims it is a hook.
-  const seedSampleReceipt = useLiveMutation(api.receipts.useSampleReceipt);
   const confirmReceipt = useLiveMutation(api.receipts.confirmReceipt);
 
   /*
@@ -134,35 +76,13 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
     router.push("/tabs/new");
   }, [router]);
 
-  /*
-   * Demo affordance only — `ReceiptReview` renders the link behind
-   * `isDemoModeEnabled()`, so off-demo this handler is unreachable.
-   *
-   * `api.receipts.useSampleReceipt` seeds the import server-side and returns its
-   * id; the reactive `getImport` read then replaces the surface in place. With
-   * no client it falls back to the remount, which reseeds the fixture and
-   * discards edits — exactly what the affordance promises.
-   */
-  const [sampleNonce, setSampleNonce] = useState(0);
-  const handleUseSampleReceipt = useCallback(() => {
-    if (!seedSampleReceipt || !tabId) {
-      setSampleNonce((value) => value + 1);
-      return;
-    }
-    void seedSampleReceipt({ tabId: tabId as Id<"tabs"> })
-      .then((seeded) => setImportId(seeded.importId))
-      .catch(() => setSampleNonce((value) => value + 1));
-  }, [seedSampleReceipt, tabId]);
-
   return (
     <AppShell footer={<div ref={setFooterSlot} />}>
       <ReceiptReview
-        key={sampleNonce}
         parsed={parsed}
         capturedAtLabel={capturedAtLabel}
         onConfirm={handleConfirm}
         onManualEntry={handleManualEntry}
-        onUseSampleReceipt={handleUseSampleReceipt}
         footerSlot={footerSlot}
       />
     </AppShell>

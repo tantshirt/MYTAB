@@ -4,9 +4,8 @@ import { assertActivityEventImmutable } from "@/convex/lib/activitySync";
 import {
   validateAndParseExtraction,
   runFixtureExtraction,
-  RECEIPT_TARGET_SUBSET,
 } from "@/convex/lib/receiptExtraction";
-import { DEMO_PROTAGONISTS } from "@/convex/demo";
+import { RECEIPT_TARGET_SUBSET } from "@/lib/domain/receiptFixture";
 
 describe("Story 7.3 — activity events", () => {
   it("AC2 — rejects mutation on immutable events", () => {
@@ -42,16 +41,5 @@ describe("Story 8.7 — receipt subset documented", () => {
     expect(RECEIPT_TARGET_SUBSET.length).toBeGreaterThanOrEqual(4);
     expect(RECEIPT_TARGET_SUBSET.some((s) => s.includes("Thai"))).toBe(true);
     expect(RECEIPT_TARGET_SUBSET.some((s) => s.includes("English"))).toBe(true);
-  });
-});
-
-describe("Story 7.10 — demo protagonists", () => {
-  it("AC1 — seeded protagonists include Maya and Andre", () => {
-    const names = DEMO_PROTAGONISTS.map((p) => p.displayName);
-    expect(names).toContain("Maya");
-    expect(names).toContain("Andre");
-    expect(names).toContain("Noi");
-    expect(names).toContain("Ploy");
-    expect(names).toContain("Tim");
   });
 });

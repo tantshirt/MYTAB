@@ -1,13 +1,14 @@
 "use client";
 
-import { use, useCallback, useMemo, useState } from "react";
+import { use, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
-import { BillReview, FIXTURE_BILL_REVIEW, type BillReviewProps } from "@/features/claims";
+import { BillReview } from "@/features/claims";
+import { useBillReviewData } from "@/features/claims/useBillReviewData";
 import { SettleSheetHost, settleSearch } from "@/features/settlement/SettleSheetHost";
 import { useResolvedTab } from "@/features/tabs/useTabData";
-import { useLiveMutation, useLiveQuery } from "@/features/convex/useConvexData";
+import { useLiveMutation } from "@/features/convex/useConvexData";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -15,85 +16,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 type BillPageProps = {
   params: Promise<{ publicToken: string }>;
 };
-
-/**
- * Single prop-resolution point for Bill Review.
- *
- * Live read: `api.allocations.getBillReview({ tabId })`. It already returns
- * `reconciles`, `viewerIsOrganizer` and `organizerDisplayName`, so the mapping
- * below is a rename and nothing more.
- *
- * `servicePercent` / `taxPercent` are not in the payload — `getBillReview`
- * returns computed breakdowns, not the adjustment rates. Omitted rather than
- * guessed: the labels fall back to "Service charge" / "VAT" unlabelled by rate.
- */
-type BillReviewData = {
-  bill: BillReviewProps;
-  /** The draft revision `lockBill` must be checked against. */
-  revision: number;
-};
-
-function useBillReviewData(tabId: string | null): BillReviewData {
-  const result = useLiveQuery(
-    api.allocations.getBillReview,
-    tabId ? { tabId: tabId as Id<"tabs"> } : "skip",
-  );
-
-  return useMemo<BillReviewData>(() => {
-    if (result.fixture) {
-      return { bill: { ...FIXTURE_BILL_REVIEW }, revision: 0 };
-    }
-
-    const view = result.data;
-    if (!view) {
-      return {
-        bill: {
-          tabName: "",
-          isOrganizer: false,
-          isLocked: false,
-          billTotalMinor: 0,
-          reconciles: true,
-          organizerDisplayName: "Organizer",
-          breakdowns: [],
-        },
-        revision: 0,
-      };
-    }
-
-    // `ParticipantBreakdown` carries ids, not names; the names are on the
-    // participant list in the same payload.
-    const names = new Map(
-      view.participants.map((participant) => [
-        String(participant.userId),
-        participant.displayName,
-      ]),
-    );
-
-    return {
-      revision: view.tab.revision,
-      bill: {
-        tabName: view.tab.name,
-        isOrganizer: view.viewerIsOrganizer,
-        isLocked: view.isLocked,
-        viewerUserId: view.viewerUserId,
-        billTotalMinor: view.totals.billTotalMinor,
-        reconciles: view.reconciles,
-        organizerDisplayName: view.organizerDisplayName,
-        breakdowns: view.breakdowns.map((row) => ({
-          participantId: row.participantId,
-          displayName: names.get(row.participantId) ?? "Guest",
-          itemShareMinor: row.itemShareMinor,
-          serviceMinor: row.serviceMinor,
-          taxMinor: row.taxMinor,
-          tipMinor: row.tipMinor,
-          discountMinor: row.discountMinor,
-          roundingMinor: row.roundingMinor,
-          totalMinor: row.totalMinor,
-        })),
-      },
-    };
-  }, [result.fixture, result.data]);
-}
 
 function BillReviewSurface({ publicToken }: { publicToken: string }) {
   const router = useRouter();

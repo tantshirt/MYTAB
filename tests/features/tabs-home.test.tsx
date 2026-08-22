@@ -15,7 +15,7 @@ import {
   FIXTURE_ACTIVITY,
   FIXTURE_BALANCE_HERO,
   FIXTURE_OPEN_TABS,
-} from "@/features/balances/fixture";
+} from "@/tests/fixtures/balances";
 
 describe("Story 7.2 — Tabs home", () => {
   const baseProps = {
@@ -66,7 +66,19 @@ describe("Story 7.2 — Tabs home", () => {
       <TabsHomeSurface {...baseProps} groups={[]} openTabs={[]} />,
     );
     expect(html).toContain("Open My Tab from a Telegram group to start a tab");
-    expect(html).toContain("Open bot");
+  });
+
+  /*
+   * The bot handle is deployment configuration, read at build time. It used to
+   * be a hardcoded `mytab_fixture_bot` — a link at a bot nobody registered,
+   * which is a dead end dressed as an action.
+   */
+  it("AC6 — the bot link is absent when no bot handle is configured", () => {
+    const html = renderToStaticMarkup(
+      <TabsHomeSurface {...baseProps} groups={[]} openTabs={[]} />,
+    );
+    expect(html).not.toContain("Open bot");
+    expect(html).not.toContain("t.me/");
   });
 
   it("§4.5 — outside Telegram locks writes and says so", () => {

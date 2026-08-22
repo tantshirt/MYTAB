@@ -29,6 +29,25 @@ companions:
   - '../../prds/prd-MYTAB-2026-08-21/prd.md'
 ---
 
+> ## ⚠ Amendment notice — read `docs/DECISIONS.md` first
+>
+> **This spine remains the binding technical and security substrate.** AD-1…AD-24 hold except
+> as refined below; reasoning in **`docs/DECISIONS.md`**:
+>
+> - **AD-10** — address lookup tables are rejected outright on the **direct** path only. On the
+>   routed path they are resolved at the response `contextSlot` and the expanded account set
+>   faces identical rules, because every DFlow `/order` response carries exactly two tables and
+>   a sweep of `maxAccounts` 24–64 found no lookup-free configuration. The gate was tightened,
+>   never relaxed (**D-02**).
+> - **AD-20** — Astryx is a **theme layer**; the UI primitives are ours. The prohibition on a
+>   second component system still binds (**D-20**).
+> - **AD-22** — the cluster is **mainnet-beta**, read from `lib/solana/cluster.ts`; DFlow serves
+>   mainnet only (**D-01**).
+> - Sponsored-transaction, durable-intent, ledger and state-machine decisions (AD-8, AD-9,
+>   AD-11, AD-13, AD-17, AD-21, AD-24) are unamended, and are the reason nine live
+>   authorization holes were findable at all (**D-18**).
+
+
 # Architecture Spine — My Tab
 
 ## Design Paradigm

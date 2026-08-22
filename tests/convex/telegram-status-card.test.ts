@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   BANNED_COPY_WORDS,
   OPEN_TAB_BUTTON_LABEL,
@@ -29,6 +29,32 @@ import { deliverTabStatus } from "../../convex/lib/telegramDeliveryCore";
 import { createFakeCtx, type Row } from "../helpers/convexFakeDb";
 
 const TAB_ID = "tabs:1" as never;
+
+/**
+ * Status cards carry an invite deep link, and `buildTelegramDeepLink` has no
+ * fallback bot username — it throws rather than mint a link to a bot that does
+ * not exist. So these tests have to supply the same configuration a real
+ * deployment does.
+ */
+const PREVIOUS_DEEP_LINK_ENV = {
+  TELEGRAM_BOT_USERNAME: process.env.TELEGRAM_BOT_USERNAME,
+  TELEGRAM_MINIAPP_NAME: process.env.TELEGRAM_MINIAPP_NAME,
+};
+
+beforeAll(() => {
+  process.env.TELEGRAM_BOT_USERNAME = "mytab_test_bot";
+  process.env.TELEGRAM_MINIAPP_NAME = "app";
+});
+
+afterAll(() => {
+  for (const [key, value] of Object.entries(PREVIOUS_DEEP_LINK_ENV)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+});
 
 function seedTab(overrides: Partial<Row> = {}) {
   const store: Record<string, Row[]> = {

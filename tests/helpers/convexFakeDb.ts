@@ -11,6 +11,9 @@
  * the point.
  */
 
+import type { Id, TableNames } from "../../convex/_generated/dataModel";
+import type { QueryCtx } from "../../convex/_generated/server";
+
 export type Row = Record<string, unknown> & { _id: string };
 
 type Store = Record<string, Row[]>;
@@ -116,4 +119,62 @@ export function createFakeCtx(store: Store, identity: FakeIdentity = null) {
       scheduler,
     } as never,
   };
+}
+
+/**
+ * The ctx members no handler under test touches, supplied for real so a mock
+ * can *satisfy* Convex's ctx type rather than be cast past it.
+ *
+ * Every one throws. If a code path ever starts scheduling work, reading
+ * storage, or calling another Convex function, the test fails loudly here
+ * instead of passing against a silent stub that returned `undefined`.
+ */
+function unimplementedCtxMembers(): Omit<QueryCtx, "auth" | "db"> {
+  const notImplemented =
+    (member: string) =>
+    (): never => {
+      throw new Error(`${member} is not implemented in this mock`);
+    };
+
+  return {
+    storage: {
+      getUrl: notImplemented("ctx.storage.getUrl"),
+      getMetadata: notImplemented("ctx.storage.getMetadata"),
+    },
+    runQuery: notImplemented("ctx.runQuery"),
+    meta: {
+      getFunctionMetadata: notImplemented("ctx.meta.getFunctionMetadata"),
+      getTransactionMetrics: notImplemented("ctx.meta.getTransactionMetrics"),
+      getDeploymentMetadata: notImplemented("ctx.meta.getDeploymentMetadata"),
+    },
+  };
+}
+
+/**
+ * Completes a hand-written fake into something typed as a Convex `QueryCtx`,
+ * so read-side handlers can be called without a cast at each call site.
+ *
+ * `db` is the one member a fake cannot satisfy structurally: Convex's
+ * `GenericDatabaseReader` is generic over the table name at every level of the
+ * `QueryInitializer` chain, so the return type of `query(table)` depends on a
+ * type parameter no concrete object can supply. The single unavoidable cast for
+ * that lives here, once, rather than at every call site — and the intersection
+ * with `T` keeps the fake's own shape visible to the test.
+ */
+export function fakeQueryCtx<T extends { auth: unknown; db: unknown }>(
+  fake: T,
+): QueryCtx & T {
+  return { ...unimplementedCtxMembers(), ...fake } as unknown as QueryCtx & T;
+}
+
+/**
+ * Brands a readable string as a Convex document id.
+ *
+ * `Id<T>` has no runtime constructor — real ids are minted server-side — so a
+ * fixture that wants a stable, legible id has to brand one itself. Doing it
+ * through this helper keeps the table name in the type, unlike `as never`,
+ * which erases it and lets a `wallets` id be passed where a `users` id belongs.
+ */
+export function fakeId<Table extends TableNames>(id: string): Id<Table> {
+  return id as Id<Table>;
 }

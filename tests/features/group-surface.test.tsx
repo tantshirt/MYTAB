@@ -10,7 +10,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { FIXTURE_GROUP_SURFACE, GroupSurface } from "@/features/groups/GroupSurface";
+import { GroupSurface } from "@/features/groups/GroupSurface";
+import { FIXTURE_GROUP_SURFACE } from "@/tests/fixtures/groups";
 import { avatarTintForUserId } from "@/lib/theme/tokens";
 
 describe("Story 2.7 — Group surface fixture", () => {

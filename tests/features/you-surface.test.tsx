@@ -9,7 +9,7 @@ import {
   FIXTURE_YOU_SURFACE,
   FIXTURE_YOU_VIEWER_ERROR,
   FIXTURE_YOU_WALLET_FAILED,
-} from "@/features/you/fixture";
+} from "@/tests/fixtures/you";
 import { elideWalletKey } from "@/features/you/useCopyKey";
 import { YouSurface } from "@/features/you/YouSurface";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";

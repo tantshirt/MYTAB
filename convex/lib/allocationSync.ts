@@ -14,10 +14,6 @@ import {
   type PersistedShare,
 } from "../../lib/domain/allocation";
 import { fiatMinorFromInteger, type FiatMinor } from "../../lib/domain/money";
-import {
-  FIXTURE_USDC_ATOMIC_DENOMINATOR,
-  FIXTURE_USDC_ATOMIC_NUMERATOR,
-} from "../../lib/domain/fxFixture";
 
 export type ItemClaimRow = {
   itemId: Id<"items">;
@@ -312,12 +308,3 @@ export async function persistComputedAllocations(
   return totals;
 }
 
-/** @deprecated Non-production only. Real locks take FX from the tab's snapshot. */
-export function fixtureFxFields() {
-  return {
-    fxNumeratorAtomic: FIXTURE_USDC_ATOMIC_NUMERATOR,
-    fxDenominatorMinor: FIXTURE_USDC_ATOMIC_DENOMINATOR,
-    fxProvider: "fixture:MYTAB",
-    fxPolicyVersion: "fixture-v1",
-  };
-}

@@ -1,53 +1,15 @@
-import type { AdjustmentKind } from "@/lib/domain/bill";
+/**
+ * Bill-authoring fixture — tests and the responsive sweep only.
+ *
+ * Nothing under `app/`, `features/` or `components/` may import this file.
+ */
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import { thbMinorFromWholeBaht } from "@/lib/domain";
-
-export type BillMemberOption = {
-  userId: string;
-  displayName: string;
-  telegramUserId: string;
-  walletReady: boolean;
-};
-
-export type BillItemView = {
-  _id: string;
-  name: string;
-  quantity: number;
-  unitPriceMinor: number;
-  lineTotalMinor: number;
-  source: "manual" | "receipt";
-};
-
-export type BillAdjustmentView = {
-  kind: AdjustmentKind;
-  calculation: "fixed" | "percentage";
-  valueMinorOrBps: number;
-  label: string;
-  amountDisplay: string;
-};
-
-export type BillAuthoringFixture = {
-  tabId: string;
-  title: string;
-  merchantName: string;
-  displayCurrency: string;
-  /**
-   * Group defaults that New Tab deliberately does **not** render. The recipient
-   * is the payer and the receiving asset is always USDC, stated on the You
-   * surface — POLISH-SPEC §1.4 deletes both controls from this screen. They stay
-   * on the fixture because they are part of `getGroupDefaults`, not of the form.
-   */
-  recipientAsset: string;
-  organizerDisplayName: string;
-  organizerUserId: string;
-  payerUserId: string;
-  recipientUserId: string;
-  members: BillMemberOption[];
-  items: BillItemView[];
-  adjustments: BillAdjustmentView[];
-  totalDisplay: string;
-  fxFixtureBadge: string;
-};
+import type {
+  BillAuthoringData,
+  BillItemView,
+  BillMemberOption,
+} from "@/features/bills/types";
 
 export const FIXTURE_BILL_MEMBERS: BillMemberOption[] = [
   {
@@ -89,7 +51,7 @@ export const FIXTURE_BILL_ITEMS: BillItemView[] = [
   },
 ];
 
-export const FIXTURE_BILL_AUTHORING: BillAuthoringFixture = {
+export const FIXTURE_BILL_AUTHORING: BillAuthoringData = {
   tabId: "tabs:fixture",
   title: "Sukhumvit Dinner",
   merchantName: "Somtum Der",
@@ -121,7 +83,7 @@ export const FIXTURE_BILL_AUTHORING: BillAuthoringFixture = {
   fxFixtureBadge: "Fixture rate",
 };
 
-export const FIXTURE_EMPTY_BILL: BillAuthoringFixture = {
+export const FIXTURE_EMPTY_BILL: BillAuthoringData = {
   ...FIXTURE_BILL_AUTHORING,
   items: [],
   adjustments: [],

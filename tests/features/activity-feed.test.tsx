@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ActivityFeed } from "@/features/balances/ActivityFeed";
-import { FIXTURE_ACTIVITY } from "@/features/balances/fixture";
+import { FIXTURE_ACTIVITY } from "@/tests/fixtures/balances";
 import { ACTIVITY_EVENT_TYPE } from "@/lib/domain/activityTypes";
 
 describe("Story 7.3 — Activity feed", () => {

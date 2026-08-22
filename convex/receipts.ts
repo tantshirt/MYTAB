@@ -1,21 +1,37 @@
 import { v } from "convex/values";
-import { assertFixturePathAllowed } from "../lib/solana/runtimeGuard";
-import { mutation, query } from "./_generated/server";
 import {
-  runFixtureExtraction,
-  validateAndParseExtraction,
-  FIXTURE_SAMPLE_EXTRACTION,
-} from "./lib/receiptExtraction";
+  assertFixturePathAllowed,
+  fixturePathAllowed,
+} from "../lib/solana/runtimeGuard";
+import { mutation, query } from "./_generated/server";
+import { runFixtureExtraction } from "./lib/receiptExtraction";
 import { appendActivityEvent, ACTIVITY_EVENT_TYPE } from "./lib/activitySync";
 import { getCurrentUser, requireGroupMember } from "./lib/auth";
-import { isReceiptScanEnabled } from "../lib/features/flags";
+import { assertTabUnlocked } from "./lib/tabAuth";
+import {
+  bumpTabRevision,
+  nextItemSortOrder,
+  validateItemInput,
+} from "./lib/tabBillSync";
+import { fiatMinorFromInteger } from "../lib/domain/money";
 
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
-/** Returns whether receipt scan is enabled for the client (Story 8.6 AC4). */
+/**
+ * Whether receipt scan can actually run here.
+ *
+ * There is no production extraction provider: `runFixtureExtraction` is the only
+ * implementation, and it is behind `assertFixturePathAllowed`. So scan is
+ * available exactly where fixtures are — never on a deployment. This used to
+ * read `NEXT_PUBLIC_FEATURE_RECEIPT_SCAN`, which is a Vercel-side variable that
+ * is never present in the Convex runtime; the query therefore answered "false"
+ * for a reason unrelated to whether scanning works, and would have answered
+ * "true" the moment somebody set that variable in Convex — offering a flow that
+ * throws.
+ */
 export const isScanEnabled = query({
   args: {},
-  handler: async () => isReceiptScanEnabled(),
+  handler: async () => fixturePathAllowed(),
 });
 
 /** Creates a ticketed import with organizer-bound upload ticket (Story 8.1 AC1). */
@@ -24,6 +40,11 @@ export const createUploadTicket = mutation({
     tabId: v.id("tabs"),
   },
   handler: async (ctx, args) => {
+    // Fail at the first step rather than after somebody has photographed a
+    // receipt: extraction is fixture-only, so on a deployment this flow has
+    // nowhere to go.
+    assertFixturePathAllowed("receipts.createUploadTicket");
+
     const user = await getCurrentUser(ctx);
     if (!user) {
       throw new Error("UNAUTHORIZED");
@@ -211,14 +232,39 @@ export const confirmReceipt = mutation({
       throw new Error(`RECONCILIATION_BLOCKED: shortfall of ${Number(args.receiptTotalMinor) - linesTotal} minor units`);
     }
 
+    // The items are the whole point of confirming. This previously patched the
+    // import to "confirmed" and returned `itemCount`, creating nothing — the
+    // organizer was told N items had been added to a bill that stayed empty.
+    assertTabUnlocked(tab);
+
+    const now = Date.now();
+    let sortOrder = await nextItemSortOrder(ctx, tab._id);
+    for (const line of args.lines) {
+      const validated = validateItemInput({
+        name: line.name,
+        quantity: line.quantity,
+        unitPriceMinor: fiatMinorFromInteger(Number(line.unitPriceMinor)),
+      });
+      await ctx.db.insert("items", {
+        tabId: tab._id,
+        name: validated.name,
+        quantity: validated.quantity,
+        unitPriceMinor: validated.unitPriceMinor,
+        lineTotalMinor: validated.lineTotalMinor,
+        sortOrder,
+        source: "receipt",
+        createdAt: now,
+        updatedAt: now,
+      });
+      sortOrder += 1;
+    }
+
     await ctx.db.patch(args.importId, {
       status: "confirmed",
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
 
-    await ctx.db.patch(tab._id, {
-      updatedAt: Date.now(),
-    });
+    await bumpTabRevision(ctx, tab._id, tab, now);
 
     await appendActivityEvent(ctx, {
       groupId: tab.groupId,
@@ -239,45 +285,6 @@ export const confirmReceipt = mutation({
   },
 });
 
-/** Demo-only sample receipt path — no external call (Story 8.6 AC1). */
-export const useSampleReceipt = mutation({
-  args: {
-    tabId: v.id("tabs"),
-  },
-  handler: async (ctx, args) => {
-    const user = await getCurrentUser(ctx);
-    if (!user) {
-      throw new Error("UNAUTHORIZED");
-    }
-
-    const tab = await ctx.db.get(args.tabId);
-    if (!tab || tab.organizerTelegramUserId !== user.telegramUserId) {
-      throw new Error("ORGANIZER_REQUIRED");
-    }
-
-    assertFixturePathAllowed("receipts.importFixtureExtraction");
-    const now = Date.now();
-    const result = validateAndParseExtraction(FIXTURE_SAMPLE_EXTRACTION);
-
-    const importId = await ctx.db.insert("receiptImports", {
-      tabId: args.tabId,
-      uploadedBy: user._id,
-      status: "needs_review",
-      extraction: result.parsed,
-      rawExtraction: result.raw,
-      fieldConfidence: result.fieldConfidence,
-      reconciliation: result.parsed.reconciliation,
-      modelMetadata: result.modelMetadata,
-      warnings: [],
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return { importId, parsed: result.parsed };
-  },
-});
-
-// FIXTURE_SAMPLE_EXTRACTION / runFixtureExtraction are deliberately NOT
-// re-exported from this deployed Convex module. Import them from
-// convex/lib/receiptExtraction in tests; a deployed function module should not
-// carry fixture data in its public surface.
+// The demo `useSampleReceipt` mutation is gone: it seeded a hardcoded receipt
+// into a real tab. No FIXTURE_* symbol is exported from this module, or from any
+// other module under convex/ — see tests/convex/fixture-guard.test.ts.

@@ -5,7 +5,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useOffline } from "@/components/primitives/use-offline";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { useStartParamRoute } from "@/features/telegram/useStartParamRoute";
-import { TabsHomeSurface, useTabsHomeData } from "@/features/balances";
+import { TabsHomeSurface } from "@/features/balances";
+import { useTabsHomeData } from "@/features/balances/useTabsHomeData";
 
 /**
  * Prop wiring only. Every state the surface can be in is passed from here:

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  FIXTURE_TX_SIGNATURE,
-  parseConfirmationFixture,
-} from "../../convex/internal/confirmations";
+import { parseConfirmationFixture } from "../../convex/internal/confirmations";
+import { FIXTURE_TX_SIGNATURE } from "../../lib/solana/constants";
 import {
   extractUserSignature,
   fixtureMessageHash,

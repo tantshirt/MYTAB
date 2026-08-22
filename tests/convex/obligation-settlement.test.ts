@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Doc } from "../../convex/_generated/dataModel";
 import { computeBillSnapshotHash, computeObligationCommitmentHash } from "../../lib/solana/memoHash";
 import { buildExactUsdcTransfer } from "../../lib/solana/buildExactUsdcTransfer";
 import {
@@ -47,7 +48,7 @@ function createObligationStore() {
       amountAtomic: 10_000_000n,
       billSnapshotHash: "abc123",
       outputMint: USDC_MINT,
-      status: "open" as const,
+      status: "open" as Doc<"obligations">["status"],
       updatedAt: 0,
       createdAt: 0,
     },

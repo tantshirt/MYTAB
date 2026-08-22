@@ -16,7 +16,7 @@ env:
 
 jobs:
   verify:
-    name: typecheck · test · build · smoke
+    name: typecheck · test · build · smoke · sweep
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -67,6 +67,15 @@ jobs:
 
       - name: Browser smoke test
         run: npm run smoke
+
+      # The fifth gate. Smoke proves each route executes; sweep proves it is
+      # LEGIBLE — no horizontal scroll, no truncated amount (a truncated name is
+      # fine), no sub-44px target, and no `overflow: hidden` hiding content that
+      # overflows. That last check exists because `overflow-x: hidden` on
+      # html/body made every `position: sticky` in the product inert while
+      # `scrollingElement.scrollWidth` still reported clean.
+      - name: Layout sweep (320px, 390px, 200% type)
+        run: npm run sweep
         env:
           # setup-chrome reports where it put the binary; scripts/smoke.mjs
           # falls back to /usr/bin/google-chrome and the macOS app bundle when

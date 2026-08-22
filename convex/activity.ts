@@ -166,71 +166,10 @@ export const listForViewer = query({
   },
 });
 
-/** Fixture seed — appends demo activity events (Story 7.10 AC1). */
-export const seedFixtureEvents = mutation({
-  args: {
-    groupId: v.id("groups"),
-  },
-  handler: async (ctx, args) => {
-    await requireGroupMember(ctx, args.groupId);
-    const user = await getCurrentUser(ctx);
-    const now = Date.now();
-
-    const fixtures = [
-      {
-        type: ACTIVITY_EVENT_TYPE.TAB_CREATED,
-        payload: {
-          summary: "Andre started Sukhumvit Dinner",
-          tabId: "tabs:fixture-primary",
-        },
-      },
-      {
-        type: ACTIVITY_EVENT_TYPE.CLAIM,
-        payload: {
-          summary: "Maya claimed Green Curry",
-          amountLabel: "฿180.00",
-          tabId: "tabs:fixture-primary",
-        },
-      },
-      {
-        type: ACTIVITY_EVENT_TYPE.TIP,
-        payload: {
-          summary: "Noi sent a tip to Ploy",
-          amountLabel: "฿50.00",
-        },
-      },
-      {
-        type: ACTIVITY_EVENT_TYPE.PAYMENT,
-        payload: {
-          summary: "Tim paid Maya",
-          amountLabel: "42.10 USDC",
-          transactionSignature: "fixture-tx-signature-001",
-          detail: "Confirmed on chain",
-        },
-      },
-    ];
-
-    for (const [index, fixture] of fixtures.entries()) {
-      await appendActivityEvent(ctx, {
-        groupId: args.groupId,
-        actorUserId: user?._id,
-        type: fixture.type,
-        payload: fixture.payload,
-      });
-      // Stagger timestamps for ordering tests
-      const row = await ctx.db
-        .query("activityEvents")
-        .withIndex("by_group_id", (q) => q.eq("groupId", args.groupId))
-        .order("desc")
-        .first();
-      if (row) {
-        await ctx.db.patch(row._id, { createdAt: now - index * 60_000 });
-      }
-    }
-
-    return { inserted: fixtures.length };
-  },
-});
+// `seedFixtureEvents` is gone. It was a deployed PUBLIC mutation that any group
+// member could call to write four hardcoded events — including a "Tim paid Maya
+// 42.10 USDC" payment carrying an invented transaction signature — into a real
+// group's activity feed. It had no callers.
 
 /**
  * Proposes a manual cash settlement — the balance does not move yet (Story 7.3 AC7).

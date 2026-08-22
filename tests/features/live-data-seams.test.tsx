@@ -9,7 +9,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { api } from "@/convex/_generated/api";
-import { ClaimBoard, FIXTURE_CLAIM_BOARD } from "@/features/claims";
+import { ClaimBoard } from "@/features/claims";
+import { useBillReviewData } from "@/features/claims/useBillReviewData";
+import { useClaimBoardData } from "@/features/claims/useClaimBoardData";
 import { FixtureAuthProvider } from "@/features/auth/fixture-auth";
 import { useViewer } from "@/features/auth/useViewer";
 import {
@@ -18,17 +20,18 @@ import {
   useLiveMutation,
   useLiveQuery,
 } from "@/features/convex/useConvexData";
-import {
-  FIXTURE_ACTIVITY,
-  FIXTURE_BALANCE_HERO,
-  FIXTURE_OPEN_TABS,
-  useActivityData,
-  useTabsHomeData,
-} from "@/features/balances";
-import { toActivityRow } from "@/features/balances/useActivityData";
-import { FIXTURE_TAB } from "@/features/tabs/useTabData";
-import { FIXTURE_YOU_SURFACE, useYouSurfaceData } from "@/features/you";
+import { useActivityData } from "@/features/balances/useActivityData";
+import { useTabsHomeData } from "@/features/balances/useTabsHomeData";
+import { toActivityRow } from "@/features/balances/activityRow";
+import { useGroupData } from "@/features/groups/useGroupData";
+import { useNewTabData } from "@/features/bills/useNewTabData";
+import { useReceiptData } from "@/features/receipts/useReceiptData";
+import { useTipComposerData } from "@/features/tips/useTipComposerData";
+import { useSettleSheetData } from "@/features/settlement/useSettleSheetData";
+import { refusalFor } from "@/features/tabs/useTabData";
+import { useYouSurfaceData } from "@/features/you/useYouSurfaceData";
 import { TelegramRuntimeProvider } from "@/features/telegram/TelegramRuntimeProvider";
+import { FIXTURE_CLAIM_BOARD } from "@/tests/fixtures/claims";
 import { ACTIVITY_EVENT_TYPE } from "@/lib/domain/activityTypes";
 import { showSkeleton } from "@/components/primitives/load-state";
 
@@ -47,7 +50,7 @@ function renderHook<T>(hook: () => T, wrap: (node: React.ReactNode) => React.Rea
   return captured;
 }
 
-describe("live-data seams — degrade to fixtures with no Convex client", () => {
+describe("live-data seams — no Convex client means no data, never invented data", () => {
   it("useLiveQuery reports fixture mode instead of loading forever", () => {
     const result = renderHook(() => useLiveQuery(api.users.viewer, {}));
     expect(result.fixture).toBe(true);
@@ -72,29 +75,86 @@ describe("live-data seams — degrade to fixtures with no Convex client", () => 
     expect(viewer).toBe("fixture-user");
   });
 
-  it("useTabsHomeData still returns the fixture — the balance seam is unwired", () => {
+  it("useTabsHomeData hides the hero rather than asserting a position it never read", () => {
     const data = renderHook(() => useTabsHomeData());
-    expect(data.status).toBe("ready");
-    expect(data.content.balanceHero).toEqual(FIXTURE_BALANCE_HERO);
-    expect(data.content.openTabs).toEqual(FIXTURE_OPEN_TABS);
+    expect(data.content.balanceHero).toBeUndefined();
+    expect(data.content.openTabs).toEqual([]);
+    expect(data.content.groups).toEqual([]);
+    expect(data.content.recentActivity).toEqual([]);
+    expect(data.content.compressedTransfers).toEqual([]);
   });
 
-  it("useActivityData returns the fixture feed", () => {
+  it("useActivityData reports an empty feed, which is the designed empty state", () => {
     const data = renderHook(() => useActivityData());
     expect(data.status).toBe("ready");
-    expect(data.events).toEqual(FIXTURE_ACTIVITY);
+    expect(data.events).toEqual([]);
   });
 
-  it("useYouSurfaceData returns the fixture You surface", () => {
+  it("useYouSurfaceData names nobody and shows no key", () => {
     const data = renderHook(
       () => useYouSurfaceData(),
       (node) => <TelegramRuntimeProvider>{node}</TelegramRuntimeProvider>,
     );
-    expect(data).toEqual(FIXTURE_YOU_SURFACE);
+    expect(data.viewer).toBeNull();
+    expect(data.wallet).toEqual({ kind: "provisioning" });
   });
 
-  it("the deep-linked tab falls back to the fixture tab", () => {
-    expect(FIXTURE_TAB).toMatchObject({ status: "ready", tabName: "Sukhumvit Dinner" });
+  it("useGroupData has no members and no tabs to show", () => {
+    const data = renderHook(() => useGroupData("groups:none"));
+    expect(data.content.members).toEqual([]);
+    expect(data.content.openTabs).toEqual([]);
+    expect(data.content.position).toBeUndefined();
+  });
+
+  it("useClaimBoardData has no items and no participants", () => {
+    const data = renderHook(() => useClaimBoardData("tabs:none", null));
+    expect(data.board.items).toEqual([]);
+    expect(data.board.participants).toEqual([]);
+    expect(data.board.viewerSubtotalMinor).toBe(0);
+  });
+
+  it("useBillReviewData has nobody with a share", () => {
+    const data = renderHook(() => useBillReviewData("tabs:none"));
+    expect(data.bill.breakdowns).toEqual([]);
+    expect(data.bill.billTotalMinor).toBe(0);
+  });
+
+  it("useNewTabData offers no payer nobody has ever opened the app as", () => {
+    const data = renderHook(
+      () => useNewTabData(null),
+      (node) => <TelegramRuntimeProvider>{node}</TelegramRuntimeProvider>,
+    );
+    expect(data.members).toEqual([]);
+    expect(data.items).toEqual([]);
+    expect(data.organizerUserId).toBe("");
+  });
+
+  it("useReceiptData has no lines and reconciles at zero", () => {
+    const data = renderHook(() => useReceiptData("tabs:none", null));
+    expect(data.parsed.lines).toEqual([]);
+    expect(Number(data.parsed.reconciliation.receiptTotalMinor)).toBe(0);
+  });
+
+  it("useTipComposerData has no eligible recipients", () => {
+    const data = renderHook(
+      () => useTipComposerData(null),
+      (node) => <TelegramRuntimeProvider>{node}</TelegramRuntimeProvider>,
+    );
+    expect(data.members).toEqual([]);
+    expect(data.viewerUserId).toBe("");
+  });
+
+  it("useSettleSheetData refuses to price a payment it cannot read", () => {
+    const data = renderHook(() => useSettleSheetData("ob_1"));
+    expect(data.status).not.toBe("ready");
+    expect(data.billAmount).toBe("");
+    expect(data.tokens).toEqual([]);
+  });
+
+  it("a deep link with no deployment behind it is refused, not filled in", () => {
+    const refusal = refusalFor("UNAVAILABLE");
+    expect(refusal.message).toBe("Can't get you in right now. Try the link again in a moment.");
+    expect(refusal.action).toBe("retry");
   });
 });
 

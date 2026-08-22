@@ -6,7 +6,7 @@ import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider"
 import { isPrivyFixtureMode } from "@/lib/privy/config";
 import { YouSurface } from "./YouSurface";
 import type { YouSurfaceData } from "./types";
-import { useYouSurfaceData } from "./useYouSurfaceData";
+import { useYouSurfaceData } from "@/features/you/useYouSurfaceData";
 
 function PrivyYouSurface({
   data,

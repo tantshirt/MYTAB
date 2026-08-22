@@ -8,7 +8,7 @@ import {
   MYTAB_ELEVATION,
   MYTAB_RADIUS,
 } from "@/lib/theme/tokens";
-import type { BillMemberOption } from "./fixtures";
+import type { BillMemberOption } from "./types";
 
 /** How the organizer intends to get the items in (EXPERIENCE, IA: "capture method"). */
 export type CaptureMethod = "scan" | "manual";

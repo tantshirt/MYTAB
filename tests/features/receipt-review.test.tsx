@@ -63,20 +63,16 @@ describe("Story 8.4 — Receipt review", () => {
     expect(html).toContain("The items and the receipt total have to match first.");
   });
 
-  it("§1.5 — the sample-receipt affordance is hidden unless demo mode is on", () => {
-    const previous = process.env.NEXT_PUBLIC_DEMO_MODE;
-
-    process.env.NEXT_PUBLIC_DEMO_MODE = "false";
-    expect(renderReview(FIXTURE_PARSED_RECEIPT, { onUseSampleReceipt: () => undefined })).not.toContain(
-      "Use sample receipt",
-    );
-
+  it("§1.5 — the sample-receipt affordance is gone, not merely hidden", () => {
+    // It used to be gated on NEXT_PUBLIC_DEMO_MODE. Both the flag and the
+    // mutation behind it (api.receipts.useSampleReceipt, which seeded a
+    // hardcoded receipt into a real tab) have been deleted, so there is no
+    // environment in which this button can come back.
     process.env.NEXT_PUBLIC_DEMO_MODE = "true";
-    expect(renderReview(FIXTURE_PARSED_RECEIPT, { onUseSampleReceipt: () => undefined })).toContain(
-      "Use sample receipt",
-    );
-
-    process.env.NEXT_PUBLIC_DEMO_MODE = previous;
+    expect(
+      renderReview(FIXTURE_PARSED_RECEIPT, { onUseSampleReceipt: () => undefined }),
+    ).not.toContain("Use sample receipt");
+    delete process.env.NEXT_PUBLIC_DEMO_MODE;
   });
 });
 

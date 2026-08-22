@@ -3,12 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   BillReview,
-  FIXTURE_BILL_REVIEW,
   buildBillReviewLines,
   buildBillTotalsLines,
   type BillReviewBreakdown,
   type BillReviewProps,
 } from "@/features/claims/BillReview";
+import { FIXTURE_BILL_REVIEW } from "@/tests/fixtures/claims";
 
 function props(overrides: Partial<BillReviewProps> = {}): BillReviewProps {
   return {

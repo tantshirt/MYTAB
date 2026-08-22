@@ -49,6 +49,12 @@ import {
   createSolanaRpcClient,
   type SolanaRpcClient,
 } from "../../lib/solana/rpc";
+import {
+  FIXTURE_PRIVY_WALLET_ID,
+  FIXTURE_SOLANA_ADDRESS,
+  FIXTURE_SPONSOR_SIGNATURE,
+} from "../../lib/privy/fixtures";
+import { FIXTURE_TX_SIGNATURE } from "../../lib/solana/constants";
 
 export {
   PrivyWalletError,
@@ -56,18 +62,9 @@ export {
 } from "../../lib/privy/serverWallets";
 export { PrivySignError } from "../../lib/privy/signTransaction";
 
-/**
- * Fixture wallet for local dev and tests only.
- *
- * Returning this from a real deployment would mean settling to an address
- * nobody controls, so every path that could produce it now runs through
- * {@link assertFixturePathAllowed} first.
- */
-export const FIXTURE_PRIVY_WALLET_ID = "privy-fixture-wallet-id";
-export const FIXTURE_SOLANA_ADDRESS = "FixTure111111111111111111111111111111111";
-export const FIXTURE_SPONSOR_SIGNATURE = "fixture-sponsor-signature-v1";
-export const FIXTURE_TX_SIGNATURE =
-  "FixTureSig1111111111111111111111111111111111111111";
+// Fixture identifiers are imported, never re-exported: a deployed Convex module
+// must not carry a FIXTURE_* symbol in its public surface. Every path that could
+// return one runs through assertFixturePathAllowed first.
 
 const PRIVY_REQUEST_TIMEOUT_MS = 10_000;
 const PRIVY_MAX_ATTEMPTS = 3;

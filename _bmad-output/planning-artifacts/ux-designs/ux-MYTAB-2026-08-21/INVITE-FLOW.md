@@ -18,6 +18,25 @@ blocks_mainnet:
   - see §9.11 — nine ingress-path items that must not ship
 ---
 
+> ## Status notice — see `docs/DECISIONS.md`
+>
+> **This document is current and binding for ingress** (everything before the Claim Board).
+> It is recorded as **D-06** and **D-07** in `docs/DECISIONS.md`, which is the file an agent
+> reads first. Two things have moved since it was written:
+>
+> - **The design is ahead of the code.** `tabParticipants`, `requireTabParticipant` and the
+>   **seat policy** (`convex/schema.ts` L356–364, enforced and re-counted inside the writing
+>   transaction in `convex/lib/sessionTokenOps.ts`) are implemented. The invite **door** is not:
+>   there is no `origin` field anywhere, and `botIsAdmin` is still a hard refusal on both join
+>   and invite-mint. A tab still cannot exist without a group chat.
+> - **§9.11 blockers:** B1 and B4 are **closed** (`docs/DECISIONS.md` D-18, holes H7 and H9);
+>   B6 (`convex/demo.ts`) is **deleted** (D-11). **B2, B3, B5, B7, B8 and B9 remain open** and
+>   are still mainnet blockers.
+>
+> **Amendment 2b (§9.1) is proposed, not accepted** — it has never been tested against a real
+> production supergroup. Until it is, group-origin tabs keep the administrator requirement.
+
+
 # My Tab — The Invite Flow
 
 Everything before the Claim Board.

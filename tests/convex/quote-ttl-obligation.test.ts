@@ -83,3 +83,60 @@ describe("Story 6.4 — quote TTL and idempotency", () => {
     expect(validation.ok).toBe(false);
   });
 });
+
+/**
+ * Regression: `computeIntentExpiresAt` used to take `lastValidBlockHeight` and do
+ * `void lastValidBlockHeight; return SETTLEMENT_INTENT_TTL_MS` — it accepted the
+ * chain's deadline and threw it away. A quote could read as live after its
+ * blockhash had expired, so the person approved in their wallet and the
+ * broadcast failed. Same defect shape as the gate's ignored blockhash check.
+ */
+describe("quote TTL respects the chain's blockhash window", () => {
+  const now = 1_700_000_000_000;
+
+  it("REGRESSION: a nearly-expired blockhash shortens the quote", () => {
+    // 20 slots left ≈ 7.6s conservative, minus the 5s signature margin.
+    const expiresAt = computeIntentExpiresAt(now, {
+      currentBlockHeight: 1_000,
+      lastValidBlockHeight: 1_020,
+    });
+    const ttl = expiresAt - now;
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThan(SETTLEMENT_INTENT_TTL_MS);
+  });
+
+  it("caps at the policy TTL when the chain window is generous", () => {
+    const expiresAt = computeIntentExpiresAt(now, {
+      currentBlockHeight: 1_000,
+      lastValidBlockHeight: 1_000_000,
+    });
+    expect(expiresAt - now).toBe(SETTLEMENT_INTENT_TTL_MS);
+  });
+
+  it("refuses to issue a quote whose blockhash has already expired", () => {
+    expect(
+      computeIntentExpiresAt(now, { currentBlockHeight: 1_050, lastValidBlockHeight: 1_020 }),
+    ).toBe(now);
+  });
+
+  it("refuses when the window is shorter than the signature margin", () => {
+    // 5 slots ≈ 1.9s, well under the 5s a person needs to approve.
+    expect(
+      computeIntentExpiresAt(now, { currentBlockHeight: 1_000, lastValidBlockHeight: 1_005 }),
+    ).toBe(now);
+  });
+
+  it("expires earlier than the chain, never later", () => {
+    const slots = 100;
+    const expiresAt = computeIntentExpiresAt(now, {
+      currentBlockHeight: 0,
+      lastValidBlockHeight: slots,
+    });
+    // Nominal 400ms/slot is the optimistic figure; ours must be under it.
+    expect(expiresAt - now).toBeLessThan(slots * 400);
+  });
+
+  it("falls back to the policy TTL when no window is supplied", () => {
+    expect(computeIntentExpiresAt(now) - now).toBe(SETTLEMENT_INTENT_TTL_MS);
+  });
+});

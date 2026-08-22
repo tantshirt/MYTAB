@@ -1,6 +1,5 @@
 export {
   BillReview,
-  FIXTURE_BILL_REVIEW,
   buildBillReviewLines,
   buildBillTotalsLines,
   type BillReviewBreakdown,
@@ -10,7 +9,6 @@ export {
 } from "./BillReview";
 export {
   ClaimBoard,
-  FIXTURE_CLAIM_BOARD,
   claimFooterAction,
   unassignedPhrase,
   type ClaimBoardItem,

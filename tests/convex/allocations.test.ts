@@ -75,6 +75,7 @@ describe("Story 5.3 — resolveTabAdjustments", () => {
       [
         {
           _id: "adj:1" as never,
+          _creationTime: 0,
           tabId: "tabs:1" as never,
           kind: "service",
           calculation: "percentage",
@@ -86,6 +87,7 @@ describe("Story 5.3 — resolveTabAdjustments", () => {
         },
         {
           _id: "adj:2" as never,
+          _creationTime: 0,
           tabId: "tabs:1" as never,
           kind: "tax",
           calculation: "percentage",

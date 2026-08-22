@@ -36,9 +36,6 @@ export {
   FxErrorCode,
 };
 
-/** Retained for older call sites; the manual rational is the non-production provider. */
-export const FIXTURE_FX_PROVIDER = FX_PROVIDER_MANUAL;
-
 export const FX_QUOTE_MINT_USDC = "USDC";
 export const FX_BASE_CURRENCY_THB = "THB";
 

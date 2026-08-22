@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { useViewer } from "@/features/auth/useViewer";
 import { useLiveQuery } from "@/features/convex/useConvexData";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
-import { FIXTURE_YOU_SURFACE } from "./fixture";
+import { BUILD_LABEL, SUPPORT_URL } from "./appChrome";
 import type { YouSurfaceData, YouViewer } from "./types";
 
 /**
@@ -41,29 +41,28 @@ function viewerFromTelegram(
  *   `api.users.viewer` (via `useViewer`) — the authenticated subject.
  *   `api.wallets.defaultReceivingWallet` — the embedded Solana wallet.
  *
- * `buildLabel` and `supportUrl` are build metadata, not Convex state, and stay
- * on the fixture constant deliberately.
+ * `buildLabel` and `supportUrl` are build metadata rather than Convex state and
+ * come from `./appChrome`.
+ *
+ * With no Convex client there is no viewer and no wallet to name. §4.2 says this
+ * surface has no empty state, so it resolves to the one honest thing left: the
+ * §3.4 first-paint shape — no viewer, wallet `provisioning` — which renders the
+ * skeleton identity block and the cards beneath it, and never a stranger's name
+ * or somebody else's key.
  */
 export function useYouSurfaceData(): YouSurfaceData {
   const { initDataUnsafe } = useTelegramRuntime();
   const subject = useViewer();
   const wallet = useLiveQuery(api.wallets.defaultReceivingWallet, {});
 
-  if (wallet.fixture) {
-    return FIXTURE_YOU_SURFACE;
-  }
-
-  const chrome = {
-    buildLabel: FIXTURE_YOU_SURFACE.buildLabel,
-    supportUrl: FIXTURE_YOU_SURFACE.supportUrl,
-  };
+  const chrome = { buildLabel: BUILD_LABEL, supportUrl: SUPPORT_URL };
 
   // §3.4 — the read failed, and the cards below still render. Never a takeover.
   if (wallet.error) {
     return { ...chrome, status: "error", viewer: null, wallet: { kind: "failed" } };
   }
 
-  if (subject === undefined || wallet.loading) {
+  if (subject === undefined || wallet.loading || wallet.fixture) {
     return { ...chrome, status: "loading", viewer: null, wallet: { kind: "provisioning" } };
   }
 

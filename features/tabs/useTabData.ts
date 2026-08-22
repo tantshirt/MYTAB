@@ -154,13 +154,6 @@ export type ResolvedTab =
   | { status: "ready"; tabId: string; tabName: string | null }
   | ({ status: "invalid"; message: string } & TabRefusal);
 
-/** Fixture tab for every environment without a Convex deployment. */
-export const FIXTURE_TAB: ResolvedTab = {
-  status: "ready",
-  tabId: "tabs:fixture",
-  tabName: "Sukhumvit Dinner",
-};
-
 /**
  * A refusal is a refusal.
  *
@@ -212,11 +205,19 @@ export function useResolvedTab(publicToken: string, retryNonce = 0): ResolvedTab
   }, [publicToken, retryNonce]);
 
   useEffect(() => {
+    /*
+     * No deployment to ask. There is no tab behind this link that anyone can
+     * read, and a board invented to fill the gap would be a screen of money
+     * that does not exist — so this resolves to §7 row 19's refusal, which is
+     * the honest answer and already has designed words and a retry.
+     */
     if (!live) {
       setResolved(
-        publicToken === "invalid"
-          ? refusedTab({ ...refusalFor("LINK_NOT_FOUND"), message: INVALID_LINK_MESSAGE })
-          : FIXTURE_TAB,
+        refusedTab(
+          publicToken === "invalid"
+            ? { ...refusalFor("LINK_NOT_FOUND"), message: INVALID_LINK_MESSAGE }
+            : refusalFor("UNAVAILABLE"),
+        ),
       );
       return;
     }

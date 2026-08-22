@@ -19,8 +19,8 @@ import { isConvexAuthFixtureMode } from "@/lib/privy/config";
  * one — tests, and any environment missing `NEXT_PUBLIC_CONVEX_URL` or
  * `NEXT_PUBLIC_PRIVY_APP_ID` (`isConvexAuthFixtureMode`). `useConvex()` itself
  * returns `undefined` in that case rather than throwing, so subscribing through
- * `client.watchQuery` gives the same reactivity with a defined fixture fallback
- * and no conditional hook calls.
+ * `client.watchQuery` gives the same reactivity with a defined "nothing to
+ * read" answer and no conditional hook calls.
  */
 
 /** EXPERIENCE, *Concurrency and Revision* — one line, no modal, no reload. */
@@ -31,8 +31,14 @@ export type LiveQueryResult<T> = {
   data: T | undefined;
   error: Error | null;
   /**
-   * There is no Convex client (fixture mode or no provider). The caller must
-   * fall back to its fixture — every fixture stays importable and used.
+   * There is no Convex client (fixture-auth mode, or no provider above).
+   *
+   * It is **not** a licence to render something instead. No surface in this
+   * product carries fixture data any more: with no client there is nothing to
+   * read, and the seam resolves to its designed empty state. The flag exists so
+   * a caller can tell "nothing to read" apart from "still reading" — the
+   * difference between an empty state and a spinner — and so `useViewer` can
+   * resolve the fixture *identity* that lets the app boot without Privy.
    */
   fixture: boolean;
   /** First read has not resolved. Pair with `useHasPainted` before showing a skeleton. */

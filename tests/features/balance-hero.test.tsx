@@ -1,13 +1,14 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { fiatMinor } from "@/tests/helpers/money";
 import { BalanceHero } from "@/features/balances/BalanceHero";
-import { FIXTURE_BALANCE_HERO } from "@/features/balances/fixture";
+import { FIXTURE_BALANCE_HERO } from "@/tests/fixtures/balances";
 
 describe("Story 7.1 — Balance hero", () => {
   it("AC1 — renders plain-language owed copy", () => {
     const html = renderToStaticMarkup(
-      <BalanceHero state={{ kind: "owed", amountMinor: 29_174 }} />,
+      <BalanceHero state={{ kind: "owed", amountMinor: fiatMinor(29_174) }} />,
     );
     expect(html).toContain("You owe");
     expect(html).toContain("฿291.74");
@@ -22,7 +23,7 @@ describe("Story 7.1 — Balance hero", () => {
   // POLISH-SPEC §2.3 / DESIGN.md: amounts are never truncated, anywhere.
   it("never clips the figure and keeps the label on its own line", () => {
     const html = renderToStaticMarkup(
-      <BalanceHero state={{ kind: "owed", amountMinor: 184_000 as never }} />,
+      <BalanceHero state={{ kind: "owed", amountMinor: fiatMinor(184_000) }} />,
     );
     expect(html).not.toContain("text-overflow");
     expect(html).not.toContain("clip");

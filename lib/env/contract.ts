@@ -24,6 +24,11 @@ export const CONVEX_ONLY_KEYS = [
   "PRIVY_VERIFICATION_KEY",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_WEBHOOK_SECRET",
+  /** Required: every invite deep link is built from these. No fallback exists —
+   * `convex/lib/telegramDeepLink` throws rather than mint a link to a bot that
+   * does not exist. */
+  "TELEGRAM_BOT_USERNAME",
+  "TELEGRAM_MINIAPP_NAME",
   "OPENAI_API_KEY",
   "PRIVY_APP_SECRET",
   "PRIVY_SPONSOR_WALLET_ID",

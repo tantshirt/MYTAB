@@ -7,6 +7,7 @@ import {
   requireIdentity,
   requireTelegramContext,
 } from "../../convex/lib/auth";
+import { fakeQueryCtx } from "../helpers/convexFakeDb";
 
 type MockIdentity = {
   tokenIdentifier: string;
@@ -25,7 +26,7 @@ function createMockCtx(options: {
   const telegramContext = options.telegramContext ?? null;
   const now = options.now ?? Date.now();
 
-  return {
+  return fakeQueryCtx({
     auth: {
       getUserIdentity: async () => identity,
     },
@@ -54,7 +55,7 @@ function createMockCtx(options: {
       }),
     },
     _now: now,
-  };
+  });
 }
 
 describe("Story 1.7 — auth helpers (AC3, AC6)", () => {

@@ -96,3 +96,13 @@ export const FIXTURE_RECIPIENT_WALLET_ADDRESS = fixtureAddress(
 export const FIXTURE_SPONSOR_WALLET_ADDRESS = fixtureAddress(
   "mytab-fixture-sponsor",
 );
+
+/**
+ * The transaction signature fixture settlement paths report.
+ *
+ * Shared by the fixture co-sign path and the fixture confirmation parser so the
+ * two agree on one literal. Both are behind `assertFixturePathAllowed`; on a
+ * deployment neither can produce it.
+ */
+export const FIXTURE_TX_SIGNATURE =
+  "FixTureSig1111111111111111111111111111111111111111";

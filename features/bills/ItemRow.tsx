@@ -4,7 +4,7 @@ import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
-import type { BillItemView } from "./fixtures";
+import type { BillItemView } from "./types";
 
 type ItemRowProps = {
   item: BillItemView;

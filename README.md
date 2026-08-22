@@ -1,5 +1,21 @@
 # My Tab
 
+> ## ⚠ This README is out of date — read `docs/DECISIONS.md` and `CLAUDE.md` first
+>
+> **Application source code exists.** The scaffold, money domain, Telegram ingress, session
+> tokens, settlement pipeline, transaction validation gate, DFlow routed path, Telegram surface
+> and full UI are implemented, with roughly 1,100 unit tests. **Nothing has touched a live
+> cluster** — see `docs/MAINNET-CUTOVER.md`.
+>
+> The "Governing documents" reading order below is superseded: read **`docs/DECISIONS.md`**
+> first, then **`CLAUDE.md`**, then the artifacts. Where an artifact conflicts with
+> `DECISIONS.md`, `DECISIONS.md` wins.
+>
+> The gates are real and named: `npx tsc --noEmit` · `npm test` · `npx next build` ·
+> `npm run smoke` · `npm run sweep`. A green `next build` is not sufficient (**D-12**). Devnet-
+> first sequencing is superseded (**D-01**).
+
+
 My Tab is a Telegram Mini App for starting a group bill, claiming items, calculating exact obligations, tipping participants, and settling on Solana while the recipient receives USDC and My Tab sponsors the network fee.
 
 This repository is intentionally at the **implementation-ready planning stage**. It contains the complete product, architecture, security, UX, test, and sprint contracts. Application source code has not started yet.

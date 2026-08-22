@@ -10,7 +10,7 @@ import { formatDiscrepancyCopy, recomputeReconciliation } from "@/lib/domain/rec
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import type { FiatMinor } from "@/lib/domain/money";
-import { isDemoModeEnabled, isReceiptScanEnabled } from "@/lib/features/flags";
+import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS, MYTAB_LAYOUT, MYTAB_RADIUS } from "@/lib/theme/tokens";
 
 export type DiscrepancyCardProps = {
@@ -73,11 +73,6 @@ export type ReceiptReviewProps = {
   onManualEntry: () => void;
   /** Only wired when receipt scanning is on; otherwise the affordance is absent. */
   onScanReceipt?: () => void;
-  /**
-   * Demo affordance. Rendered only when `isDemoModeEnabled()` — EXPERIENCE
-   * calls it "deliberately hidden from judges" (POLISH-SPEC §1.5, §8 item 3).
-   */
-  onUseSampleReceipt?: () => void;
   /**
    * Where the Confirm action is pinned. §1.5 requires it pinned, and it cannot
    * pin from inside this component: `AppShell`'s content column sets
@@ -174,7 +169,6 @@ export function ReceiptReview({
   onConfirm,
   onManualEntry,
   onScanReceipt,
-  onUseSampleReceipt,
   footerSlot,
 }: ReceiptReviewProps) {
   const [lines, setLines] = useState(parsed.lines);
@@ -245,13 +239,6 @@ export function ReceiptReview({
         <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
           The items and the receipt total have to match first.
         </p>
-      ) : null}
-      {isDemoModeEnabled() && onUseSampleReceipt ? (
-        <div style={{ textAlign: "center", marginTop: 12 }}>
-          <button type="button" className="mytab-link-button" onClick={onUseSampleReceipt}>
-            Use sample receipt
-          </button>
-        </div>
       ) : null}
     </>
   );
