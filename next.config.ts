@@ -9,22 +9,34 @@ const nextConfig: NextConfig = {
    * unwired — adding its compiler for zero call sites would be churn.
    */
   transpilePackages: ["@astryxdesign/core", "@astryxdesign/theme-neutral"],
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     /*
-     * `config.externals` is an ARRAY in Next 15, not an object. The previous
-     * code assigned string keys onto it, which webpack never reads — so these
-     * were silently not externalised. Push an entry instead.
+     * `config.externals` is an ARRAY in Next 15, not an object. This originally
+     * assigned string keys onto it, which webpack never reads — so the
+     * externals were silently inert. Making them real exposed the reason they
+     * were never noticed: a `commonjs` external emits `require("...")`, which
+     * is correct on the server and a hard `ReferenceError: require is not
+     * defined` in the browser.
+     *
+     * These packages are only reached from `lib/solana` / `lib/dflow`, which no
+     * client component imports — they run on the server and inside Convex. So
+     * externalise on the SERVER build only and leave the client build alone.
      */
-    const serverOnly = [
-      "@solana/kit",
-      "@solana-program/memo",
-      "@solana-program/system",
-      "@solana-program/token",
-    ];
+    if (isServer && Array.isArray(config.externals)) {
+      const serverOnly = [
+        "@solana/kit",
+        "@solana-program/memo",
+        "@solana-program/system",
+        "@solana-program/token",
+      ];
+      config.externals.push(
+        ...serverOnly.map((name) => ({ [name]: `commonjs ${name}` })),
+      );
+    }
+
     /*
-     * Optional Privy connectors we never use (fiat onramp, Farcaster). They are
-     * unresolvable peer imports, not features — alias them away rather than
-     * installing SDKs for flows this product does not have.
+     * An optional Privy connector we have no flow for. Unresolvable peer
+     * import, not a feature — alias it away rather than installing an SDK.
      */
     config.resolve = config.resolve ?? {};
     config.resolve.alias = {
@@ -32,11 +44,6 @@ const nextConfig: NextConfig = {
       "@farcaster/mini-app-solana": false,
     };
 
-    if (Array.isArray(config.externals)) {
-      config.externals.push(
-        ...serverOnly.map((name) => ({ [name]: `commonjs ${name}` })),
-      );
-    }
     return config;
   },
 };
