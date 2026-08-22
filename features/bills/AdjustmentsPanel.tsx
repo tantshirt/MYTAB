@@ -2,7 +2,6 @@
 
 import { AmountPair } from "@/components/primitives/amount-pair";
 import type { AdjustmentKind } from "@/lib/domain/bill";
-import { MYTAB_COLORS } from "@/lib/theme/tokens";
 
 export type AdjustmentDraft = {
   kind: AdjustmentKind;
@@ -15,6 +14,11 @@ export type AdjustmentDraft = {
 type AdjustmentsPanelProps = {
   adjustments: AdjustmentDraft[];
   editable: boolean;
+  /**
+   * Opens the editor for one charge kind. **Without it the chip row does not
+   * render at all** — a visible button that does nothing is worse than an
+   * absent one (POLISH-SPEC §1.4).
+   */
   onEdit?: (kind: AdjustmentKind) => void;
 };
 
@@ -25,16 +29,22 @@ const KIND_OPTIONS: Array<{ kind: AdjustmentKind; label: string }> = [
   { kind: "group_tip", label: "Group tip" },
 ];
 
-/** Tax, service, discount, and group tip lines (Story 4.3 AC3). */
+/**
+ * Tax, service, discount and group tip lines (Story 4.3 AC3).
+ *
+ * A block inside the bill card, not a card of its own.
+ */
 export function AdjustmentsPanel({ adjustments, editable, onEdit }: AdjustmentsPanelProps) {
+  const showChips = editable && onEdit != null;
+
   return (
-    <section className="mytab-card" style={{ padding: "20px" }} data-testid="adjustments-panel">
-      <p className="mytab-type-micro-label" style={{ marginBottom: 12 }}>
+    <div data-testid="adjustments-panel">
+      <h2 className="mytab-type-micro-label" style={{ margin: "0 0 12px" }}>
         Adjustments
-      </p>
+      </h2>
 
       {adjustments.length === 0 ? (
-        <p className="mytab-type-meta" style={{ color: MYTAB_COLORS.inkMuted, margin: 0 }}>
+        <p className="mytab-type-meta" style={{ margin: 0 }}>
           No charges added yet.
         </p>
       ) : (
@@ -49,14 +59,14 @@ export function AdjustmentsPanel({ adjustments, editable, onEdit }: AdjustmentsP
         </div>
       )}
 
-      {editable ? (
+      {showChips ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
           {KIND_OPTIONS.map((option) => (
             <button
               key={option.kind}
               type="button"
               className="mytab-button-secondary mytab-button-inline"
-              onClick={() => onEdit?.(option.kind)}
+              onClick={() => onEdit(option.kind)}
               style={{ fontSize: "13px", minHeight: 44, padding: "0 14px" }}
             >
               {option.label}
@@ -64,6 +74,6 @@ export function AdjustmentsPanel({ adjustments, editable, onEdit }: AdjustmentsP
           ))}
         </div>
       ) : null}
-    </section>
+    </div>
   );
 }

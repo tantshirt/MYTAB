@@ -1,32 +1,12 @@
 "use client";
 
 import { useExportWallet } from "@privy-io/react-auth/solana";
-import { useEffect, useState } from "react";
+import { useOffline } from "@/components/primitives/use-offline";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { isPrivyFixtureMode } from "@/lib/privy/config";
 import { YouSurface } from "./YouSurface";
 import type { YouSurfaceData } from "./types";
 import { useYouSurfaceData } from "./useYouSurfaceData";
-
-function useOffline(): boolean {
-  const [offline, setOffline] = useState(false);
-
-  useEffect(() => {
-    if (typeof navigator === "undefined") {
-      return;
-    }
-    const sync = () => setOffline(navigator.onLine === false);
-    sync();
-    window.addEventListener("online", sync);
-    window.addEventListener("offline", sync);
-    return () => {
-      window.removeEventListener("online", sync);
-      window.removeEventListener("offline", sync);
-    };
-  }, []);
-
-  return offline;
-}
 
 function PrivyYouSurface({
   data,

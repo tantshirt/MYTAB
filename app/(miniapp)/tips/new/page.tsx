@@ -1,9 +1,11 @@
 "use client";
 
-import { Suspense, useCallback, useMemo } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
+import { useOffline } from "@/components/primitives/use-offline";
+import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { TipComposer, type TipComposerMember } from "@/features/tips";
 
 type TipComposerData = {
@@ -13,6 +15,8 @@ type TipComposerData = {
 
 /**
  * Single prop-resolution point for the Tip Composer.
+ *
+ * The cast is the five protagonists — Maya, Andre, Noi, Ploy and Tim (DESIGN.md).
  *
  * TODO(live-data): replace the fixture with `useViewer()` for the viewer id and
  * `useQuery(api.groups.listTipRecipients, { groupId })` for the members, and
@@ -36,8 +40,8 @@ function useTipComposerData(groupId: string | null): TipComposerData {
           walletReady: true,
         },
         {
-          userId: "users:bo",
-          displayName: "Bo",
+          userId: "users:ploy",
+          displayName: "Ploy",
           membershipStatus: "active",
           walletReady: true,
         },
@@ -60,8 +64,18 @@ function TipComposerSurface() {
   const recipientUserId = searchParams.get("to");
   const groupId = searchParams.get("group");
   const { viewerUserId, members } = useTipComposerData(groupId);
+  const offline = useOffline();
+  const { isTelegramWebApp } = useTelegramRuntime();
+
+  // §4.3 — "Couldn't send the tip. Try again.", rendered above the footer, and the
+  // footer action re-submits. Without this the copy in `TIP_COPY.sendFailed` is
+  // unreachable.
+  const [sendFailed, setSendFailed] = useState(false);
 
   const handleSubmit = useCallback(() => {
+    setSendFailed(false);
+    // TODO(live-data): `api.settlements.createTipIntent` — resolve to the intent
+    // route, and `.catch(() => setSendFailed(true))`. The fixture always succeeds.
     // A tip in flight is a payment in flight, so it hands off to the route.
     router.push("/activity");
   }, [router]);
@@ -73,6 +87,9 @@ function TipComposerSurface() {
         viewerUserId={viewerUserId}
         preselectedRecipientUserId={recipientUserId ?? undefined}
         onSubmit={handleSubmit}
+        sendFailed={sendFailed}
+        offline={offline}
+        inTelegram={isTelegramWebApp}
       />
     </AppShell>
   );

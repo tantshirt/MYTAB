@@ -2,6 +2,7 @@ import type { BalanceHeroState, GroupBalanceSummary } from "@/lib/domain/balance
 import { resolveBalanceHero } from "@/lib/domain/balance";
 import { compressDebts, DEBT_COMPRESSION_DISCLAIMER } from "@/lib/domain/debtCompression";
 import { formatFiatMinorThb } from "@/lib/domain/format";
+import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { thbMinorFromInteger } from "@/lib/domain/parse";
 import { thbMinorToUsdcAtomicFixture } from "@/lib/domain/fxFixture";
 import { ACTIVITY_EVENT_TYPE } from "@/lib/domain/activityTypes";
@@ -112,6 +113,11 @@ export const FIXTURE_OPEN_TABS: TabCardProps[] = [
     settledCount: 1,
     totalCount: 2,
     submittedCount: 1,
+    peopleCount: 5,
+    totalLabel: formatFiatMinorThb(thbMinorFromInteger(184_000)),
+    amountLabel: formatFiatMinorThb(thbMinorFromInteger(29_174)),
+    amountA11yLabel: formatThbMinorForA11y(thbMinorFromInteger(29_174)),
+    amountTone: "owed",
     href: "/tabs/tabs:fixture-primary",
   },
   {
@@ -120,6 +126,11 @@ export const FIXTURE_OPEN_TABS: TabCardProps[] = [
     status: "locked",
     settledCount: 0,
     totalCount: 1,
+    peopleCount: 2,
+    totalLabel: formatFiatMinorThb(thbMinorFromInteger(8_000)),
+    amountLabel: formatFiatMinorThb(thbMinorFromInteger(8_000)),
+    amountA11yLabel: formatThbMinorForA11y(thbMinorFromInteger(8_000)),
+    amountTone: "settled",
     href: "/tabs/tabs:fixture-secondary",
   },
 ];
@@ -131,6 +142,10 @@ export const FIXTURE_ACTIVITY: ActivityRowData[] = [
     summary: "Tim paid Maya",
     amountLabel: "42.10 USDC",
     createdAt: Date.now() - 5 * 60_000,
+    breakdown: {
+      from: "฿1,500.00",
+      received: "42.10 USDC",
+    },
     detail: "Confirmed on chain",
     transactionSignature: "fixture-tx-001",
     explorerUrl: "https://explorer.solana.com/tx/fixture-tx-001",

@@ -28,3 +28,49 @@ describe("Story 7.3 — Activity feed", () => {
     expect(ACTIVITY_EVENT_TYPE.WAIVER).toBe("waiver");
   });
 });
+
+describe("POLISH-SPEC §1.12 — Activity", () => {
+  it("stacks the amount over the timestamp instead of alternating them", () => {
+    const html = renderToStaticMarkup(<ActivityFeed events={FIXTURE_ACTIVITY} />);
+    // The tabular amount column holds the figure; the timestamp is its own,
+    // untabulated element beneath it. Before this the relative time was
+    // rendered *inside* the amount column whenever a row had no figure.
+    expect(html).toContain("42.10 USDC");
+    expect(html).toContain("5m ago");
+    expect(html).not.toMatch(/data-mytab-amount="true"[^>]*>\s*5m ago/);
+  });
+
+  it("groups rows by day under micro-labels", () => {
+    const html = renderToStaticMarkup(<ActivityFeed events={FIXTURE_ACTIVITY} />);
+    expect(html).toContain("mytab-type-micro-label");
+    expect(html).toContain("Today");
+  });
+
+  it("reads amounts as money, not digits", () => {
+    const html = renderToStaticMarkup(<ActivityFeed events={FIXTURE_ACTIVITY} />);
+    expect(html).toContain('aria-label="180 baht"');
+    expect(html).toContain('aria-label="42 USDC 1"');
+  });
+
+  it("§4.3 — a query error names its next action", () => {
+    const html = renderToStaticMarkup(<ActivityFeed events={[]} error />);
+    expect(html).toContain("Couldn&#x27;t load your activity.");
+    expect(html).toContain("Try again");
+  });
+
+  it("§4.4 — offline keeps cached rows readable", () => {
+    const html = renderToStaticMarkup(<ActivityFeed events={FIXTURE_ACTIVITY} offline />);
+    expect(html).toContain("You&#x27;re offline. We&#x27;ll catch up.");
+    expect(html).toContain("Tim paid Maya");
+  });
+
+  it("§4.1 — the skeleton is first paint only", () => {
+    const first = renderToStaticMarkup(<ActivityFeed events={[]} loading />);
+    expect(first).toContain('aria-busy="true"');
+
+    const subsequent = renderToStaticMarkup(
+      <ActivityFeed events={FIXTURE_ACTIVITY} loading hasCachedData />,
+    );
+    expect(subsequent).not.toContain('aria-busy="true"');
+  });
+});

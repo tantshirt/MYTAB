@@ -175,6 +175,25 @@ export const MYTAB_GLOBAL_CSS = `
   }
 
   /* ---------------------------------------------------------------------
+     Screen-reader-only text. Semantic colour never travels alone (EXPERIENCE,
+     *Accessibility Floor*), so a dot or a tint always has a word beside it that
+     only assistive technology reads. The standard 1px-clip pattern, defined
+     once here rather than re-inlined at each call site.
+     --------------------------------------------------------------------- */
+
+  .mytab-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ---------------------------------------------------------------------
      Focus — one visible ring, always colors/primary (POLISH-SPEC §6.3).
      --------------------------------------------------------------------- */
 

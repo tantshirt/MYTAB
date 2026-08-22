@@ -3,8 +3,8 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ObligationPaymentSheet } from "./ObligationPaymentSheet";
+import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import type { PaymentTokenOption } from "@/components/settlement-sheet/PaymentTokenSelector";
-import { MYTAB_COLORS, MYTAB_LAYOUT } from "@/lib/theme/tokens";
 
 /**
  * The Payment Sheet is a *sheet*, not a route (POLISH-SPEC §1.0).
@@ -28,11 +28,16 @@ export type SettleSheetData = {
   billAmountLabel: string;
   billAmount: string;
   recipientName: string;
+  recipientId: string;
   destinationAsset: string;
+  spendLabel: string;
   maximumSpend: string;
-  minimumReceive: string;
+  minimumReceiveAmount: string;
+  rateLabel: string;
   quoteRemainingMs: number;
   quoteExpired: boolean;
+  /** `created` / `quoting` — the quote is not resolved yet and Pay is disabled. */
+  quoteResolving: boolean;
   staleRevision: boolean;
   roundUpLabel: string;
   roundUpAmountLabel: string;
@@ -51,14 +56,18 @@ function useSettleSheetData(obligationId: string): SettleSheetData {
   return useMemo(
     () => ({
       intentId: `intent_${obligationId}`,
-      billAmountLabel: "Your share of Sukhumvit Dinner",
+      billAmountLabel: "your share of Sukhumvit Dinner",
       billAmount: "฿291.74",
       recipientName: "Maya",
+      recipientId: "maya",
       destinationAsset: "USDC",
-      maximumSpend: "≈ 0.0424 SOL",
-      minimumReceive: "8.25 USDC",
+      spendLabel: "≈ 0.0412 SOL",
+      maximumSpend: "0.0418 SOL",
+      minimumReceiveAmount: "8.25 USDC",
+      rateLabel: "฿35.36 per USDC",
       quoteRemainingMs: 42_000,
       quoteExpired: false,
+      quoteResolving: false,
       staleRevision: false,
       roundUpLabel: "Round up to ฿300",
       roundUpAmountLabel: "+฿8.26",
@@ -79,6 +88,10 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
 
   const [selectedTokenId, setSelectedTokenId] = useState(data.tokens[0]?.id ?? "");
   const [roundUpEnabled, setRoundUpEnabled] = useState(false);
+  // Once Pay is tapped the sheet is committed: scrim tap, swipe-down and Escape all
+  // come off together, and it transitions forward to Payment Progress (EXPERIENCE,
+  // `payment-sheet`). It is never dismissible backward again.
+  const [committed, setCommitted] = useState(false);
 
   const dismiss = useCallback(() => {
     // Dismissal removes the key rather than pushing a new entry, so Telegram's
@@ -87,91 +100,39 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
   }, [router, pathname]);
 
   const handlePay = useCallback(() => {
+    setCommitted(true);
     // Past this point the payment is in flight, so it becomes a route (§1.0).
     router.replace(`/pay/${data.intentId}`);
   }, [router, data.intentId]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Payment sheet"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 40,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-end",
-      }}
-    >
-      <button
-        type="button"
-        aria-label="Dismiss"
-        onClick={dismiss}
-        style={{
-          position: "absolute",
-          inset: 0,
-          border: "none",
-          padding: 0,
-          background: "rgba(10, 32, 56, 0.38)",
-          cursor: "pointer",
-        }}
+    <SheetContainer label="Payment sheet" dismissible={!committed} onDismiss={dismiss}>
+      <ObligationPaymentSheet
+        billAmount={data.billAmount}
+        billAmountLabel={data.billAmountLabel}
+        recipientName={data.recipientName}
+        recipientId={data.recipientId}
+        destinationAsset={data.destinationAsset}
+        tokens={data.tokens}
+        selectedTokenId={selectedTokenId}
+        onSelectToken={setSelectedTokenId}
+        spendLabel={data.spendLabel}
+        minimumReceiveAmount={data.minimumReceiveAmount}
+        maximumSpend={data.maximumSpend}
+        rateLabel={data.rateLabel}
+        roundUpLabel={data.roundUpLabel}
+        roundUpAmountLabel={data.roundUpAmountLabel}
+        roundUpEnabled={roundUpEnabled}
+        onToggleRoundUp={setRoundUpEnabled}
+        quoteRemainingMs={data.quoteRemainingMs}
+        quoteExpired={data.quoteExpired}
+        quoteResolving={data.quoteResolving}
+        staleRevision={data.staleRevision}
+        onPay={handlePay}
+        onRefreshQuote={() => router.refresh()}
+        onRefreshBill={() => router.refresh()}
       />
-      {/* TODO(P1-16): replace this container with components/settlement-sheet/SheetContainer.tsx
-          (grab handle, drag-to-dismiss, focus trap, Escape) once §1.8 lands. */}
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          maxWidth: MYTAB_LAYOUT.maxColumnWidth,
-          margin: "0 auto",
-          background: MYTAB_COLORS.surface,
-          borderRadius: "20px 20px 0 0",
-          boxShadow: "0 -8px 32px rgba(10, 32, 56, 0.12)",
-          maxHeight: "calc(100dvh - 64px)",
-          overflowY: "auto",
-          overscrollBehavior: "contain",
-          paddingBottom: "calc(22px + env(safe-area-inset-bottom, 0px))",
-        }}
-      >
-        <div
-          aria-hidden
-          style={{
-            width: 36,
-            height: 4,
-            borderRadius: 999,
-            background: MYTAB_COLORS.border,
-            margin: "10px auto 10px",
-          }}
-        />
-        <ObligationPaymentSheet
-          tokens={data.tokens}
-          selectedTokenId={selectedTokenId}
-          onSelectToken={setSelectedTokenId}
-          routedPayment
-          staleRevision={data.staleRevision}
-          onRefreshStale={() => router.refresh()}
-          roundUpEnabled={roundUpEnabled}
-          roundUpLabel={data.roundUpLabel}
-          roundUpAmountLabel={data.roundUpAmountLabel}
-          onToggleRoundUp={setRoundUpEnabled}
-          billAmountLabel={data.billAmountLabel}
-          billAmount={data.billAmount}
-          recipientName={data.recipientName}
-          destinationAsset={data.destinationAsset}
-          paymentToken={
-            data.tokens.find((token) => token.id === selectedTokenId)?.name ?? "USDC"
-          }
-          maximumSpend={data.maximumSpend}
-          minimumReceive={data.minimumReceive}
-          quoteRemainingMs={data.quoteRemainingMs}
-          quoteExpired={data.quoteExpired}
-          onPay={handlePay}
-          onRefreshQuote={() => router.refresh()}
-        />
-      </div>
-    </div>
+    </SheetContainer>
   );
 }
 

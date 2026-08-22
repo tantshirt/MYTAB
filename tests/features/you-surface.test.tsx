@@ -176,11 +176,19 @@ describe("POLISH-SPEC §3.2 — Manage wallet sheet", () => {
     />,
   );
 
+  /*
+   * The sheet is now `components/settlement-sheet/SheetContainer` rather than a
+   * second hand-rolled shell, so the scrim literal is that component's — the same
+   * colour, written with the spaces it uses. The dialog role, the modal flag, the
+   * scrim and the 36×4 grab handle are all still asserted; only the exact string
+   * the scrim is written with moved.
+   */
   it("is a dismissible dialog with a grab handle over a scrim", () => {
     expect(sheet).toContain('role="dialog"');
     expect(sheet).toContain('aria-modal="true"');
-    expect(sheet).toContain("rgba(10,32,56,0.38)");
+    expect(sheet).toContain("rgba(10, 32, 56, 0.38)");
     expect(sheet).toContain("width:36px;height:4px");
+    expect(sheet).toContain('aria-label="Dismiss"');
   });
 
   it("shows the whole key, never elided", () => {

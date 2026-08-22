@@ -32,6 +32,20 @@ function NewTabSurface() {
   const groupId = searchParams.get("group");
   const fixture = useNewTabData(groupId);
 
+  /*
+   * `onScanReceipt` is deliberately NOT passed.
+   *
+   * Receipt Review lives at `/tabs/[publicToken]/receipt`, and a tab only gets a
+   * public token once the draft has been created server-side. In fixture mode
+   * there is no token, so there is nowhere for the handler to go. Every scan
+   * affordance on this surface is gated on the handler *and*
+   * `isReceiptScanEnabled()`, so leaving it out means the capture card is
+   * correctly absent rather than present and dead — which is the whole point of
+   * that double gate (§1.4).
+   *
+   * TODO(live-data): once `api.tabs.createDraft` returns the tab's public token,
+   * pass `onScanReceipt={() => router.push(`/tabs/${publicToken}/receipt`)}`.
+   */
   return (
     <BillAuthoringSurface
       tabId={fixture.tabId}

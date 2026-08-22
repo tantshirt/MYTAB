@@ -1,119 +1,425 @@
 "use client";
 
-import { MYTAB_COLORS } from "@/lib/theme/tokens";
+import { useRef, type CSSProperties, type ReactNode } from "react";
+import { CameraIcon, EditIcon } from "@/components/icons";
+import {
+  avatarTintsForGroup,
+  MYTAB_COLORS,
+  MYTAB_ELEVATION,
+  MYTAB_RADIUS,
+} from "@/lib/theme/tokens";
 import type { BillMemberOption } from "./fixtures";
+
+/** How the organizer intends to get the items in (EXPERIENCE, IA: "capture method"). */
+export type CaptureMethod = "scan" | "manual";
+
+export type NewTabFormPatch = {
+  title?: string;
+  merchantName?: string;
+  displayCurrency?: string;
+  payerUserId?: string;
+  captureMethod?: CaptureMethod;
+};
 
 export type NewTabFormProps = {
   title: string;
   merchantName: string;
   displayCurrency: string;
-  recipientAsset: string;
+  /** Chip pair. Two values; the artboard's pair is THB / USDC. */
+  currencyOptions?: readonly string[];
   payerUserId: string;
-  recipientUserId: string;
   members: BillMemberOption[];
+  viewerUserId?: string;
+  captureMethod: CaptureMethod;
+  /**
+   * Card A ("Scan receipt") renders only when receipt scanning is both flagged
+   * on and actually wired. It is never shown disabled (POLISH-SPEC §1.4).
+   */
+  scanAvailable?: boolean;
   fxFixtureBadge?: string;
-  onChange: (patch: Partial<NewTabFormProps>) => void;
+  onChange: (patch: NewTabFormPatch) => void;
 };
 
-/** New Tab setup — title, currency, payer, recipient (Story 4.1). */
+const DEFAULT_CURRENCIES = ["THB", "USDC"] as const;
+
+const BARE_BUTTON: CSSProperties = {
+  appearance: "none",
+  WebkitAppearance: "none",
+  border: 0,
+  background: "none",
+  padding: 0,
+  margin: 0,
+  font: "inherit",
+  color: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+};
+
+type RadioOption = {
+  key: string;
+  /** Accessible name — the visual child may be an avatar or a card. */
+  label: string;
+  render: (selected: boolean) => ReactNode;
+  style?: CSSProperties;
+};
+
+/**
+ * Roving-tabindex radio group.
+ *
+ * `participant-chip` and the currency chips are single-select, so the correct
+ * role is `radio`, not `aria-pressed` (POLISH-SPEC §6.1 flags exactly that).
+ */
+function RadioRow({
+  name,
+  labelledBy,
+  options,
+  selectedKey,
+  onSelect,
+  style,
+}: {
+  name: string;
+  labelledBy: string;
+  options: RadioOption[];
+  selectedKey: string;
+  onSelect: (key: string) => void;
+  style?: CSSProperties;
+}) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const hasSelection = options.some((option) => option.key === selectedKey);
+
+  const move = (from: number, delta: number) => {
+    const next = (from + delta + options.length) % options.length;
+    const option = options[next];
+    if (!option) {
+      return;
+    }
+    onSelect(option.key);
+    refs.current[next]?.focus();
+  };
+
+  return (
+    <div role="radiogroup" aria-labelledby={labelledBy} style={style}>
+      {options.map((option, index) => {
+        const selected = option.key === selectedKey;
+        return (
+          <button
+            key={option.key}
+            ref={(node) => {
+              refs.current[index] = node;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-label={option.label}
+            tabIndex={selected || (!hasSelection && index === 0) ? 0 : -1}
+            className="mytab-focus"
+            data-testid={`${name}-${option.key}`}
+            onClick={() => onSelect(option.key)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                event.preventDefault();
+                move(index, 1);
+              } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                event.preventDefault();
+                move(index, -1);
+              }
+            }}
+            style={{ ...BARE_BUTTON, ...option.style }}
+          >
+            {option.render(selected)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Section({
+  id,
+  heading,
+  children,
+  gap = 9,
+  marginBottom = 28,
+}: {
+  id: string;
+  heading: string;
+  children: ReactNode;
+  gap?: number;
+  marginBottom?: number;
+}) {
+  return (
+    <section style={{ marginBottom }}>
+      {/*
+        micro-label is the *section heading* role (DESIGN.md, Typography), so it
+        is a heading element here and never a <label> on a control. Sections
+        holding a single control point that control at this id instead.
+      */}
+      <h2 id={id} className="mytab-type-micro-label" style={{ margin: `0 0 ${gap}px` }}>
+        {heading}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function CaptureCard({
+  icon,
+  title,
+  description,
+  selected,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  selected: boolean;
+}) {
+  return (
+    <span
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        gap: 12,
+        height: "100%",
+        textAlign: "center",
+        padding: "24px 18px",
+        borderRadius: MYTAB_RADIUS.md,
+        border: `1px solid ${selected ? MYTAB_COLORS.primary : MYTAB_COLORS.border}`,
+        background: selected ? MYTAB_COLORS.primarySoft : MYTAB_COLORS.surface,
+        boxShadow: selected ? "none" : MYTAB_ELEVATION.cardShadow,
+      }}
+    >
+      {icon}
+      <span style={{ display: "block", minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: "15px", fontWeight: 600 }}>{title}</span>
+        <span
+          style={{
+            display: "block",
+            fontSize: "12px",
+            color: MYTAB_COLORS.inkMuted,
+            marginTop: 4,
+            lineHeight: 1.4,
+          }}
+        >
+          {description}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * New Tab setup — what the tab is for, where, currency, who paid, and how the
+ * items get in (POLISH-SPEC §1.4; EXPERIENCE, Information Architecture).
+ *
+ * No per-section cards: micro-label headings sit directly on `colors/paper`,
+ * which is what the artboard specifies and what DESIGN.md requires.
+ */
 export function NewTabForm({
   title,
   merchantName,
   displayCurrency,
-  recipientAsset,
+  currencyOptions = DEFAULT_CURRENCIES,
   payerUserId,
-  recipientUserId,
   members,
+  viewerUserId,
+  captureMethod,
+  scanAvailable = false,
   fxFixtureBadge,
   onChange,
 }: NewTabFormProps) {
-  const walletReadyMembers = members.filter((member) => member.walletReady);
+  const currencies = currencyOptions.map<RadioOption>((currency) => ({
+    key: currency,
+    label: currency,
+    render: (selected) => (
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          minHeight: 44,
+          padding: "0 22px",
+          borderRadius: MYTAB_RADIUS.full,
+          fontSize: "15px",
+          fontWeight: 600,
+          background: selected ? MYTAB_COLORS.primarySoft : MYTAB_COLORS.surface,
+          color: selected ? MYTAB_COLORS.primary : MYTAB_COLORS.ink,
+          border: `1px solid ${selected ? MYTAB_COLORS.primary : MYTAB_COLORS.border}`,
+        }}
+      >
+        {currency}
+      </span>
+    ),
+  }));
+
+  // The payer row is a set of people rendered together (§2.6).
+  const payerTints = avatarTintsForGroup(members.map((member) => member.userId));
+
+  const payers = members.map<RadioOption>((member) => {
+    const name = member.userId === viewerUserId ? "You" : member.displayName;
+    return {
+      key: member.userId,
+      // The accessible name is the visible name, so "You" reads as "You".
+      label: name,
+      style: { width: 52, flex: "none" },
+      render: (selected) => (
+        <span
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 7,
+            width: 52,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 48,
+              height: 48,
+              flex: "none",
+              borderRadius: MYTAB_RADIUS.full,
+              background: payerTints.get(member.userId),
+              color: MYTAB_COLORS.surface,
+              fontSize: "17px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              // A ring, never a fill — the face stays readable (DESIGN.md).
+              boxShadow: selected ? `0 0 0 2px ${MYTAB_COLORS.primary}` : "none",
+            }}
+          >
+            {/* The initial always comes from the real name, never from "You". */}
+            {member.displayName.trim().charAt(0).toUpperCase() || "?"}
+          </span>
+          <span
+            style={{
+              maxWidth: 52,
+              fontSize: "12px",
+              fontWeight: selected ? 600 : 400,
+              color: selected ? MYTAB_COLORS.ink : MYTAB_COLORS.inkMuted,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {name}
+          </span>
+        </span>
+      ),
+    };
+  });
+
+  const captureOptions: RadioOption[] = [];
+  if (scanAvailable) {
+    captureOptions.push({
+      key: "scan",
+      label: "Scan receipt",
+      style: { display: "flex", flex: "1 1 0", minWidth: 0 },
+      render: (selected) => (
+        <CaptureCard
+          selected={selected}
+          icon={<CameraIcon size={28} style={{ color: MYTAB_COLORS.primary }} />}
+          title="Scan receipt"
+          description="Photograph it, then fix anything wrong"
+        />
+      ),
+    });
+  }
+  captureOptions.push({
+    key: "manual",
+    label: "Add manually",
+    style: { display: "flex", flex: "1 1 0", minWidth: 0 },
+    render: (selected) => (
+      <CaptureCard
+        selected={selected}
+        icon={<EditIcon size={28} style={{ color: MYTAB_COLORS.ink }} />}
+        title="Add manually"
+        description="Type each dish and price"
+      />
+    ),
+  });
 
   return (
-    <section className="mytab-card" style={{ padding: "20px" }} data-testid="new-tab-form">
-      <label className="mytab-type-micro-label" htmlFor="tab-title">
-        Tab name
-      </label>
-      <input
-        id="tab-title"
-        value={title}
-        onChange={(event) => onChange({ title: event.target.value })}
-        className="mytab-input"
-        style={{ width: "100%", marginTop: 8, marginBottom: 16 }}
-      />
+    <div data-testid="new-tab-form" style={{ paddingBottom: 24 }}>
+      <Section id="tab-title-label" heading="What's this tab for?">
+        <input
+          id="tab-title"
+          aria-labelledby="tab-title-label"
+          value={title}
+          onChange={(event) => onChange({ title: event.target.value })}
+          className="mytab-input"
+          maxLength={120}
+        />
+      </Section>
 
-      <label className="mytab-type-micro-label" htmlFor="tab-merchant">
-        Merchant
-      </label>
-      <input
-        id="tab-merchant"
-        value={merchantName}
-        onChange={(event) => onChange({ merchantName: event.target.value })}
-        className="mytab-input"
-        style={{ width: "100%", marginTop: 8, marginBottom: 16 }}
-      />
+      <Section id="tab-merchant-label" heading="Where">
+        <input
+          id="tab-merchant"
+          aria-labelledby="tab-merchant-label"
+          value={merchantName}
+          onChange={(event) => onChange({ merchantName: event.target.value })}
+          className="mytab-input"
+          placeholder="Somtum Der"
+          maxLength={120}
+        />
+      </Section>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ flex: 1 }}>
-          <p className="mytab-type-micro-label">Currency</p>
-          <p className="mytab-type-body" style={{ margin: "8px 0 0" }}>
-            {displayCurrency}
-          </p>
-        </div>
-        <div style={{ flex: 1 }}>
-          <p className="mytab-type-micro-label">Recipient asset</p>
-          <p className="mytab-type-body" style={{ margin: "8px 0 0" }}>
-            {recipientAsset}
-          </p>
-        </div>
-      </div>
+      <Section
+        id="tab-currency-label"
+        heading="Currency"
+        marginBottom={fxFixtureBadge ? 12 : 28}
+      >
+        <RadioRow
+          name="currency"
+          labelledBy="tab-currency-label"
+          options={currencies}
+          selectedKey={displayCurrency}
+          onSelect={(key) => onChange({ displayCurrency: key })}
+          style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
+        />
+      </Section>
 
       {fxFixtureBadge ? (
         <p
           className="mytab-type-meta"
-          style={{ marginBottom: 16, color: MYTAB_COLORS.warning }}
+          style={{ margin: "0 0 28px", color: MYTAB_COLORS.warning }}
           data-testid="fx-fixture-badge"
         >
           {fxFixtureBadge}
         </p>
       ) : null}
 
-      <label className="mytab-type-micro-label" htmlFor="tab-payer">
-        Payer
-      </label>
-      <select
-        id="tab-payer"
-        value={payerUserId}
-        onChange={(event) => onChange({ payerUserId: event.target.value })}
-        className="mytab-input"
-        style={{ width: "100%", marginTop: 8, marginBottom: 16 }}
-      >
-        {members.map((member) => (
-          <option key={member.userId} value={member.userId}>
-            {member.displayName}
-          </option>
-        ))}
-      </select>
+      <Section id="tab-payer-label" heading="Who paid?" gap={12} marginBottom={34}>
+        {payers.length === 0 ? (
+          <p className="mytab-type-meta" style={{ margin: 0 }}>
+            Nobody in this group has opened My Tab yet. Ask someone to tap the link.
+          </p>
+        ) : (
+          <RadioRow
+            name="payer"
+            labelledBy="tab-payer-label"
+            options={payers}
+            selectedKey={payerUserId}
+            onSelect={(key) => onChange({ payerUserId: key })}
+            /* Wraps rather than scrolls, so the row holds at 320px with no
+               horizontal scroll anywhere (EXPERIENCE, Responsive & Platform). */
+            style={{ display: "flex", flexWrap: "wrap", gap: 16 }}
+          />
+        )}
+      </Section>
 
-      <label className="mytab-type-micro-label" htmlFor="tab-recipient">
-        Recipient
-      </label>
-      <select
-        id="tab-recipient"
-        value={recipientUserId}
-        onChange={(event) => onChange({ recipientUserId: event.target.value })}
-        className="mytab-input"
-        style={{ width: "100%", marginTop: 8 }}
-      >
-        {walletReadyMembers.map((member) => (
-          <option key={member.userId} value={member.userId}>
-            {member.displayName}
-          </option>
-        ))}
-      </select>
-      <p className="mytab-type-meta" style={{ marginTop: 8, color: MYTAB_COLORS.inkMuted }}>
-        Receiving wallet is resolved when the tab is locked — not shown here.
-      </p>
-    </section>
+      <Section id="tab-capture-label" heading="Add the items" gap={12} marginBottom={0}>
+        <RadioRow
+          name="capture"
+          labelledBy="tab-capture-label"
+          options={captureOptions}
+          selectedKey={captureMethod}
+          onSelect={(key) => onChange({ captureMethod: key as CaptureMethod })}
+          style={{ display: "flex", gap: 12, alignItems: "stretch" }}
+        />
+      </Section>
+    </div>
   );
 }

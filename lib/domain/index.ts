@@ -112,7 +112,6 @@ export {
 
 export {
   ACTIVITY_EVENT_TYPE,
-  activityIconGlyph,
   activityIconTint,
   type ActivityEventPayload,
   type ActivityEventType,

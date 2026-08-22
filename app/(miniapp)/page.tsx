@@ -2,52 +2,41 @@
 
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
-import {
-  TabsHomeSurface,
-  FIXTURE_BALANCE_HERO,
-  FIXTURE_OPEN_TABS,
-  FIXTURE_ACTIVITY,
-  FIXTURE_GROUP,
-  FIXTURE_MEMBERS,
-  FIXTURE_COMPRESSED_TRANSFERS,
-  FIXTURE_GROUP_BALANCE,
-  FIXTURE_VIEWER_USER_ID,
-} from "@/features/balances";
+import { useOffline } from "@/components/primitives/use-offline";
+import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
+import { TabsHomeSurface, useTabsHomeData } from "@/features/balances";
 
-export default function TabsHomePage() {
-  const memberNames = Object.fromEntries(
-    FIXTURE_MEMBERS.map((m) => [m.userId, m.displayName]),
-  );
-
-  const viewerComponents = FIXTURE_GROUP_BALANCE.components.filter(
-    (c) => c.debtorUserId === FIXTURE_VIEWER_USER_ID,
-  );
+/**
+ * Prop wiring only. Every state the surface can be in is passed from here:
+ * `loading` / `hasCachedData` (first paint vs. tab switch, §2.9), `error`
+ * (§4.3), `offline` (§4.4) and `inTelegram` (§4.5) — before this, `loading`
+ * and `offline` were never passed, which left `TabsHomeSkeleton` and
+ * `OfflineBar` unreachable.
+ */
+function TabsHome() {
+  const data = useTabsHomeData();
+  const offline = useOffline();
+  const { isTelegramWebApp } = useTelegramRuntime();
 
   return (
+    <AppShell>
+      <TabsHomeSurface
+        {...data.content}
+        loading={data.status === "loading"}
+        hasCachedData={data.hasCachedData}
+        error={data.status === "error"}
+        onRetry={data.retry}
+        offline={offline}
+        inTelegram={isTelegramWebApp}
+      />
+    </AppShell>
+  );
+}
+
+export default function TabsHomePage() {
+  return (
     <AuthGate>
-      <AppShell>
-        <TabsHomeSurface
-          balanceHero={FIXTURE_BALANCE_HERO}
-          openTabs={FIXTURE_OPEN_TABS}
-          groups={[
-            {
-              id: FIXTURE_GROUP.id,
-              name: FIXTURE_GROUP.name,
-              memberCount: FIXTURE_MEMBERS.length,
-            },
-          ]}
-          recentActivity={FIXTURE_ACTIVITY}
-          balanceComponents={viewerComponents.map((c) => ({
-            label: `Owe ${memberNames[c.creditorUserId] ?? c.creditorUserId}`,
-            amountMinor: c.amountMinor,
-            tabId: c.tabId,
-            billId: c.billId,
-          }))}
-          compressedTransfers={FIXTURE_COMPRESSED_TRANSFERS}
-          memberNames={memberNames}
-          inTelegram
-        />
-      </AppShell>
+      <TabsHome />
     </AuthGate>
   );
 }

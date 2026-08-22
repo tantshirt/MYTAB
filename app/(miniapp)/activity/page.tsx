@@ -2,21 +2,35 @@
 
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
-import { ActivityFeed, FIXTURE_ACTIVITY } from "@/features/balances";
+import { useOffline } from "@/components/primitives/use-offline";
+import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
+import { ActivitySurface, useActivityData } from "@/features/balances";
+
+/** Prop wiring only — the surface owns the title, the rhythm and every state. */
+function Activity() {
+  const data = useActivityData();
+  const offline = useOffline();
+  const { isTelegramWebApp } = useTelegramRuntime();
+
+  return (
+    <AppShell>
+      <ActivitySurface
+        events={data.events}
+        loading={data.status === "loading"}
+        hasCachedData={data.hasCachedData}
+        error={data.status === "error"}
+        onRetry={data.retry}
+        offline={offline}
+        inTelegram={isTelegramWebApp}
+      />
+    </AppShell>
+  );
+}
 
 export default function ActivityPage() {
   return (
     <AuthGate>
-      <AppShell>
-        <main style={{ paddingTop: "8px", paddingBottom: "24px" }}>
-          <h1 className="mytab-type-title" style={{ margin: 0 }}>
-            Activity
-          </h1>
-          <div style={{ marginTop: "16px" }}>
-            <ActivityFeed events={FIXTURE_ACTIVITY} />
-          </div>
-        </main>
-      </AppShell>
+      <Activity />
     </AuthGate>
   );
 }

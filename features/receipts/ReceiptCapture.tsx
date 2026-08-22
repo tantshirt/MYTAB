@@ -1,6 +1,6 @@
 "use client";
 
-import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
+import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { isReceiptScanEnabled } from "@/lib/features/flags";
 
 export type ReceiptCaptureProps = {
@@ -9,42 +9,30 @@ export type ReceiptCaptureProps = {
   disabled?: boolean;
 };
 
-/** Scan receipt affordance — no AI framing (Story 8.1 AC7, 8.6 AC3). */
+/**
+ * Scan receipt affordance — no AI framing, no sparkle, no wand, no robot
+ * (Story 8.1 AC7, 8.6 AC3; DESIGN.md *Don't*).
+ */
 export function ReceiptCapture({ onCapture, onSelectFile, disabled = false }: ReceiptCaptureProps) {
   if (!isReceiptScanEnabled()) {
     return null;
   }
 
   return (
-    <div style={{ display: "grid", gap: "12px" }}>
+    <div style={{ display: "grid", gap: 12 }}>
       <button
         type="button"
+        className="mytab-button-secondary"
         onClick={onCapture}
         disabled={disabled}
-        style={{
-          minHeight: "52px",
-          borderRadius: MYTAB_RADIUS.sm,
-          border: `1px solid ${MYTAB_COLORS.border}`,
-          background: MYTAB_COLORS.surface,
-          color: MYTAB_COLORS.ink,
-          fontWeight: 600,
-          cursor: disabled ? "not-allowed" : "pointer",
-        }}
       >
         Scan receipt
       </button>
       <button
         type="button"
+        className="mytab-link-button"
         onClick={onSelectFile}
         disabled={disabled}
-        className="mytab-type-meta"
-        style={{
-          minHeight: "44px",
-          border: "none",
-          background: "transparent",
-          color: MYTAB_COLORS.primary,
-          cursor: disabled ? "not-allowed" : "pointer",
-        }}
       >
         Choose from photos
       </button>
@@ -67,42 +55,19 @@ export function ManualEntryFallback({
   return (
     <div>
       {failureMessage ? (
-        <p className="mytab-type-body" style={{ color: MYTAB_COLORS.owed, marginBottom: "12px" }}>
+        <p className="mytab-type-body" style={{ margin: "0 0 12px", color: MYTAB_COLORS.owed }}>
           {failureMessage}
         </p>
       ) : null}
-      <p className="mytab-type-body" style={{ color: MYTAB_COLORS.inkMuted }}>
+      <p className="mytab-type-body" style={{ margin: 0, fontWeight: 500 }}>
         Add what you ordered.
       </p>
-      <div style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
-        <button
-          type="button"
-          onClick={onManualEntry}
-          style={{
-            minHeight: "52px",
-            borderRadius: MYTAB_RADIUS.sm,
-            border: "none",
-            background: MYTAB_COLORS.primary,
-            color: "#fff",
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
+      <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+        <button type="button" className="mytab-button-primary" onClick={onManualEntry}>
           Add items manually
         </button>
         {onRetryCapture && isReceiptScanEnabled() ? (
-          <button
-            type="button"
-            onClick={onRetryCapture}
-            style={{
-              minHeight: "44px",
-              borderRadius: MYTAB_RADIUS.sm,
-              border: `1px solid ${MYTAB_COLORS.border}`,
-              background: MYTAB_COLORS.surface,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
+          <button type="button" className="mytab-button-secondary" onClick={onRetryCapture}>
             Scan receipt
           </button>
         ) : null}

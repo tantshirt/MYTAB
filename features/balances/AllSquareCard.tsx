@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
-import { avatarTintForUserId } from "@/lib/theme/tokens";
+import { avatarTintsForGroup } from "@/lib/theme/tokens";
 
 export type AllSquareCardProps = {
   billName: string;
@@ -38,6 +39,12 @@ export function AllSquareCard({
   reduceMotion = false,
 }: AllSquareCardProps) {
   const cardRef = useRef<HTMLElement>(null);
+  // A stack of the whole cast: the set-aware allocator, so no two faces here
+  // share a tint (POLISH-SPEC §2.6; DESIGN.md "a row of five reads as one family").
+  const tints = useMemo(
+    () => avatarTintsForGroup(members.map((member) => member.userId)),
+    [members],
+  );
 
   useEffect(() => {
     cardRef.current?.focus();
@@ -90,15 +97,19 @@ export function AllSquareCard({
           ✓
         </div>
 
-        <p
-          className="mytab-type-amount-hero mytab-tabular"
-          data-mytab-amount
-          style={{ margin: 0, color: MYTAB_COLORS.ink }}
-        >
+        {/* "All square" is a state, not a figure — it carries no tabular slot. */}
+        <p className="mytab-type-amount-hero" style={{ margin: 0, color: MYTAB_COLORS.ink }}>
           All square
         </p>
         <p className="mytab-type-meta" style={{ margin: "8px 0 16px" }}>
-          {billName} · {amountLabel}
+          {billName} ·{" "}
+          <span
+            className="mytab-tabular"
+            data-mytab-amount
+            aria-label={formatAmountLabelForA11y(amountLabel)}
+          >
+            {amountLabel}
+          </span>
         </p>
 
         <div
@@ -120,7 +131,7 @@ export function AllSquareCard({
                 width: 32,
                 height: 32,
                 borderRadius: "999px",
-                background: avatarTintForUserId(member.userId),
+                background: tints.get(member.userId),
                 color: "#fff",
                 display: "inline-flex",
                 alignItems: "center",

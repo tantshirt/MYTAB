@@ -1,23 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import type { ActivityEventType } from "@/lib/domain/activityTypes";
-import { activityIconGlyph, activityIconTint } from "@/lib/domain/activityTypes";
+import { ACTIVITY_ICON } from "@/components/icons";
+import { AmountPair } from "@/components/primitives/amount-pair";
+import { EmptyState } from "@/components/primitives/empty-state";
+import { ErrorState } from "@/components/primitives/error-state";
+import { SurfaceErrorBoundary } from "@/components/primitives/error-boundary";
+import { showSkeleton, type LoadState } from "@/components/primitives/load-state";
+import { ACTIVITY_EVENT_TYPE, type ActivityEventType } from "@/lib/domain/activityTypes";
+import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
 import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
+import { ActivitySkeleton, OfflineBar } from "./LoadingStates";
+
+export const ACTIVITY_COPY = {
+  empty: "Nothing yet. Claims, tips and payments show up here.",
+  error: "Couldn't load your activity.",
+  retry: "Try again",
+  from: "From",
+  received: "Received",
+  networkFee: "Network fee",
+  networkFeeCovered: "Covered by My Tab",
+  explorer: "View on explorer",
+} as const;
 
 export type ActivityRowData = {
   id: string;
   type: ActivityEventType;
   summary: string;
+  /** Rendered figure. Quiet events (a lock, a claim) have none. */
   amountLabel?: string;
+  /** Spoken form. Derived from `amountLabel` when omitted. */
+  amountA11yLabel?: string;
   createdAt: number;
   detail?: string;
+  /** The three disclosed lines of a settlement (§1.12). */
+  breakdown?: {
+    from?: string;
+    received?: string;
+    /** Defaults to "Covered by My Tab", in `colors/settled`. */
+    networkFeeLabel?: string;
+  };
   transactionSignature?: string;
   explorerUrl?: string;
 };
 
-function formatRelativeTime(timestamp: number): string {
-  const deltaMs = Date.now() - timestamp;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
+  const deltaMs = now - timestamp;
   const minutes = Math.floor(deltaMs / 60_000);
   if (minutes < 1) {
     return "Just now";
@@ -32,34 +62,92 @@ function formatRelativeTime(timestamp: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export type ActivityRowProps = {
-  event: ActivityRowData;
+/** Local calendar-day key, so a day group never straddles midnight. */
+function dayKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+/**
+ * "TODAY", "YESTERDAY", then a plain date. `toLocaleDateString` is deliberately
+ * not used — with no locale argument it resolves differently on the server and
+ * in the webview, which is a hydration mismatch (POLISH-SPEC §1.3).
+ */
+function dayLabel(timestamp: number, now: number): string {
+  if (dayKey(timestamp) === dayKey(now)) {
+    return "Today";
+  }
+  if (dayKey(timestamp) === dayKey(now - 86_400_000)) {
+    return "Yesterday";
+  }
+  const date = new Date(timestamp);
+  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
+
+type ActivityTone = "settle" | "tip" | "quiet";
+
+/** §1.12 — three tones, and the amount colour follows the icon tint. */
+function toneForType(type: ActivityEventType): ActivityTone {
+  switch (type) {
+    case ACTIVITY_EVENT_TYPE.PAYMENT:
+    case ACTIVITY_EVENT_TYPE.CASH_ACKNOWLEDGED:
+      return "settle";
+    case ACTIVITY_EVENT_TYPE.TIP:
+      return "tip";
+    default:
+      return "quiet";
+  }
+}
+
+const TONES: Record<ActivityTone, { background: string; foreground: string; amount: string }> = {
+  settle: {
+    background: MYTAB_COLORS.settledSoft,
+    foreground: MYTAB_COLORS.settled,
+    amount: MYTAB_COLORS.settled,
+  },
+  tip: {
+    background: MYTAB_COLORS.tipSoft,
+    foreground: MYTAB_COLORS.tip,
+    amount: MYTAB_COLORS.ink,
+  },
+  quiet: {
+    background: MYTAB_COLORS.sunk,
+    foreground: MYTAB_COLORS.inkMuted,
+    amount: MYTAB_COLORS.inkMuted,
+  },
 };
 
-/** Expandable activity row (Story 7.3 AC3, AC4). */
-export function ActivityRow({ event }: ActivityRowProps) {
+export type ActivityRowProps = {
+  event: ActivityRowData;
+  now?: number;
+  /** Hairline beneath — omitted on the last row of a card. */
+  divided?: boolean;
+};
+
+/** Expandable activity row (Story 7.3 AC3, AC4; POLISH-SPEC §1.12). */
+export function ActivityRow({ event, now = Date.now(), divided = true }: ActivityRowProps) {
   const [expanded, setExpanded] = useState(false);
-  const tint = activityIconTint(event.type);
-  const glyph = activityIconGlyph(event.type);
+  const tone = TONES[toneForType(event.type)];
+  const Glyph = ACTIVITY_ICON[event.type];
+  const timestamp = formatRelativeTime(event.createdAt, now);
+  const breakdown = event.breakdown;
 
   return (
-    <article
-      style={{
-        borderBottom: `1px solid ${MYTAB_COLORS.border}`,
-      }}
-    >
+    <article style={{ borderBottom: divided ? `1px solid ${MYTAB_COLORS.border}` : undefined }}>
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         style={{
           display: "grid",
+          // `minmax(0, 1fr)` on the summary track: a long sentence ellipses and
+          // never squeezes the amount column (POLISH-SPEC §2.3).
           gridTemplateColumns: "32px minmax(0, 1fr) auto",
           gap: "12px",
           alignItems: "center",
           width: "100%",
           padding: "12px 0",
-          minHeight: "44px",
+          minHeight: "56px",
           border: "none",
           background: "transparent",
           textAlign: "left",
@@ -68,54 +156,104 @@ export function ActivityRow({ event }: ActivityRowProps) {
         }}
       >
         <span
-          aria-hidden
+          aria-hidden="true"
           style={{
             width: 32,
             height: 32,
             borderRadius: MYTAB_RADIUS.full,
-            background: `${tint}18`,
-            color: tint,
+            background: tone.background,
+            color: tone.foreground,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "14px",
           }}
         >
-          {glyph}
+          <Glyph size={16} />
         </span>
-        <span className="mytab-type-body mytab-row__label">{event.summary}</span>
+
         <span
-          className="mytab-type-amount-row mytab-tabular mytab-row__amount"
-          data-mytab-amount
-          style={{ color: MYTAB_COLORS.inkMuted }}
+          className="mytab-row__label"
+          style={{ fontSize: "14px", lineHeight: 1.4, display: "block" }}
         >
-          {event.amountLabel ?? formatRelativeTime(event.createdAt)}
+          {event.summary}
+        </span>
+
+        {/*
+         * The amount and the timestamp are two elements stacked, not
+         * alternatives: the old row put the relative time inside the tabular
+         * amount column whenever there was no figure (POLISH-SPEC §1.12).
+         */}
+        <span style={{ flex: "none", textAlign: "right", whiteSpace: "nowrap" }}>
+          {event.amountLabel ? (
+            <span
+              className="mytab-tabular"
+              data-mytab-amount
+              aria-label={event.amountA11yLabel ?? formatAmountLabelForA11y(event.amountLabel)}
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: 600,
+                color: tone.amount,
+              }}
+            >
+              {event.amountLabel}
+            </span>
+          ) : null}
+          <span
+            suppressHydrationWarning
+            style={{
+              display: "block",
+              marginTop: event.amountLabel ? "2px" : 0,
+              fontSize: "12px",
+              fontWeight: 400,
+              color: MYTAB_COLORS.inkMuted,
+            }}
+          >
+            {timestamp}
+          </span>
         </span>
       </button>
 
       {expanded ? (
-        <div
-          style={{
-            padding: "0 0 12px 44px",
-          }}
-        >
+        <div style={{ padding: "2px 16px 16px 60px" }}>
+          {breakdown?.from ? (
+            <AmountPair size="meta" label={ACTIVITY_COPY.from} amount={breakdown.from} />
+          ) : null}
+          {breakdown?.received ? (
+            <AmountPair size="meta" label={ACTIVITY_COPY.received} amount={breakdown.received} />
+          ) : null}
+          {breakdown ? (
+            <div
+              className="mytab-row"
+              style={{ fontSize: "13px", color: MYTAB_COLORS.inkMuted }}
+            >
+              <span className="mytab-row__label">{ACTIVITY_COPY.networkFee}</span>
+              <span className="mytab-row__amount" style={{ color: MYTAB_COLORS.settled }}>
+                {breakdown.networkFeeLabel ?? ACTIVITY_COPY.networkFeeCovered}
+              </span>
+            </div>
+          ) : null}
           {event.detail ? (
-            <p className="mytab-type-meta" style={{ margin: "0 0 8px" }}>
+            <p className="mytab-type-meta" style={{ margin: breakdown ? "8px 0 0" : 0 }}>
               {event.detail}
             </p>
           ) : null}
-          <p className="mytab-type-meta" style={{ margin: 0 }}>
-            {formatRelativeTime(event.createdAt)}
-          </p>
           {event.explorerUrl && event.transactionSignature ? (
             <a
               href={event.explorerUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mytab-type-label"
-              style={{ color: MYTAB_COLORS.primary, display: "inline-block", marginTop: "8px" }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                minHeight: "44px",
+                fontSize: "13px",
+                fontWeight: 500,
+                color: MYTAB_COLORS.primary,
+                textDecoration: "none",
+              }}
             >
-              View on explorer
+              {ACTIVITY_COPY.explorer}
             </a>
           ) : null}
         </div>
@@ -124,46 +262,121 @@ export function ActivityRow({ event }: ActivityRowProps) {
   );
 }
 
-export type ActivityFeedProps = {
+function RowCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        background: MYTAB_COLORS.surface,
+        border: `1px solid ${MYTAB_COLORS.border}`,
+        borderRadius: MYTAB_RADIUS.md,
+        padding: "0 16px",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export type ActivityFeedProps = LoadState & {
   events: ActivityRowData[];
-  loading?: boolean;
+  /** The read failed. Renders §4.3 copy with a retry. */
+  error?: boolean;
+  onRetry?: () => void;
+  offline?: boolean;
+  /**
+   * Day-grouped micro-labels. Off inside the Tabs "RECENT" block, which is
+   * already a labelled section showing only the newest few (§1.2).
+   */
+  grouped?: boolean;
 };
 
-/** Reverse-chronological activity feed (Story 7.3). */
-export function ActivityFeed({ events, loading = false }: ActivityFeedProps) {
-  if (loading) {
+/** Reverse-chronological activity feed (Story 7.3; POLISH-SPEC §1.12). */
+export function ActivityFeed({
+  events,
+  loading = false,
+  hasCachedData = false,
+  error = false,
+  onRetry,
+  offline = false,
+  grouped = true,
+}: ActivityFeedProps) {
+  const now = Date.now();
+
+  if (showSkeleton({ loading, hasCachedData })) {
+    return <ActivitySkeleton />;
+  }
+
+  if (error) {
     return (
-      <div aria-busy="true" aria-label="Loading activity">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            style={{
-              height: 56,
-              marginBottom: 8,
-              background: MYTAB_COLORS.sunk,
-              borderRadius: MYTAB_RADIUS.sm,
-            }}
-          />
-        ))}
-      </div>
+      <ErrorState
+        headline={ACTIVITY_COPY.error}
+        actions={[{ label: ACTIVITY_COPY.retry, onPress: onRetry }]}
+      />
     );
   }
 
   if (events.length === 0) {
     return (
-      <p className="mytab-type-body" style={{ color: MYTAB_COLORS.inkMuted }}>
-        Nothing yet. Claims, tips and payments show up here.
-      </p>
+      <>
+        <OfflineBar visible={offline} />
+        <EmptyState headline={ACTIVITY_COPY.empty} />
+      </>
     );
   }
 
   const sorted = [...events].sort((a, b) => b.createdAt - a.createdAt);
 
-  return (
-    <div role="feed" aria-label="Recent activity">
-      {sorted.map((event) => (
-        <ActivityRow key={event.id} event={event} />
+  const body = grouped ? (
+    groupByDay(sorted).map((group) => (
+      <section key={group.key} style={{ marginBottom: "22px" }}>
+        <h2 className="mytab-type-micro-label" suppressHydrationWarning style={{ margin: "0 0 10px" }}>
+          {dayLabel(group.at, now)}
+        </h2>
+        <RowCard>
+          {group.events.map((event, index) => (
+            <ActivityRow
+              key={event.id}
+              event={event}
+              now={now}
+              divided={index < group.events.length - 1}
+            />
+          ))}
+        </RowCard>
+      </section>
+    ))
+  ) : (
+    <RowCard>
+      {sorted.map((event, index) => (
+        <ActivityRow
+          key={event.id}
+          event={event}
+          now={now}
+          divided={index < sorted.length - 1}
+        />
       ))}
-    </div>
+    </RowCard>
   );
+
+  return (
+    <SurfaceErrorBoundary headline={ACTIVITY_COPY.error} retryLabel={ACTIVITY_COPY.retry}>
+      <OfflineBar visible={offline} />
+      <div role="feed" aria-label="Recent activity">
+        {body}
+      </div>
+    </SurfaceErrorBoundary>
+  );
+}
+
+function groupByDay(sorted: ActivityRowData[]): Array<{ key: string; at: number; events: ActivityRowData[] }> {
+  const groups: Array<{ key: string; at: number; events: ActivityRowData[] }> = [];
+  for (const event of sorted) {
+    const key = dayKey(event.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.events.push(event);
+    } else {
+      groups.push({ key, at: event.createdAt, events: [event] });
+    }
+  }
+  return groups;
 }

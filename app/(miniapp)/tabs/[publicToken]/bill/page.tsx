@@ -31,6 +31,12 @@ function BillReviewSurface({ publicToken }: { publicToken: string }) {
     router.push(`/tabs/${publicToken}`);
   }, [router, publicToken]);
 
+  // §4.2 — the no-claims empty state's "Back to the tab" action. Without this
+  // the button rendered and did nothing.
+  const handleBack = useCallback(() => {
+    router.push(`/tabs/${publicToken}`);
+  }, [router, publicToken]);
+
   const handleSettle = useCallback(() => {
     // The Payment Sheet is a sheet over the Claim Board, keyed on `?settle=`.
     router.push(`/tabs/${publicToken}${settleSearch(publicToken)}`);
@@ -38,7 +44,7 @@ function BillReviewSurface({ publicToken }: { publicToken: string }) {
 
   return (
     <AppShell>
-      <BillReview {...bill} onLock={handleLock} onSettle={handleSettle} />
+      <BillReview {...bill} onLock={handleLock} onSettle={handleSettle} onBack={handleBack} />
       <SettleSheetHost />
     </AppShell>
   );

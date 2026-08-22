@@ -43,24 +43,3 @@ export function activityIconTint(type: ActivityEventType): string {
       return "#55677D";
   }
 }
-
-/** Glyph for activity row icon (Story 7.3 AC4). */
-export function activityIconGlyph(type: ActivityEventType): string {
-  switch (type) {
-    case ACTIVITY_EVENT_TYPE.PAYMENT:
-      return "↗";
-    case ACTIVITY_EVENT_TYPE.TIP:
-      return "♥";
-    case ACTIVITY_EVENT_TYPE.WAIVER:
-      return "—";
-    case ACTIVITY_EVENT_TYPE.TAB_LOCK:
-      return "🔒";
-    case ACTIVITY_EVENT_TYPE.RECEIPT_CONFIRMED:
-      return "📄";
-    case ACTIVITY_EVENT_TYPE.CASH_PROPOSED:
-    case ACTIVITY_EVENT_TYPE.CASH_ACKNOWLEDGED:
-      return "฿";
-    default:
-      return "•";
-  }
-}

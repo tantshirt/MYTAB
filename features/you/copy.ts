@@ -1,6 +1,11 @@
+import { STATE_COPY } from "@/components/primitives/state-copy";
+
 /**
  * Every string on the You surface, in one place (POLISH-SPEC §3.2, §3.4, §4).
  * There is no state in this product without designed copy.
+ *
+ * The three §4 strings that are shared with every other surface come from
+ * `STATE_COPY` so the product has exactly one of each.
  */
 export const YOU_COPY = {
   title: "You",
@@ -38,11 +43,11 @@ export const YOU_COPY = {
   walletNotReady: "Your wallet isn't ready yet.",
 
   viewerFailed: "Couldn't load your details.",
-  retry: "Try again",
+  retry: STATE_COPY.retry,
 
-  offline: "You're offline. We'll catch up.",
-  outsideTelegram: "Open this in Telegram to make changes.",
-  needsConnection: "Needs a connection.",
+  offline: STATE_COPY.offline,
+  outsideTelegram: STATE_COPY.outsideTelegram,
+  needsConnection: STATE_COPY.needsConnection,
 
   loadingLabel: "Loading your details",
 

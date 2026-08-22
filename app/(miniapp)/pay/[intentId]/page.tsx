@@ -1,12 +1,13 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo } from "react";
+import { use, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
+import { AppShell } from "@/components/layout/AppShell";
 import { PaymentProgress } from "@/components/settlement-sheet";
-import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
+import { useHiddenTelegramBackButton } from "@/features/telegram/useBackAffordance";
+import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
 import type { SettlementStatus } from "@/convex/lib/settlementState";
-import { MYTAB_COLORS, MYTAB_LAYOUT } from "@/lib/theme/tokens";
 
 type PayPageProps = {
   params: Promise<{ intentId: string }>;
@@ -16,6 +17,8 @@ type PaymentProgressData = {
   status: SettlementStatus;
   recipientName: string;
   failureMessage: string | null;
+  /** The amount in flight. §1.9: the amount is the heading, not "Sending payment". */
+  amountLabel: string;
   /** Where "Back to tab" lands. */
   tabHref: string;
 };
@@ -34,6 +37,7 @@ function usePaymentProgressData(intentId: string): PaymentProgressData {
       status: "submitted" as SettlementStatus,
       recipientName: "Maya",
       failureMessage: null,
+      amountLabel: "฿291.74",
       tabHref: "/",
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentId is the seam key.
@@ -43,20 +47,11 @@ function usePaymentProgressData(intentId: string): PaymentProgressData {
 
 function PaymentProgressSurface({ intentId }: { intentId: string }) {
   const router = useRouter();
-  const { isTelegramWebApp } = useTelegramRuntime();
   const intent = usePaymentProgressData(intentId);
 
   // The surface is forward-only: no in-app chevron, and Telegram's BackButton
-  // is hidden rather than wired (POLISH-SPEC §1.9).
-  useEffect(() => {
-    if (!isTelegramWebApp) {
-      return;
-    }
-    const backButton = (
-      window.Telegram?.WebApp as { BackButton?: { hide: () => void } } | undefined
-    )?.BackButton;
-    backButton?.hide();
-  }, [isTelegramWebApp]);
+  // is hidden rather than wired (POLISH-SPEC §1.9, §2.4).
+  useHiddenTelegramBackButton(true);
 
   const handleBackToTab = useCallback(() => {
     router.replace(intent.tabHref);
@@ -67,38 +62,27 @@ function PaymentProgressSurface({ intentId }: { intentId: string }) {
   }, [router, intent.tabHref]);
 
   return (
-    // Full-bleed: no AppShell, so no header, no tab bar and no column gutters.
-    <div
-      style={{
-        minHeight: "100dvh",
-        background: MYTAB_COLORS.paper,
-        color: MYTAB_COLORS.ink,
-        fontFamily: "var(--mytab-font-family)",
-        paddingTop: "env(safe-area-inset-top, 0px)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div
-        style={{
-          flex: 1,
-          width: "100%",
-          maxWidth: MYTAB_LAYOUT.maxColumnWidth,
-          margin: "0 auto",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <PaymentProgress
-          status={intent.status}
-          recipientName={intent.recipientName}
-          failureMessage={intent.failureMessage}
-          onTryAgain={handleTryAgain}
-          onBackToTab={handleBackToTab}
-        />
-      </div>
-    </div>
+    // Full-bleed: no tab bar and no column gutters. The shell box, paper
+    // background and safe-area padding now come from `(miniapp)/layout.tsx`,
+    // which is the only thing that mounts them (POLISH-SPEC §2.9.1).
+    <AppShell hideTabBar fullBleed bottomBar="paper">
+      {/*
+        `amount`, `amountA11yLabel` and `intentId` are all optional on the
+        component, so omitting them compiled and silently fell back to the
+        state-driven heading — and left the success haptic latched on the
+        literal "current" rather than on this payment (§1.9).
+      */}
+      <PaymentProgress
+        status={intent.status}
+        recipientName={intent.recipientName}
+        failureMessage={intent.failureMessage}
+        amount={intent.amountLabel}
+        amountA11yLabel={formatAmountLabelForA11y(intent.amountLabel)}
+        intentId={intentId}
+        onTryAgain={handleTryAgain}
+        onBackToTab={handleBackToTab}
+      />
+    </AppShell>
   );
 }
 

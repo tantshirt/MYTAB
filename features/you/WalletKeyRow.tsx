@@ -6,18 +6,6 @@ import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { YOU_COPY } from "./copy";
 import { elideWalletKey, useCopyKey } from "./useCopyKey";
 
-const VISUALLY_HIDDEN = {
-  position: "absolute" as const,
-  width: "1px",
-  height: "1px",
-  margin: "-1px",
-  padding: 0,
-  overflow: "hidden",
-  clipPath: "inset(50%)",
-  whiteSpace: "nowrap" as const,
-  border: 0,
-};
-
 export type WalletKeyRowProps = {
   label: string;
   publicKey: string;
@@ -52,7 +40,7 @@ export function WalletKeyRow({ label, publicKey, idleValue, ariaLabel }: WalletK
         onPress={() => copy(publicKey)}
         trailing={<CopyGlyph />}
       />
-      <span role="status" aria-live="polite" style={VISUALLY_HIDDEN}>
+      <span role="status" aria-live="polite" className="mytab-visually-hidden">
         {status === "copied" ? YOU_COPY.copied : ""}
       </span>
     </div>

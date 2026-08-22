@@ -1,5 +1,17 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
+/*
+ * Astryx's stylesheet. Without it the `<Theme>` wrapper in
+ * `MyTabThemeProvider` renders a plain block `<div>` around the entire app
+ * instead of the `display: contents` it intends, which silently breaks any
+ * `height: 100%` chain through it (POLISH-SPEC §2.11). It is StyleX atomic CSS
+ * on generated class names, so it cannot collide with MYTAB_GLOBAL_CSS.
+ *
+ * The specifier is the package's `./astryx.css` export, which resolves to
+ * `dist/astryx.css`; the raw `dist/` path the spec quotes is not in the
+ * `exports` map and fails to resolve.
+ */
+import "@astryxdesign/core/astryx.css";
 import { shouldShowNonProductionBadge } from "@/lib/env/preview-guard";
 import { NonProductionBadge } from "@/components/primitives/non-production-badge";
 import { instrumentSans, schibstedGrotesk } from "@/lib/theme/fonts";

@@ -2,6 +2,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  /*
+   * Astryx ships untranspiled ESM. `transpilePackages` is what lets
+   * `@astryxdesign/core/astryx.css` and the `<Theme>` component be
+   * imported from app code at all (POLISH-SPEC §2.11). StyleX itself stays
+   * unwired — adding its compiler for zero call sites would be churn.
+   */
+  transpilePackages: ["@astryxdesign/core", "@astryxdesign/theme-neutral"],
   webpack: (config) => {
     /*
      * `config.externals` is an ARRAY in Next 15, not an object. The previous

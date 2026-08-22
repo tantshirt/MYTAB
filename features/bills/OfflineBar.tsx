@@ -1,31 +1,31 @@
 "use client";
 
-import { MYTAB_COLORS } from "@/lib/theme/tokens";
+import { NoticeBar } from "@/components/primitives/notice-bar";
+import { STATE_COPY } from "@/components/primitives/state-copy";
 
-type OfflineBarProps = {
+export type OfflineBarProps = {
   visible: boolean;
 };
 
-/** Inline offline notice — cached state stays readable (Story 4.4 AC4). */
+/**
+ * Inline offline notice — cached state stays readable (Story 4.4 AC4).
+ *
+ * There used to be two implementations of this bar at two different font sizes
+ * (`features/bills/OfflineBar.tsx` and `features/balances/LoadingStates.tsx`).
+ * POLISH-SPEC §4.4 asks for one treatment everywhere, so the geometry and the
+ * string now come from `components/primitives/notice-bar` and `STATE_COPY`, and
+ * this file is only the name the bills surfaces already import.
+ */
 export function OfflineBar({ visible }: OfflineBarProps) {
   if (!visible) {
     return null;
   }
 
   return (
-    <div
-      role="status"
-      data-testid="bill-offline-bar"
-      style={{
-        background: MYTAB_COLORS.warningSoft,
-        color: MYTAB_COLORS.warning,
-        padding: "10px 16px",
-        fontSize: "14px",
-        textAlign: "center",
-        borderBottom: `1px solid ${MYTAB_COLORS.border}`,
-      }}
-    >
-      You&apos;re offline. We&apos;ll catch up.
+    <div data-testid="bill-offline-bar">
+      <NoticeBar tone="warning" fullBleed>
+        {STATE_COPY.offline}
+      </NoticeBar>
     </div>
   );
 }
