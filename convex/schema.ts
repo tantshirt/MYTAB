@@ -353,6 +353,15 @@ export default defineSchema({
       v.literal("closed"),
     ),
     defaultCurrency: v.optional(v.string()),
+    // INVITE-FLOW §1.5 — the bound that replaces `getChatMember` for a tab with
+    // no chat. Absent means `{ kind: "chat" }`: bounded by the Telegram chat's
+    // own membership, which is every tab that exists today.
+    seatPolicy: v.optional(
+      v.union(
+        v.object({ kind: v.literal("chat") }),
+        v.object({ kind: v.literal("fixed"), seats: v.number() }),
+      ),
+    ),
     recipientAsset: v.optional(v.string()),
     payerUserId: v.optional(v.id("users")),
     recipientUserId: v.optional(v.id("users")),

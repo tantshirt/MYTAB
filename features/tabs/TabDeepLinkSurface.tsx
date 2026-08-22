@@ -11,13 +11,14 @@ import {
   STALE_NOTICE,
   useLiveMutation,
   useLiveQuery,
+  useRetryNonce,
 } from "@/features/convex/useConvexData";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AppShell } from "@/components/layout/AppShell";
-import { INVALID_LINK_MESSAGE, useResolvedTab } from "./useTabData";
+import { TAB_REFUSAL_ACTION_LABEL, useResolvedTab } from "./useTabData";
 
 type TabDeepLinkSurfaceProps = {
   publicToken: string;
@@ -26,6 +27,21 @@ type TabDeepLinkSurfaceProps = {
 type ClaimBoardData = {
   status: "loading" | "ready" | "error";
   board: ClaimBoardProps;
+};
+
+/** Real geometry, no fabricated money. Used for first paint and for errors. */
+const EMPTY_CLAIM_BOARD: ClaimBoardProps = {
+  tabName: "",
+  revision: 0,
+  isLocked: false,
+  isOrganizer: false,
+  viewerUserId: "",
+  organizerDisplayName: "Organizer",
+  participants: [],
+  items: [],
+  unassignedCount: 0,
+  viewerSubtotalMinor: 0,
+  viewerHasClaims: false,
 };
 
 /** `getClaimBoard` returns participants and the organizer's Telegram id, not a name. */
@@ -97,7 +113,10 @@ function useClaimBoardData(
   }
 
   if (result.error) {
-    return { status: "error", board: FIXTURE_CLAIM_BOARD };
+    // §9.11 B5 — an error state renders an error state. Never the fixture
+    // board: fabricated money on screen behind a failure is worse than a
+    // failure.
+    return { status: "error", board: EMPTY_CLAIM_BOARD };
   }
 
   if (!board) {
@@ -105,19 +124,7 @@ function useClaimBoardData(
     // spinner over nothing (EXPERIENCE, *State Patterns*).
     return {
       status: "loading",
-      board: {
-        tabName: tabName ?? "",
-        revision: 0,
-        isLocked: false,
-        isOrganizer: false,
-        viewerUserId: "",
-        organizerDisplayName: "Organizer",
-        participants: [],
-        items: [],
-        unassignedCount: 0,
-        viewerSubtotalMinor: 0,
-        viewerHasClaims: false,
-      },
+      board: { ...EMPTY_CLAIM_BOARD, tabName: tabName ?? "" },
     };
   }
 
@@ -133,7 +140,8 @@ function useClaimBoardData(
 export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   const router = useRouter();
   const { isTelegramWebApp } = useTelegramRuntime();
-  const session = useResolvedTab(publicToken);
+  const { nonce, retry } = useRetryNonce();
+  const session = useResolvedTab(publicToken, nonce);
 
   const handleBack = useCallback(() => {
     router.push("/");
@@ -154,12 +162,42 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   }
 
   if (session.status === "invalid") {
+    /*
+     * §7 — no raw codes, no stack traces, no dead ends. Each cause carries its
+     * own words and its own next action, and where the design allows it the
+     * group facts stay visible: tab name and people count, never an amount.
+     */
+    const onAction = session.action === "retry" ? retry : handleBack;
+
     return (
       <AuthGate>
         <AppShell>
-          <p className="mytab-type-body" style={{ marginTop: "24px", color: MYTAB_COLORS.inkMuted }}>
-            {session.message}
-          </p>
+          <div style={{ marginTop: "24px", display: "grid", gap: "12px", justifyItems: "start" }}>
+            {session.facts ? (
+              <p className="mytab-type-meta" style={{ color: MYTAB_COLORS.inkMuted }}>
+                {session.facts.tabName} · {session.facts.peopleCount}{" "}
+                {session.facts.peopleCount === 1 ? "person" : "people"}
+              </p>
+            ) : null}
+            <p className="mytab-type-body" style={{ color: MYTAB_COLORS.inkMuted }}>
+              {session.message}
+            </p>
+            <button
+              type="button"
+              onClick={onAction}
+              style={{
+                background: "none",
+                border: "none",
+                color: MYTAB_COLORS.primary,
+                fontSize: "15px",
+                fontWeight: 500,
+                padding: 0,
+                cursor: "pointer",
+              }}
+            >
+              {TAB_REFUSAL_ACTION_LABEL[session.action]}
+            </button>
+          </div>
         </AppShell>
       </AuthGate>
     );
@@ -292,7 +330,7 @@ function DeepLinkedClaimBoard({
     return (
       <AppShell hideTabBar>
         <p className="mytab-type-body" style={{ marginTop: "24px", color: MYTAB_COLORS.inkMuted }}>
-          {INVALID_LINK_MESSAGE}
+          Can&rsquo;t load this tab right now. Try again in a moment.
         </p>
       </AppShell>
     );

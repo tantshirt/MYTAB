@@ -123,7 +123,7 @@ describe("readMintDecimals", () => {
     const client = reader([mintAccount(6)]);
     const proven = await readMintDecimals([USDC, USDC, "garbage"], client);
     expect(client.read).toHaveBeenCalledTimes(1);
-    expect(client.read.mock.calls[0]![1]).toEqual([
+    expect(client.read).toHaveBeenCalledWith("getMultipleAccounts", [
       [USDC],
       { encoding: "base64", commitment: "confirmed" },
     ]);
@@ -139,9 +139,8 @@ describe("readMintDecimals", () => {
     };
     const proven = await readMintDecimals(mints, client);
     expect(client.read).toHaveBeenCalledTimes(2);
-    expect((client.read.mock.calls[0]![1] as unknown[])[0]).toHaveLength(
-      MAX_ACCOUNTS_PER_REQUEST,
-    );
+    const firstParams = client.read.mock.calls[0]![1] as [string[], unknown];
+    expect(firstParams[0]).toHaveLength(MAX_ACCOUNTS_PER_REQUEST);
     expect(proven.size).toBe(150);
   });
 
