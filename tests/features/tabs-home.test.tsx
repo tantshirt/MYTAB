@@ -1,6 +1,15 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// "Start a tab" is a bottom sheet, not a route, so the surface now calls
+// useRouter(). renderToStaticMarkup has no App Router mounted.
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: () => undefined, replace: () => undefined, refresh: () => undefined }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 import { TabsHomeSurface } from "@/features/balances/TabsHomeSurface";
 import {
   FIXTURE_ACTIVITY,

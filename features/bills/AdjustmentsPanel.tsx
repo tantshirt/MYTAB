@@ -55,9 +55,9 @@ export function AdjustmentsPanel({ adjustments, editable, onEdit }: AdjustmentsP
             <button
               key={option.kind}
               type="button"
-              className="mytab-button-secondary"
+              className="mytab-button-secondary mytab-button-inline"
               onClick={() => onEdit?.(option.kind)}
-              style={{ fontSize: "13px", padding: "8px 12px" }}
+              style={{ fontSize: "13px", minHeight: 44, padding: "0 14px" }}
             >
               {option.label}
             </button>

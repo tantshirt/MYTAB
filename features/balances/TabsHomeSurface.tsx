@@ -8,7 +8,8 @@ import { ActivityFeed } from "./ActivityFeed";
 import { AllSquareCard, hasSeenAllSquare, markAllSquareSeen } from "./AllSquareCard";
 import { BalanceLinkRow } from "./PaymentStateBadge";
 import { TabsHomeSkeleton, OfflineBar } from "./LoadingStates";
-import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
+import { StartTabAction } from "./StartTabAction";
+import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_ELEVATION } from "@/lib/theme/tokens";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import type { BalanceHeroState } from "@/lib/domain/balance";
 import type { FiatMinor } from "@/lib/domain/money";
@@ -38,7 +39,13 @@ export type TabsHomeSurfaceProps = {
   inTelegram?: boolean;
 };
 
-function PrimaryActions({ inTelegram }: { inTelegram: boolean }) {
+function PrimaryActions({
+  inTelegram,
+  groups,
+}: {
+  inTelegram: boolean;
+  groups: Array<{ id: string; name: string; memberCount: number }>;
+}) {
   if (!inTelegram) {
     return (
       <div style={{ marginTop: "24px" }}>
@@ -72,34 +79,36 @@ function PrimaryActions({ inTelegram }: { inTelegram: boolean }) {
       style={{
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
-        gap: "12px",
-        marginTop: "24px",
+        gap: "10px",
+        marginTop: "28px",
       }}
     >
-      <Link
-        href="/groups/picker"
+      <StartTabAction
+        groups={groups}
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          minHeight: "52px",
+          minHeight: "48px",
           borderRadius: MYTAB_RADIUS.sm,
           background: MYTAB_COLORS.primary,
           color: "#fff",
-          textDecoration: "none",
+          border: "none",
           fontWeight: 600,
           fontSize: "15px",
+          boxShadow: MYTAB_ELEVATION.buttonInset,
+          cursor: "pointer",
         }}
       >
         Start a tab
-      </Link>
+      </StartTabAction>
       <Link
         href="/tips/new"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          minHeight: "52px",
+          minHeight: "48px",
           borderRadius: MYTAB_RADIUS.sm,
           background: MYTAB_COLORS.surface,
           color: MYTAB_COLORS.ink,
@@ -147,7 +156,7 @@ export function TabsHomeSurface({
     return <TabsHomeSkeleton />;
   }
 
-  const emptyGroups = groups.length === 0 && openTabs.length === 0;
+  const noGroups = groups.length === 0;
 
   return (
     <div style={{ paddingTop: "8px", paddingBottom: "24px" }}>
@@ -166,30 +175,30 @@ export function TabsHomeSurface({
       ) : null}
 
       <BalanceHero state={balanceHero} />
-      <PrimaryActions inTelegram={inTelegram} />
+      <PrimaryActions inTelegram={inTelegram} groups={groups} />
 
       <section style={{ marginTop: "32px" }}>
         <h2 className="mytab-type-micro-label">Open tabs</h2>
-        {emptyGroups ? (
-          <div style={{ marginTop: "12px" }}>
-            <p className="mytab-type-body" style={{ color: MYTAB_COLORS.inkMuted }}>
-              No tabs yet. Start one from any Telegram group.
-            </p>
-            <Link
-              href={inTelegram ? "/groups/picker" : "https://t.me/mytab_fixture_bot"}
-              style={{
-                display: "inline-flex",
-                marginTop: "12px",
-                minHeight: "44px",
-                alignItems: "center",
-                color: MYTAB_COLORS.primary,
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              Start a tab
-            </Link>
-          </div>
+        {noGroups ? (
+          /*
+           * Zero verified groups: there is nowhere to start a tab, so we never
+           * offer an action that cannot be completed (POLISH-SPEC §1.2). The
+           * old link pointed at /groups/picker, which was a 404.
+           */
+          <p
+            className="mytab-type-body"
+            style={{ marginTop: "12px", color: MYTAB_COLORS.inkMuted }}
+          >
+            No tabs yet. Start one from any Telegram group.
+          </p>
+        ) : openTabs.length === 0 ? (
+          /* Groups exist but none has an open tab — the heading used to sit above an empty list. */
+          <p
+            className="mytab-type-meta"
+            style={{ marginTop: "10px", color: MYTAB_COLORS.inkMuted }}
+          >
+            No open tabs in your groups.
+          </p>
         ) : (
           <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "grid", gap: "12px" }}>
             {openTabs.map((tab) => (
@@ -226,10 +235,16 @@ export function TabsHomeSurface({
           </p>
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {compressedTransfers.map((transfer, index) => (
-              <li key={index} className="mytab-type-body" style={{ padding: "8px 0" }}>
-                {memberNames[transfer.fromUserId] ?? transfer.fromUserId} →{" "}
-                {memberNames[transfer.toUserId] ?? transfer.toUserId}:{" "}
-                <span className="mytab-tabular" data-mytab-amount>
+              <li
+                key={index}
+                className="mytab-type-body mytab-row"
+                style={{ padding: "8px 0" }}
+              >
+                <span className="mytab-row__label">
+                  {memberNames[transfer.fromUserId] ?? transfer.fromUserId} →{" "}
+                  {memberNames[transfer.toUserId] ?? transfer.toUserId}
+                </span>
+                <span className="mytab-row__amount mytab-tabular" data-mytab-amount>
                   {formatFiatMinorThb(transfer.amountMinor)}
                 </span>
               </li>
@@ -262,8 +277,12 @@ export function TabsHomeSurface({
                     borderBottom: `1px solid ${MYTAB_COLORS.border}`,
                   }}
                 >
-                  <span>{group.name}</span>
-                  <span className="mytab-type-meta">{group.memberCount} members</span>
+                  <span className="mytab-row__label" style={{ flex: 1, minWidth: 0 }}>
+                    {group.name}
+                  </span>
+                  <span className="mytab-type-meta" style={{ flex: "none", whiteSpace: "nowrap" }}>
+                    {group.memberCount} members
+                  </span>
                 </Link>
               </li>
             ))}

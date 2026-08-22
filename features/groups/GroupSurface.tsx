@@ -104,8 +104,8 @@ export function GroupSurface({
               }}
             >
               <MemberAvatar member={member} />
-              <div style={{ flex: 1 }}>
-                <p className="mytab-type-label" style={{ margin: 0 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p className="mytab-type-label mytab-row__label" style={{ margin: 0 }}>
                   {member.displayName}
                 </p>
                 <p className="mytab-type-meta" style={{ margin: "2px 0 0" }}>

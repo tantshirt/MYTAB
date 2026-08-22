@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveWithinGroupBalance,
+  formatBalanceHeroParts,
   formatBalanceHeroText,
   isBillComplete,
   resolveBalanceHero,
@@ -147,6 +148,22 @@ describe("Story 7.1 — balance hero", () => {
         tokenLabel: "USDC",
       }),
     ).toContain("USDC");
+  });
+
+  // POLISH-SPEC §2.3: the label and the figure must be separable so the figure
+  // can be laid out on its own line and never truncated.
+  it("splits the label from the figure", () => {
+    expect(formatBalanceHeroParts({ kind: "owed", amountMinor: 184_000 as never })).toEqual({
+      label: "You owe",
+      figure: "฿1,840.00",
+    });
+    expect(
+      formatBalanceHeroParts({ kind: "settled", amountAtomic: 42_100_000n, tokenLabel: "USDC" }),
+    ).toEqual({ label: "You are owed", figure: "42.100000 USDC" });
+    expect(formatBalanceHeroParts({ kind: "all_square" })).toEqual({
+      label: null,
+      figure: "All square",
+    });
   });
 
   it("AC3 — amounts stated to full precision", () => {

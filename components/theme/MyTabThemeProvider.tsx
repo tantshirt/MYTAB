@@ -2,7 +2,6 @@
 
 import { Theme } from "@astryxdesign/core";
 import type { ReactNode } from "react";
-import { MYTAB_GLOBAL_CSS } from "@/lib/theme/globalStyles";
 import { myTabTheme } from "@/lib/theme/myTabTheme";
 
 type MyTabThemeProviderProps = {
@@ -11,12 +10,16 @@ type MyTabThemeProviderProps = {
 
 /**
  * Astryx theme wrapper with the full My Tab token set (Story 1.2).
- * Forces light mode — no dark variant (AC1).
+ * Forces light mode — no dark variant (AC1); the app never follows Telegram's
+ * dark theme.
+ *
+ * MYTAB_GLOBAL_CSS is no longer injected here — it is hoisted into <head> in
+ * app/layout.tsx so it applies at first paint rather than after hydration
+ * (POLISH-SPEC §2.2).
  */
 export function MyTabThemeProvider({ children }: MyTabThemeProviderProps) {
   return (
     <Theme theme={myTabTheme} mode="light">
-      <style>{MYTAB_GLOBAL_CSS}</style>
       {children}
     </Theme>
   );

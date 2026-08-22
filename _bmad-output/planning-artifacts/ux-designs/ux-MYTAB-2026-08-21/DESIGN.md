@@ -135,9 +135,18 @@ The palette is built on one idea: **the neutrals are cool and the accents are de
 
 **Action**
 
-- **Tab Blue (`#1E51D2`)** — the only action color. Primary buttons, selection, links, focus. Deep and confident rather than bright; a saturated blue reads as a consumer app, this one reads as software that moves money. Never decorative, never a background wash, never a gradient stop.
+- **Tab Blue (`#1E51D2`)** — the only action color **on the paper canvas**. Primary buttons, selection, links, focus. Deep and confident rather than bright; a saturated blue reads as a consumer app, this one reads as software that moves money. Never decorative, never a background wash, never a gradient stop.
 - **Tab Blue Soft (`#E7EDFC`)** — the "this one is yours" tint. Selected rows, active chips. It marks ownership, nothing else.
 - **Tab Blue Deep (`#17409F`)** — pressed and link-hover only.
+
+**Photographic surfaces — Launch and first run only**
+
+These are the two screens with no money on them, and the only two where a photograph is permitted. The cool-paper system withholds warmth from the ledger on purpose; it belongs here instead.
+
+- **The primary action is `paper` on `ink`**, never Tab Blue. Blue over a photograph is the one element that visibly did not come from the image; `paper` is the exact canvas colour of every screen behind it, so the button reads as the app arriving rather than a control dropped onto a picture. It also keeps blue meaning one thing.
+- **The lockup is monochrome white.** The two-colour mark is correct on paper, where the blue tear is a colour boundary against a light ground. Over an image it reads as a sticker.
+- **A navy scrim, never a black one** — `rgba(10,32,56,…)`. Black scrim over navy ink is the one place the "never black" rule is most visible.
+- No photograph appears on any surface carrying an amount. This is not a stylistic preference; it is the trust argument.
 
 **Semantic — deep, never alarming**
 
@@ -152,6 +161,8 @@ The palette is built on one idea: **the neutrals are cool and the accents are de
 **Avoid:** any gradient except the single all-square wash · any color not in this table · saturated fills behind body text · filled red error panels · pure black or pure grey · semantic color carried by hue alone (see the Accessibility Floor in `EXPERIENCE.md`).
 
 ## Typography
+
+**Schibsted Grotesk SemiBold** sets the wordmark, and nothing else — not a heading, not a label, not a single line of UI text. A warmer grotesque than the UI face, with enough character to work as a mark and enough shared DNA that the two read as relatives. It is loaded on Launch only.
 
 **Instrument Sans** with a system fallback stack, at a 15px body, set with a hair of negative tracking (`-0.006em`) throughout. It is a modern grotesque with tight apertures and engineered proportions — it reads considered rather than friendly, which is the whole difference between a consumer app and a financial one. Amounts are the display type; this product has no headlines competing with them.
 
@@ -200,6 +211,7 @@ Visual specification only — behavior lives in `EXPERIENCE.md.Component Pattern
 
 | Component | Visual spec |
 |---|---|
+| `lockup` | Mark left, wordmark right, as one object. Mark at `0.95em` against a cap height of ~`0.72em`, so it overshoots the word and reads level. `Schibsted Grotesk` 600 at `-0.032em`. Two-colour on paper, monochrome white over a photograph. |
 | `balance-hero` | `amount-hero` in `colors/owed`, `colors/settled`, or `colors/ink` by state; `meta` sub-line beneath. No container, no card — it sits directly on `colors/paper`. |
 | `tab-card` | `colors/surface`, `rounded/md`, 1px `colors/border`, `spacing/5` padding. Title in `body` semibold, `meta` sub-line, 4px progress bar, right-aligned `amount-row`. |
 | `claim-row` | Full-bleed row inside a bordered list. Item name in `body`, price right-aligned `amount-row`, avatar stack beneath the name. Unclaimed carries a 3px `colors/warning` left edge; owned by the viewer takes a `colors/primary-soft` fill. |

@@ -228,7 +228,9 @@ export function BillAuthoringSurface({
   return (
     <>
       <OfflineBar visible={offline} />
-      <AppShell hideTabBar footer={isOrganizer ? primaryAction : undefined}>
+      {/* Authoring keeps the tab bar. Only the deep-linked Claim Board hides it
+          (EXPERIENCE, Information Architecture; POLISH-SPEC §1.0). */}
+      <AppShell footer={isOrganizer ? primaryAction : undefined}>
         <header style={{ paddingTop: 8, paddingBottom: 16 }}>
           <h1 className="mytab-type-title" style={{ margin: 0 }}>
             {form.title}

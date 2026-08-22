@@ -100,8 +100,11 @@ export function ClaimBoard(props: ClaimBoardProps) {
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%", background: MYTAB_COLORS.paper }}>
       <header style={{ padding: "16px 16px 8px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: MYTAB_TYPOGRAPHY.title.size, fontWeight: 600 }}>
+          <div style={{ minWidth: 0 }}>
+            <h1
+              className="mytab-row__label"
+              style={{ margin: 0, fontSize: MYTAB_TYPOGRAPHY.title.size, fontWeight: 600 }}
+            >
               {props.tabName}
               {props.isLocked ? " · Locked" : ""}
             </h1>
@@ -112,7 +115,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
           {presence.length > 0 ? (
             <div
               aria-label={`${presence.length} others here`}
-              style={{ display: "flex", alignItems: "center", minWidth: 44, minHeight: 44 }}
+              style={{ display: "flex", alignItems: "center", flex: "none", minWidth: 44, minHeight: 44 }}
             >
               {presence.slice(0, 3).map((userId, index) => {
                 const participant = props.participants.find((row) => row.userId === userId);
@@ -175,14 +178,17 @@ export function ClaimBoard(props: ClaimBoardProps) {
                   cursor: props.isLocked ? "default" : "pointer",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                  <span style={{ fontSize: MYTAB_TYPOGRAPHY.body.size }}>{item.name}</span>
+                <div className="mytab-row">
                   <span
-                    style={{
-                      fontVariantNumeric: "tabular-nums",
-                      fontFeatureSettings: '"tnum"',
-                      fontSize: MYTAB_TYPOGRAPHY.amountRow.size,
-                    }}
+                    className="mytab-row__label"
+                    style={{ fontSize: MYTAB_TYPOGRAPHY.body.size, lineHeight: 1.45 }}
+                  >
+                    {item.name}
+                  </span>
+                  <span
+                    className="mytab-row__amount"
+                    data-mytab-amount
+                    style={{ fontSize: MYTAB_TYPOGRAPHY.amountRow.size }}
                   >
                     {formatFiatMinorThb(thbMinorFromInteger(item.lineTotalMinor))}
                   </span>
@@ -223,13 +229,15 @@ export function ClaimBoard(props: ClaimBoardProps) {
         </p>
         <div style={{ display: "flex", alignItems: "stretch", gap: 12 }}>
           <span
+            className="mytab-row__amount"
+            data-mytab-amount
             style={{
-              flex: 1,
+              flex: "none",
               fontSize: MYTAB_TYPOGRAPHY.amountMd.size,
               fontWeight: 600,
-              fontVariantNumeric: "tabular-nums",
-              fontFeatureSettings: '"tnum"',
+              letterSpacing: MYTAB_TYPOGRAPHY.amountMd.tracking,
               alignSelf: "center",
+              textAlign: "left",
             }}
           >
             {formatFiatMinorThb(thbMinorFromInteger(props.viewerSubtotalMinor))}
@@ -238,18 +246,10 @@ export function ClaimBoard(props: ClaimBoardProps) {
             type="button"
             disabled={action.disabled}
             onClick={props.onOpenBillReview}
-            style={{
-              minHeight: 44,
-              padding: "0 20px",
-              border: "none",
-              borderRadius: 10,
-              background: action.disabled ? MYTAB_COLORS.border : MYTAB_COLORS.primary,
-              color: action.disabled ? MYTAB_COLORS.inkMuted : "#fff",
-              fontWeight: 600,
-              cursor: action.disabled ? "default" : "pointer",
-            }}
+            className="mytab-button-primary"
+            style={{ flex: 1, minWidth: 0, minHeight: 48 }}
           >
-            {action.label}
+            <span className="mytab-row__label">{action.label}</span>
           </button>
         </div>
         {props.isLocked ? (

@@ -54,7 +54,7 @@ export function ActivityRow({ event }: ActivityRowProps) {
         aria-expanded={expanded}
         style={{
           display: "grid",
-          gridTemplateColumns: "32px 1fr auto",
+          gridTemplateColumns: "32px minmax(0, 1fr) auto",
           gap: "12px",
           alignItems: "center",
           width: "100%",
@@ -83,9 +83,9 @@ export function ActivityRow({ event }: ActivityRowProps) {
         >
           {glyph}
         </span>
-        <span className="mytab-type-body">{event.summary}</span>
+        <span className="mytab-type-body mytab-row__label">{event.summary}</span>
         <span
-          className="mytab-type-amount-row mytab-tabular"
+          className="mytab-type-amount-row mytab-tabular mytab-row__amount"
           data-mytab-amount
           style={{ color: MYTAB_COLORS.inkMuted }}
         >

@@ -128,20 +128,44 @@ export function resolveBalanceHero(input: {
   };
 }
 
-/** Formats balance hero headline text (Story 7.1 AC1, AC3). */
-export function formatBalanceHeroText(state: BalanceHeroState): string {
+/**
+ * The balance hero as two independent pieces (POLISH-SPEC §2.3, §1.2).
+ *
+ * The label and the figure must never be welded into one string: a single string
+ * forces the renderer to fit "You owe ฿291.74" at 42px in a 358px column, which is
+ * what produced the clipped "฿291.7". The figure alone is at most 8 glyphs.
+ */
+export type BalanceHeroParts = {
+  /** "You owe" / "You are owed", or null when the state has no label. */
+  label: string | null;
+  /** The figure alone — never truncated, anywhere. */
+  figure: string;
+};
+
+export function formatBalanceHeroParts(state: BalanceHeroState): BalanceHeroParts {
   switch (state.kind) {
     case "owed":
-      return `You owe ${formatFiatMinorThb(state.amountMinor)}`;
+      return { label: "You owe", figure: formatFiatMinorThb(state.amountMinor) };
     case "settled": {
       const display = formatCryptoAmountDisplay(
         usdcAmountFromAtomicString(state.amountAtomic.toString()),
       );
-      return `You are owed ${display} ${state.tokenLabel}`;
+      return { label: "You are owed", figure: `${display} ${state.tokenLabel}` };
     }
     case "all_square":
-      return "All square";
+      return { label: null, figure: "All square" };
   }
+}
+
+/**
+ * Single-string form (Story 7.1 AC1, AC3).
+ *
+ * For announcements and aria-labels only. **Never render this into a sized box** —
+ * use `formatBalanceHeroParts` and lay the label out above the figure.
+ */
+export function formatBalanceHeroText(state: BalanceHeroState): string {
+  const { label, figure } = formatBalanceHeroParts(state);
+  return label ? `${label} ${figure}` : figure;
 }
 
 /** Whether a bill is complete from confirmed offsets (Story 7.5 AC5). */

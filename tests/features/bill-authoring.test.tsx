@@ -1,6 +1,14 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Authoring now renders inside AppShell *with* the tab bar (POLISH-SPEC §1.0 —
+// only the deep-linked Claim Board hides it), and the tab bar reads usePathname().
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/tabs/new",
+  useRouter: () => ({ push: () => undefined, replace: () => undefined, refresh: () => undefined }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 import {
   BillAuthoringSurface,
   FIXTURE_BILL_AUTHORING,

@@ -67,22 +67,12 @@ export function BalanceLinkRow({ label, amount, tabId, billId }: BalanceLinkRowP
         borderBottom: `1px solid ${MYTAB_COLORS.border}`,
       }}
     >
-      <span
-        className="mytab-type-body"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <span className="mytab-type-body mytab-row__label" style={{ flex: 1 }}>
         {label}
       </span>
       <span
-        className="mytab-type-amount-row mytab-tabular"
+        className="mytab-type-amount-row mytab-tabular mytab-row__amount"
         data-mytab-amount
-        style={{ flexShrink: 0 }}
       >
         {amount}
       </span>

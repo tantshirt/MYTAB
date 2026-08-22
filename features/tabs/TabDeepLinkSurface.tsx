@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
-import { BillAuthoringSurface } from "@/features/bills/BillAuthoringSurface";
+import { ClaimBoard, FIXTURE_CLAIM_BOARD, type ClaimBoardProps } from "@/features/claims";
+import { SettleSheetHost } from "@/features/settlement/SettleSheetHost";
 import { useTelegramBackButton } from "@/features/telegram/useTelegramBackButton";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { isConvexAuthFixtureMode } from "@/lib/privy/config";
@@ -25,6 +26,27 @@ const FIXTURE_TAB: TabSessionState = {
   tabId: "tabs:fixture",
 };
 
+/**
+ * Single prop-resolution point for the deep-linked Claim Board.
+ *
+ * TODO(live-data): replace the fixture spread with
+ * `useQuery(api.claims.getClaimBoard, { publicToken })` and drop the
+ * `FIXTURE_CLAIM_BOARD` import. The surface below never learns the difference.
+ */
+function useClaimBoardData(publicToken: string, tabName: string): ClaimBoardProps {
+  return useMemo(
+    () => ({ ...FIXTURE_CLAIM_BOARD, tabName }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [publicToken, tabName],
+  );
+}
+
+/**
+ * The `[Open tab]` button in the group message always lands here, and this
+ * surface is the Claim Board for that specific tab — never the authoring
+ * screen, which lives at `/tabs/new` (EXPERIENCE, Information Architecture;
+ * POLISH-SPEC §1.0, §1.6).
+ */
 export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
   const router = useRouter();
   const { isTelegramWebApp } = useTelegramRuntime();
@@ -90,17 +112,43 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
 
   return (
     <AuthGate>
-      {!isTelegramWebApp ? (
-        <div
-          style={{
-            maxWidth: 480,
-            margin: "0 auto",
-            padding: "8px 16px 0",
-          }}
-        >
+      <DeepLinkedClaimBoard
+        publicToken={publicToken}
+        tabName={session.tabName}
+        showInAppBack={!isTelegramWebApp}
+        onBack={handleBack}
+      />
+    </AuthGate>
+  );
+}
+
+function DeepLinkedClaimBoard({
+  publicToken,
+  tabName,
+  showInAppBack,
+  onBack,
+}: {
+  publicToken: string;
+  tabName: string;
+  showInAppBack: boolean;
+  onBack: () => void;
+}) {
+  const router = useRouter();
+  const board = useClaimBoardData(publicToken, tabName);
+
+  const openBillReview = useCallback(() => {
+    router.push(`/tabs/${publicToken}/bill`);
+  }, [router, publicToken]);
+
+  return (
+    // A deep-linked Claim Board hides the tab bar entirely. The only exit is
+    // the back control, which lands on Tabs (EXPERIENCE, Information Architecture).
+    <AppShell hideTabBar>
+      {showInAppBack ? (
+        <div style={{ padding: "8px 0 0" }}>
           <button
             type="button"
-            onClick={handleBack}
+            onClick={onBack}
             style={{
               background: "none",
               border: "none",
@@ -115,11 +163,8 @@ export function TabDeepLinkSurface({ publicToken }: TabDeepLinkSurfaceProps) {
           </button>
         </div>
       ) : null}
-      <BillAuthoringSurface
-        tabId={session.tabId}
-        tabTitle={session.tabName}
-        viewerUserId={isConvexAuthFixtureMode() ? "users:andre" : undefined}
-      />
-    </AuthGate>
+      <ClaimBoard {...board} onOpenBillReview={openBillReview} />
+      <SettleSheetHost />
+    </AppShell>
   );
 }

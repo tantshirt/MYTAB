@@ -30,6 +30,89 @@ export type BillReviewProps = {
   onSettle?: () => void;
 };
 
+const fmtAbs = (minor: number) => formatFiatMinorThb(thbMinorFromInteger(Math.abs(minor)));
+
+/** Unsigned unless the value is negative, in which case the minus is shown. */
+const fmtPlain = (minor: number) => (minor < 0 ? `−${fmtAbs(minor)}` : fmtAbs(minor));
+
+/** Always carries its sign — rounding and discount lines must read as adjustments. */
+const fmtSigned = (minor: number) => `${minor < 0 ? "−" : "+"}${fmtAbs(minor)}`;
+
+export type BillReviewLine = {
+  key: string;
+  label: string;
+  amount: string;
+  tone: "muted" | "warning";
+};
+
+/**
+ * Every non-zero component of a person's share, signed, so the visible lines always
+ * add up to the total shown above them. Hiding a −฿0.01 is precisely the silent
+ * asymmetry the Money Legibility section exists to prevent (FR-M4, FR-M5).
+ */
+export function buildBillReviewLines(row: BillReviewBreakdown): BillReviewLine[] {
+  const lines: BillReviewLine[] = [
+    { key: "items", label: "Items", amount: fmtPlain(row.itemShareMinor), tone: "muted" },
+  ];
+
+  if (row.serviceMinor !== 0) {
+    lines.push({ key: "service", label: "Service", amount: fmtPlain(row.serviceMinor), tone: "muted" });
+  }
+  if (row.taxMinor !== 0) {
+    lines.push({ key: "tax", label: "Tax", amount: fmtPlain(row.taxMinor), tone: "muted" });
+  }
+  if (row.tipMinor !== 0) {
+    lines.push({ key: "tip", label: "Tip", amount: fmtPlain(row.tipMinor), tone: "muted" });
+  }
+  // A discount reduces the share, so a positive `discountMinor` reads as a minus.
+  if (row.discountMinor !== 0) {
+    lines.push({
+      key: "discount",
+      label: "Discount",
+      amount: fmtSigned(-row.discountMinor),
+      tone: "muted",
+    });
+  }
+  if (row.roundingMinor !== 0) {
+    lines.push({
+      key: "rounding",
+      label: "Rounding",
+      amount: fmtSigned(row.roundingMinor),
+      tone: "warning",
+    });
+  }
+
+  return lines;
+}
+
+/** Rounding is disclosed in `colors/warning`, never folded into another line. */
+function BreakdownLine({ line }: { line: BillReviewLine }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: 12,
+        fontSize: MYTAB_TYPOGRAPHY.amountRow.size,
+        fontWeight: MYTAB_TYPOGRAPHY.amountRow.weight,
+        color: line.tone === "warning" ? MYTAB_COLORS.warning : MYTAB_COLORS.inkMuted,
+      }}
+    >
+      <span>{line.label}</span>
+      <span
+        style={{
+          fontVariantNumeric: "tabular-nums",
+          fontFeatureSettings: '"tnum"',
+          textAlign: "right",
+        }}
+      >
+        {line.amount}
+      </span>
+    </div>
+  );
+}
+
 /**
  * Read-only bill review for every participant (Story 5.8).
  */
@@ -45,6 +128,19 @@ export function BillReview({
   onSettle,
 }: BillReviewProps) {
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
+
+  const billTotalLabel = formatFiatMinorThb(thbMinorFromInteger(billTotalMinor));
+  // FR-M6: when reconciliation fails the shortfall is named exactly. "Do not reconcile"
+  // tells the organizer nothing they can act on.
+  const sharesTotalMinor = breakdowns.reduce((sum, row) => sum + row.totalMinor, 0);
+  const shortfallMinor = billTotalMinor - sharesTotalMinor;
+  const reconciliationMessage = reconciles
+    ? `Everyone's shares add up to ${billTotalLabel} ✓`
+    : shortfallMinor > 0
+      ? `Shares are ${fmtAbs(shortfallMinor)} short of ${billTotalLabel}. Lock is blocked.`
+      : shortfallMinor < 0
+        ? `Shares are ${fmtAbs(shortfallMinor)} over ${billTotalLabel}. Lock is blocked.`
+        : `Shares don't add up to ${billTotalLabel}. Lock is blocked.`;
 
   const action = isOrganizer
     ? { label: "Lock bill", disabled: !reconciles || isLocked, onClick: onLock }
@@ -103,46 +199,9 @@ export function BillReview({
               </button>
               {open ? (
                 <div style={{ padding: "0 16px 14px 24px", display: "grid", gap: 8 }}>
-                  <AmountPair
-                    label="Items"
-                    amount={formatFiatMinorThb(thbMinorFromInteger(row.itemShareMinor))}
-                    muted
-                  />
-                  {row.serviceMinor > 0 ? (
-                    <AmountPair
-                      label="Service"
-                      amount={formatFiatMinorThb(thbMinorFromInteger(row.serviceMinor))}
-                      muted
-                    />
-                  ) : null}
-                  {row.taxMinor > 0 ? (
-                    <AmountPair
-                      label="Tax"
-                      amount={formatFiatMinorThb(thbMinorFromInteger(row.taxMinor))}
-                      muted
-                    />
-                  ) : null}
-                  {row.tipMinor > 0 ? (
-                    <AmountPair
-                      label="Tip"
-                      amount={formatFiatMinorThb(thbMinorFromInteger(row.tipMinor))}
-                      muted
-                    />
-                  ) : null}
-                  {row.discountMinor > 0 ? (
-                    <AmountPair
-                      label="Discount"
-                      amount={`−${formatFiatMinorThb(thbMinorFromInteger(row.discountMinor))}`}
-                      muted
-                    />
-                  ) : null}
-                  {row.roundingMinor > 0 ? (
-                    <AmountPair
-                      label="Rounding"
-                      amount={`+${formatFiatMinorThb(thbMinorFromInteger(row.roundingMinor))}`}
-                      muted
-                    />
-                  ) : null}
+                  {buildBillReviewLines(row).map((line) => (
+                    <BreakdownLine key={line.key} line={line} />
+                  ))}
                 </div>
               ) : null}
             </li>
@@ -157,9 +216,7 @@ export function BillReview({
           fontSize: MYTAB_TYPOGRAPHY.body.size,
         }}
       >
-        {reconciles
-          ? `Everyone's shares add up to ${formatFiatMinorThb(thbMinorFromInteger(billTotalMinor))} ✓`
-          : "Shares do not reconcile — lock is blocked"}
+        {reconciliationMessage}
       </p>
 
       <button
@@ -188,6 +245,19 @@ export function BillReview({
   );
 }
 
+/*
+ * The canonical demo fixture from DESIGN.md: Sukhumvit Dinner, five people,
+ * ฿1,840.00 total, Andre owing ฿291.74 (240.00 + 24.00 + 18.48 + 9.25 + 0.01).
+ *
+ * Service is 10% of items; tax is 7% of (items + service); the group tip is a
+ * flat ฿9.25 a head. Largest-remainder allocation hands Andre the spare satang
+ * and takes it from Tim — which is exactly the asymmetry EXPERIENCE.md requires
+ * be disclosed rather than hidden, so this fixture also exercises the negative
+ * rounding line.
+ *
+ * The five totals sum to 184000 exactly. The previous fixture declared
+ * `reconciles: true` while its two rows summed to 194100 — ฿101 over the bill.
+ */
 export const FIXTURE_BILL_REVIEW: BillReviewProps = {
   tabName: "Sukhumvit Dinner",
   isOrganizer: false,
@@ -199,24 +269,57 @@ export const FIXTURE_BILL_REVIEW: BillReviewProps = {
     {
       participantId: "user_maya",
       displayName: "Maya",
-      itemShareMinor: 90000,
-      taxMinor: 6300,
-      serviceMinor: 4500,
-      tipMinor: 0,
+      itemShareMinor: 38400,
+      serviceMinor: 3840,
+      taxMinor: 2957,
+      tipMinor: 925,
       discountMinor: 0,
       roundingMinor: 0,
-      totalMinor: 100800,
+      totalMinor: 46122,
     },
     {
-      participantId: "user_bo",
-      displayName: "Bo",
-      itemShareMinor: 83200,
-      taxMinor: 5800,
-      serviceMinor: 4200,
-      tipMinor: 0,
+      participantId: "user_noi",
+      displayName: "Noi",
+      itemShareMinor: 31200,
+      serviceMinor: 3120,
+      taxMinor: 2402,
+      tipMinor: 925,
       discountMinor: 0,
-      roundingMinor: 100,
-      totalMinor: 93300,
+      roundingMinor: 0,
+      totalMinor: 37647,
+    },
+    {
+      participantId: "user_ploy",
+      displayName: "Ploy",
+      itemShareMinor: 30000,
+      serviceMinor: 3000,
+      taxMinor: 2310,
+      tipMinor: 925,
+      discountMinor: 0,
+      roundingMinor: 0,
+      totalMinor: 36235,
+    },
+    {
+      participantId: "user_tim",
+      displayName: "Tim",
+      itemShareMinor: 28800,
+      serviceMinor: 2880,
+      taxMinor: 2218,
+      tipMinor: 925,
+      discountMinor: 0,
+      roundingMinor: -1,
+      totalMinor: 34822,
+    },
+    {
+      participantId: "user_andre",
+      displayName: "Andre",
+      itemShareMinor: 24000,
+      serviceMinor: 2400,
+      taxMinor: 1848,
+      tipMinor: 925,
+      discountMinor: 0,
+      roundingMinor: 1,
+      totalMinor: 29174,
     },
   ],
 };

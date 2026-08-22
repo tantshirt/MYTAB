@@ -1,3 +1,4 @@
+import { groupThousands } from "./format";
 import { DomainError, DomainErrorCode } from "./errors";
 import {
   assertIntegerNumber,
@@ -81,5 +82,7 @@ export function formatCryptoAmountDisplay(amount: CryptoAmount): string {
   const fraction = absolute % scale;
   const fractionText = fraction.toString().padStart(amount.decimals, "0");
   const sign = negative ? "-" : "";
-  return `${sign}${whole.toString()}.${fractionText}`;
+  // Grouped for the same reason baht is (lib/domain/format.ts): an ungrouped
+  // 1840.000000 sitting beside a grouped ฿1,840.00 reads as two different systems.
+  return `${sign}${groupThousands(whole.toString())}.${fractionText}`;
 }

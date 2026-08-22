@@ -1,7 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AmountPair } from "@/components/primitives/amount-pair";
+import {
+  QUOTE_COUNTDOWN_TICK_MS,
+  formatQuoteCountdownLabel,
+  isQuoteCountdownWarning,
+  isQuoteExpired,
+  quoteCountdownAnnouncement,
+  quoteCountdownBucket,
+} from "@/lib/settlement/quoteCountdown";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 
 export type DisclosureRowProps = {
@@ -58,11 +66,57 @@ export function DisclosureRow({
   );
 }
 
-function formatCountdown(remainingMs: number): string {
-  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+const SR_ONLY = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  margin: "-1px",
+  padding: 0,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+} as const;
+
+/**
+ * Ticks the quote countdown down once a second from the last value the server gave us.
+ * The interval clears on unmount and on expiry.
+ */
+function useLiveQuoteRemaining(quoteRemainingMs: number): number {
+  const [remainingMs, setRemainingMs] = useState(quoteRemainingMs);
+
+  useEffect(() => {
+    setRemainingMs(quoteRemainingMs);
+    if (quoteRemainingMs <= 0) return;
+
+    const deadline = Date.now() + quoteRemainingMs;
+    const interval = setInterval(() => {
+      const next = Math.max(0, deadline - Date.now());
+      setRemainingMs(next);
+      if (next <= 0) clearInterval(interval);
+    }, QUOTE_COUNTDOWN_TICK_MS);
+
+    return () => clearInterval(interval);
+  }, [quoteRemainingMs]);
+
+  return remainingMs;
+}
+
+/** Speaks only at thresholds — a live region that ticks every second is unusable. */
+function useCountdownAnnouncement(remainingMs: number, silent: boolean): string {
+  const [announcement, setAnnouncement] = useState("");
+  const lastBucket = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (silent) return;
+    const bucket = quoteCountdownBucket(remainingMs);
+    if (bucket === lastBucket.current) return;
+    lastBucket.current = bucket;
+    const next = quoteCountdownAnnouncement(remainingMs);
+    if (next) setAnnouncement(next);
+  }, [remainingMs, silent]);
+
+  return announcement;
 }
 
 export type PaymentSheetProps = {
@@ -99,8 +153,17 @@ export function PaymentSheet({
   onPay,
   onRefreshQuote,
 }: PaymentSheetProps) {
-  const dimmed = quoteExpired;
-  const opacity = dimmed ? 0.4 : 1;
+  const remainingMs = useLiveQuoteRemaining(quoteRemainingMs);
+  // The server flag and the clock are both authorities on expiry; either one expires
+  // the quote. Without this there was a window where the countdown had run out but the
+  // flag had not flipped, and neither the countdown nor the refresh action was shown.
+  const expired = quoteExpired || isQuoteExpired(remainingMs);
+  const announcement = useCountdownAnnouncement(remainingMs, paymentsPaused);
+  // The amounts hold their last values rather than blanking, so the person keeps
+  // their bearings while the quote is refreshed.
+  const opacity = expired ? 0.4 : 1;
+  const warning = !expired && isQuoteCountdownWarning(remainingMs);
+  const countdownLabel = formatQuoteCountdownLabel(expired ? 0 : remainingMs);
 
   return (
     <section
@@ -112,33 +175,40 @@ export function PaymentSheet({
         background: MYTAB_COLORS.paper,
       }}
     >
-      <div style={{ flex: 1, padding: "16px", opacity }}>
-        <AmountPair label={billAmountLabel} amount={billAmount} />
-        <div style={{ marginTop: "16px" }}>
-          <AmountPair label="To" amount={recipientName} />
-          <AmountPair label="Receives" amount={destinationAsset} muted />
+      <div style={{ flex: 1, padding: "16px" }}>
+        <div style={{ opacity, transition: "opacity 160ms ease" }}>
+          <AmountPair label={billAmountLabel} amount={billAmount} />
+          <div style={{ marginTop: "16px" }}>
+            <AmountPair label="To" amount={recipientName} />
+            <AmountPair label="Receives" amount={destinationAsset} muted />
+          </div>
+          <div style={{ marginTop: "16px" }}>
+            <AmountPair label="Paying with" amount={paymentToken} />
+            <AmountPair label="Maximum you spend" amount={maximumSpend} />
+            <AmountPair label="Minimum they receive" amount={minimumReceive} />
+            {roundUpTip ? <AmountPair label="Round-up tip" amount={roundUpTip} muted /> : null}
+          </div>
+          <div style={{ marginTop: "20px" }}>
+            <DisclosureRow defaultExpanded={disclosureDefaultExpanded} />
+          </div>
         </div>
-        <div style={{ marginTop: "16px" }}>
-          <AmountPair label="Paying with" amount={paymentToken} />
-          <AmountPair label="Maximum you spend" amount={maximumSpend} />
-          <AmountPair label="Minimum they receive" amount={minimumReceive} />
-          {roundUpTip ? <AmountPair label="Round-up tip" amount={roundUpTip} muted /> : null}
-        </div>
-        <div style={{ marginTop: "20px" }}>
-          <DisclosureRow defaultExpanded={disclosureDefaultExpanded} />
-        </div>
-        {!quoteExpired && quoteRemainingMs > 0 ? (
-          <p
-            style={{
-              marginTop: "16px",
-              fontSize: MYTAB_TYPOGRAPHY.meta.size,
-              color:
-                quoteRemainingMs <= 10_000 ? MYTAB_COLORS.warning : MYTAB_COLORS.inkMuted,
-            }}
-          >
-            Quote refreshes in {formatCountdown(quoteRemainingMs)}
-          </p>
-        ) : null}
+        {/* The countdown stays at full opacity — the expiry message is the one thing
+            a person must be able to read while the amounts are dimmed. */}
+        <p
+          aria-hidden="true"
+          style={{
+            marginTop: "16px",
+            marginBottom: 0,
+            fontSize: MYTAB_TYPOGRAPHY.meta.size,
+            fontWeight: warning || expired ? 600 : 400,
+            color: warning || expired ? MYTAB_COLORS.warning : MYTAB_COLORS.inkMuted,
+          }}
+        >
+          {countdownLabel}
+        </p>
+        <span role="status" aria-live="polite" aria-atomic="true" style={SR_ONLY}>
+          {announcement}
+        </span>
         {paymentsPaused ? (
           <p style={{ marginTop: "16px", color: MYTAB_COLORS.inkMuted }}>
             Payments are paused right now. Your tab is safe.
@@ -156,7 +226,7 @@ export function PaymentSheet({
       >
         <button
           type="button"
-          onClick={quoteExpired ? onRefreshQuote : onPay}
+          onClick={expired ? onRefreshQuote : onPay}
           disabled={paymentsPaused}
           style={{
             width: "100%",
@@ -172,7 +242,7 @@ export function PaymentSheet({
             opacity: paymentsPaused ? 0.5 : 1,
           }}
         >
-          {quoteExpired ? "Refresh quote" : "Pay"}
+          {expired ? "Refresh quote" : "Pay"}
         </button>
       </div>
     </section>
