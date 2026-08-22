@@ -34,6 +34,8 @@ describe("Story 7.6 — All square card", () => {
       <AllSquareCard
         billName="Sukhumvit Dinner"
         amountLabel="฿1,840.00"
+        settledCount={5}
+        totalCount={5}
         members={[
           { userId: "u1", displayName: "Maya" },
           { userId: "u2", displayName: "Andre" },
@@ -45,6 +47,8 @@ describe("Story 7.6 — All square card", () => {
 
     expect(html).toContain("All square");
     expect(html).toContain("Done");
-    expect(html).not.toContain("linear-gradient");
+    // Reduce Motion keeps the wash and drops only the washing-in.
+    expect(html).toContain("linear-gradient");
+    expect(html).not.toContain("mytab-allsquare-wash 600ms");
   });
 });

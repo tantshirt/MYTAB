@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangleIcon } from "@/components/icons";
 import { EmptyState } from "@/components/primitives/empty-state";
+import { VisuallyHidden } from "@/components/primitives/visually-hidden";
 import type { ParsedReceipt, ParsedReceiptLine } from "@/lib/domain/receiptParse";
 import { formatDiscrepancyCopy, recomputeReconciliation } from "@/lib/domain/receiptParse";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
@@ -88,18 +89,6 @@ export type ReceiptReviewProps = {
   footerSlot?: HTMLElement | null;
 };
 
-const SR_ONLY: CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-  border: 0,
-};
-
 /**
  * Baht text ⇄ minor units, without ever touching a float.
  *
@@ -150,6 +139,13 @@ const BARE_FIELD: CSSProperties = {
   fontWeight: 500,
   lineHeight: 1.4,
 };
+
+/**
+ * The item name is the one field on this surface that holds Thai — every line
+ * of the canonical fixture does — so its line box comes from `.mytab-item-name`
+ * rather than from the numeric fields' 1.4.
+ */
+const NAME_FIELD: CSSProperties = { ...BARE_FIELD, lineHeight: undefined, color: "inherit" };
 
 function helperCopy(reconciled: boolean, flaggedCount: number): string {
   if (reconciled) {
@@ -279,7 +275,7 @@ export function ReceiptReview({
           }}
         >
           <span
-            className="mytab-type-micro-label"
+            className="mytab-type-micro-label mytab-name"
             style={{
               flexGrow: 1,
               minWidth: 0,
@@ -343,7 +339,7 @@ export function ReceiptReview({
                       color: MYTAB_COLORS.inkMuted,
                     }}
                   >
-                    <span style={SR_ONLY}>Quantity for {line.name}</span>
+                    <VisuallyHidden>Quantity for {line.name}</VisuallyHidden>
                     <input
                       inputMode="numeric"
                       value={String(line.quantity)}
@@ -360,11 +356,12 @@ export function ReceiptReview({
                   </label>
 
                   <label style={{ flexGrow: 1, minWidth: 0, ...flagStyle(line.flagged) }}>
-                    <span style={SR_ONLY}>Item name</span>
+                    <VisuallyHidden>Item name</VisuallyHidden>
                     <input
                       value={line.name}
                       onChange={(event) => updateLine(index, { name: event.target.value })}
-                      style={{ ...BARE_FIELD, color: "inherit" }}
+                      className="mytab-item-name"
+                      style={NAME_FIELD}
                     />
                   </label>
 
@@ -378,7 +375,7 @@ export function ReceiptReview({
                       ...flagStyle(line.flagged),
                     }}
                   >
-                    <span style={SR_ONLY}>Unit price in baht</span>
+                    <VisuallyHidden>Unit price in baht</VisuallyHidden>
                     <span aria-hidden="true" style={{ fontSize: "15px", fontWeight: 500 }}>
                       ฿
                     </span>

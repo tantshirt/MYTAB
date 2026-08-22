@@ -225,9 +225,12 @@ export function ClaimRow({
               {quantity}×
             </span>
           ) : null}
+          {/* `mytab-item-name` owns the line box: this string is a scanned dish
+              name, so it is as likely to be ต้มยำกุ้ง as it is "Tom Yum Goong",
+              and the Thai marks need the room (DESIGN.md, *Typography*). */}
           <span
-            className="mytab-row__label"
-            style={{ fontSize: MYTAB_TYPOGRAPHY.body.size, fontWeight: 500, lineHeight: 1.45 }}
+            className="mytab-row__label mytab-item-name"
+            style={{ fontSize: MYTAB_TYPOGRAPHY.body.size, fontWeight: 500 }}
           >
             {name}
           </span>

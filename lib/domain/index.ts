@@ -151,6 +151,8 @@ export {
 
 export {
   countsTowardConfirmedBalance,
+  DEFAULT_FAILURE_CAUSE,
+  describeSettlementFailure,
   formatPaymentFailureMessage,
   getPaymentStatePresentation,
   mapSettlementStatusToDisplay,

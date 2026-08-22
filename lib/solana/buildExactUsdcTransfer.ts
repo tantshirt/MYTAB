@@ -36,6 +36,16 @@ export type BuildExactUsdcTransferInput = {
   skipMemo?: boolean;
   blockhash?: string;
   lastValidBlockHeight?: number;
+  /**
+   * Real rent-exempt minimum for a token account, read from the chain.
+   *
+   * Defaults to {@link ATA_RENT_LAMPORTS}. The caller passes the live value so
+   * the sponsor reservation matches what the sponsor is actually debited rather
+   * than a constant that has drifted from the rent sysvar. Callers must still
+   * refuse a value above the policy constant — the validator prices ATA
+   * creation at the constant, so a higher real rent would under-reserve.
+   */
+  ataRentLamports?: number;
 };
 
 export type BuildExactUsdcTransferResult = {
@@ -114,7 +124,7 @@ export function buildExactUsdcTransfer(
       ),
     );
     ataCreates = 1;
-    sponsorExposureLamports += ATA_RENT_LAMPORTS;
+    sponsorExposureLamports += input.ataRentLamports ?? ATA_RENT_LAMPORTS;
   }
 
   instructions.push(

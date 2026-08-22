@@ -1,7 +1,17 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import {
+  renderBotAdminRepairMessage,
+  renderNotAMemberMessage,
+  renderRateLimitedMessage,
+} from "../../lib/telegram/messages";
 import { mintSessionToken } from "./sessionTokenOps";
 import { publishTabOpenedCard } from "./telegramBot";
+import {
+  MEMBERSHIP_FAILURE,
+  MembershipError,
+  assertPrivilegedActionAllowed,
+} from "./telegramMembership";
 import { utcDayKey } from "./sessionTokenSync";
 
 export const TAB_CREATION_DEDUP_MS = 60_000;
@@ -11,15 +21,40 @@ export const MAX_TABS_PER_GROUP_PER_DAY = 30;
 
 export const TAB_RATE_LIMITED = "TAB_RATE_LIMITED";
 export const NOT_GROUP_MEMBER = "NOT_GROUP_MEMBER";
+export const BOT_NOT_ADMIN = "BOT_NOT_ADMIN";
+export const GROUP_NOT_FOUND = "GROUP_NOT_FOUND";
 
 export type TabCommandFailureCode =
   | typeof TAB_RATE_LIMITED
-  | typeof NOT_GROUP_MEMBER;
+  | typeof NOT_GROUP_MEMBER
+  | typeof BOT_NOT_ADMIN
+  | typeof GROUP_NOT_FOUND;
 
 export class TabCommandError extends Error {
   constructor(public readonly code: TabCommandFailureCode) {
     super(code);
     this.name = "TabCommandError";
+  }
+}
+
+/**
+ * What the group reads when a command cannot run.
+ *
+ * A membership or bot-admin failure leaves the tab readable and disables
+ * mutations with a repair message (binding decision 2) — the reply names the
+ * fix, never the internals. `null` means say nothing at all: a stranger typing
+ * in a chat we do not manage gets silence, not a lecture.
+ */
+export function repairMessageForFailure(code: TabCommandFailureCode): string | null {
+  switch (code) {
+    case BOT_NOT_ADMIN:
+      return renderBotAdminRepairMessage();
+    case NOT_GROUP_MEMBER:
+      return renderNotAMemberMessage();
+    case TAB_RATE_LIMITED:
+      return renderRateLimitedMessage();
+    case GROUP_NOT_FOUND:
+      return null;
   }
 }
 
@@ -105,20 +140,35 @@ async function assertTabCreationAllowed(
   }
 }
 
+/**
+ * The privilege gate for every command that writes.
+ *
+ * Both halves of binding decision 2 are enforced here: the person must be an
+ * active member, and the bot must be an administrator. The freshness half is
+ * enforced one level up, in the command action, which proves both against
+ * `getChatMember` before calling into this mutation when the cache has aged
+ * past five minutes.
+ */
 async function assertActiveMember(
   ctx: MutationCtx,
   groupId: Id<"groups">,
   telegramUserId: string,
+  now?: number,
 ) {
-  const membership = await ctx.db
-    .query("groupMembers")
-    .withIndex("by_group_and_telegram_user_id", (q) =>
-      q.eq("groupId", groupId).eq("telegramUserId", telegramUserId),
-    )
-    .unique();
-
-  if (!membership || membership.membershipStatus !== "active") {
-    throw new TabCommandError(NOT_GROUP_MEMBER);
+  try {
+    await assertPrivilegedActionAllowed(ctx, { groupId, telegramUserId, now });
+  } catch (error) {
+    if (error instanceof MembershipError) {
+      switch (error.code) {
+        case MEMBERSHIP_FAILURE.BOT_NOT_ADMIN:
+          throw new TabCommandError(BOT_NOT_ADMIN);
+        case MEMBERSHIP_FAILURE.GROUP_NOT_FOUND:
+          throw new TabCommandError(GROUP_NOT_FOUND);
+        default:
+          throw new TabCommandError(NOT_GROUP_MEMBER);
+      }
+    }
+    throw error;
   }
 }
 
@@ -163,7 +213,7 @@ export async function startTabForGroup(
   },
 ): Promise<StartTabResult> {
   const now = input.now ?? Date.now();
-  await assertActiveMember(ctx, input.groupId, input.organizerTelegramUserId);
+  await assertActiveMember(ctx, input.groupId, input.organizerTelegramUserId, now);
 
   const duplicateTab = await findRecentDuplicateTab(
     ctx,
@@ -224,7 +274,7 @@ export async function startTipSessionForGroup(
   },
 ): Promise<{ token: string }> {
   const now = input.now ?? Date.now();
-  await assertActiveMember(ctx, input.groupId, input.senderTelegramUserId);
+  await assertActiveMember(ctx, input.groupId, input.senderTelegramUserId, now);
 
   const tipTabId = await ctx.db.insert("tabs", {
     groupId: input.groupId,
@@ -266,7 +316,7 @@ export async function startBalanceSessionForGroup(
   },
 ): Promise<{ token: string }> {
   const now = input.now ?? Date.now();
-  await assertActiveMember(ctx, input.groupId, input.senderTelegramUserId);
+  await assertActiveMember(ctx, input.groupId, input.senderTelegramUserId, now);
 
   const subjectId = `balance:${input.groupId}:${input.senderTelegramUserId}`;
   const { token } = await mintSessionToken(ctx, {

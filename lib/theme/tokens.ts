@@ -17,6 +17,16 @@ export const MYTAB_COLORS = {
   primaryDeep: "#17409F",
   tip: "#A85F2E",
   tipSoft: "#F8EDE4",
+  /*
+   * The two stops of the all-square wash, and the only two values in this file
+   * that belong to exactly one component (POLISH-SPEC §8 item 5). DESIGN.md
+   * describes that wash as "colors/tip fading into colors/paper", but `tip`
+   * itself is a 4.5:1 terracotta — far too dark to sit behind 42px ink. These
+   * are the apricot tints the artboard actually paints, and the gradient they
+   * form with `paper` is the ONLY gradient in the system.
+   */
+  tipWashTop: "#F6E9DC",
+  tipWashMid: "#F7EFE7",
   settled: "#0B7561",
   settledSoft: "#E1F0EC",
   owed: "#B32B44",

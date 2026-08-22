@@ -3,6 +3,8 @@
 import { useState, type CSSProperties } from "react";
 import { Avatar } from "@/components/claim-row";
 import { AmountPair } from "@/components/primitives/amount-pair";
+import { BreakdownRow } from "@/components/breakdown-row";
+import { StickyFooter } from "@/components/sticky-claim-footer";
 import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { AlertTriangleIcon, CheckIcon, ChevronRightIcon } from "@/components/icons";
 import { useHaptics } from "@/features/telegram/useHaptics";
@@ -199,7 +201,7 @@ export function buildBillTotalsLines(
 /** Rounding is disclosed in `colors/warning`, never folded into another line. */
 function BreakdownLine({ line }: { line: BillReviewLine }) {
   return (
-    <AmountPair
+    <BreakdownRow
       label={line.label}
       amount={line.amount}
       size="meta"
@@ -381,7 +383,7 @@ export function BillReview({
                         tint={tints.get(row.participantId)}
                       />
                       <span
-                        className="mytab-row__label"
+                        className="mytab-row__label mytab-name"
                         style={{ flex: 1, fontSize: MYTAB_TYPOGRAPHY.body.size, fontWeight: 500 }}
                       >
                         {isViewer ? `${row.displayName} · you` : row.displayName}
@@ -441,38 +443,26 @@ export function BillReview({
               style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 13 }}
             >
               {buildBillTotalsLines(breakdowns, rates).map((line) => (
-                <div key={line.key} className="mytab-row" style={{ fontSize: "14px" }}>
-                  <span className="mytab-row__label">
-                    {line.label}
-                    {line.annotation ? (
-                      <span style={{ fontSize: 12, color: MYTAB_COLORS.inkMuted, marginLeft: 6 }}>
-                        {line.annotation}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mytab-row__amount mytab-tabular" data-mytab-amount style={{ fontWeight: 500 }}>
-                    {line.amount}
-                  </span>
-                </div>
+                <BreakdownRow
+                  key={line.key}
+                  label={line.label}
+                  annotation={line.annotation}
+                  amount={line.amount}
+                  fontSize="14px"
+                  weight={400}
+                  amountWeight={500}
+                />
               ))}
-              <div
-                className="mytab-row"
+              <BreakdownRow
+                label="Total"
+                amount={billTotalLabel}
+                amountA11yLabel={formatThbMinorForA11y(thbMinorFromInteger(billTotalMinor))}
+                weight={600}
                 style={{
                   borderTop: `1px solid ${MYTAB_COLORS.border}`,
                   paddingTop: 13,
-                  fontSize: MYTAB_TYPOGRAPHY.amountRow.size,
-                  fontWeight: 600,
                 }}
-              >
-                <span className="mytab-row__label">Total</span>
-                <span
-                  className="mytab-row__amount mytab-tabular"
-                  data-mytab-amount
-                  aria-label={formatThbMinorForA11y(thbMinorFromInteger(billTotalMinor))}
-                >
-                  {billTotalLabel}
-                </span>
-              </div>
+              />
             </section>
 
             {/* Semantic colour never travels alone: the check carries the same meaning. */}
@@ -498,27 +488,11 @@ export function BillReview({
         )}
       </div>
 
-      <footer
-        style={{
-          position: "sticky",
-          bottom: 0,
-          background: MYTAB_COLORS.surface,
-          borderTop: `1px solid ${MYTAB_COLORS.border}`,
-          padding: `14px ${MYTAB_LAYOUT.gutter} calc(22px + var(--app-pad-bottom, 0px))`,
-        }}
+      <StickyFooter
+        notice={isStale ? "That changed a moment ago." : undefined}
+        noticeGap={10}
+        paddingTop={14}
       >
-        {isStale ? (
-          <p
-            role="status"
-            style={{
-              margin: "0 0 10px",
-              fontSize: MYTAB_TYPOGRAPHY.meta.size,
-              color: MYTAB_COLORS.inkMuted,
-            }}
-          >
-            That changed a moment ago.
-          </p>
-        ) : null}
         <button
           type="button"
           className="mytab-button-primary"
@@ -539,7 +513,7 @@ export function BillReview({
         >
           {action.note}
         </p>
-      </footer>
+      </StickyFooter>
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
 import { getDefaultReceivingWalletForUser } from "./walletSync";
 import { SETTLEMENT_STATUS } from "./settlementState";
 import { AuthError } from "./auth";
+import { publishTabStatusEvent } from "./telegramBot";
 
 export const LOCK_FAILURE = {
   UNASSIGNED_ITEMS: "UNASSIGNED_ITEMS",
@@ -176,6 +177,14 @@ export async function lockBillCore(
     lockedAt: args.now,
     billTotalMinor: BigInt(totals.billTotalMinor),
     updatedAt: args.now,
+  });
+
+  // "Bill ready to settle" — the second of the five events that reach a group.
+  // Fired after the obligations exist so the card's counts are already true.
+  await publishTabStatusEvent(ctx, {
+    tabId: args.tabId,
+    event: "bill_ready",
+    now: args.now,
   });
 
   return { snapshotId, revision, obligationIds };

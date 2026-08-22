@@ -47,6 +47,10 @@ export default defineSchema({
     displayName: v.string(),
     avatarUrl: v.optional(v.string()),
     botIsAdmin: v.boolean(),
+    // When the bot's administrator status was last proven against Telegram
+    // rather than inferred from a webhook. Older than five minutes is stale
+    // for a privileged action (binding decision 2).
+    botAdminCheckedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_telegram_chat_id", ["telegramChatId"]),
@@ -257,19 +261,36 @@ export default defineSchema({
     .index("by_transaction_signature", ["transactionSignature"]),
 
   telegramOutboundMessages: defineTable({
-    tipId: v.id("tips"),
+    // Optional because the row is keyed by `dedupeKey`; `tipId` is the subject
+    // for the only one-shot message kind that exists (the tip confirmation).
+    tipId: v.optional(v.id("tips")),
     groupId: v.id("groups"),
+    // The unique delivery key. Every message kind must produce a stable value
+    // here, because it is the only thing standing between a retry and a
+    // duplicate post in a live group.
+    dedupeKey: v.optional(v.string()),
     kind: v.literal("tip_confirmation"),
     messageText: v.string(),
     status: v.union(
       v.literal("queued"),
+      v.literal("sending"),
       v.literal("posted"),
       v.literal("failed"),
     ),
+    // Delivery lease — a claim fences the commit so a slow retry can never
+    // overwrite a newer worker's result.
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    telegramMessageId: v.optional(v.number()),
     postedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_tip_id", ["tipId"]),
+  })
+    .index("by_tip_id", ["tipId"])
+    .index("by_dedupe_key", ["dedupeKey"]),
 
   settlementLedgerEvents: defineTable({
     intentId: v.id("settlementIntents"),
@@ -492,11 +513,42 @@ export default defineSchema({
     .index("by_tab_id", ["tabId"])
     .index("by_tab_and_user", ["tabId", "userId"]),
 
+  // Exactly one row per tab — the canonical group card that is edited in place
+  // (FR-N4). `by_tab_id` is the uniqueness path and the delivery lease lives on
+  // the same row, so claiming, committing, and recovering are all one
+  // transactional read-modify-write.
   telegramStatusMessages: defineTable({
     tabId: v.id("tabs"),
     chatId: v.string(),
-    messageId: v.number(),
+    // Absent until the first post lands. Absent also means "post", not "edit".
+    messageId: v.optional(v.number()),
     eventVersion: v.number(),
+    event: v.optional(
+      v.union(
+        v.literal("tab_opened"),
+        v.literal("bill_ready"),
+        v.literal("payment_confirmed"),
+        v.literal("bill_completed"),
+      ),
+    ),
+    renderedText: v.optional(v.string()),
+    deliveredVersion: v.optional(v.number()),
+    deliveredText: v.optional(v.string()),
+    deliveryState: v.optional(v.union(v.literal("idle"), v.literal("claimed"))),
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    // Set to the claim id that already posted a replacement. A claim may
+    // recover a deleted card exactly once.
+    replacementClaimId: v.optional(v.string()),
+    replacementReservedAt: v.optional(v.number()),
+    replacementCount: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    peopleCount: v.optional(v.number()),
+    billTotalMinor: v.optional(v.int64()),
+    claimedItemCount: v.optional(v.number()),
+    totalItemCount: v.optional(v.number()),
     settledObligationCount: v.optional(v.number()),
     totalObligationCount: v.optional(v.number()),
     lastEditedAt: v.number(),

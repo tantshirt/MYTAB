@@ -166,6 +166,7 @@ function MemberColumn({ member, tint }: { member: GroupMemberView; tint: string 
         ) : null}
       </span>
       <span
+        className="mytab-name"
         style={{
           display: "block",
           minWidth: 0,
@@ -259,7 +260,7 @@ export function GroupSurface({
       <OutsideTelegramBar visible={!inTelegram} />
 
       <SurfaceErrorBoundary headline={GROUP_COPY.error} retryLabel={GROUP_COPY.retry}>
-        <h1 className="mytab-type-title" style={{ margin: "16px 0 0" }}>
+        <h1 className="mytab-type-title mytab-name" style={{ margin: "16px 0 0" }}>
           {groupName}
         </h1>
         <p className="mytab-type-meta" style={{ margin: "6px 0 0" }}>
@@ -476,23 +477,42 @@ export const FIXTURE_GROUP_SURFACE: GroupSurfaceProps = {
     tone: "owed",
     settleHref: "/?settle=obl-1",
   },
+  /*
+   * The cast is Maya, Andre, Noi, Ploy and Tim (DESIGN.md) — five, because §1.3
+   * draws five, and under the ids the rest of the product already uses
+   * (`user_maya`, not `user-maya`). The id is what `avatarTintsForGroup` keys
+   * on, so a shape of its own here would have given Maya one colour on the
+   * group and another on the claim board.
+   */
   members: [
     {
-      telegramUserId: "user-andre",
-      displayName: "Andre",
-      walletReady: true,
-      settled: false,
-    },
-    {
-      telegramUserId: "user-maya",
+      telegramUserId: "user_maya",
       displayName: "Maya",
       walletReady: true,
       settled: true,
     },
     {
-      telegramUserId: "user-lin",
-      displayName: "Lin",
+      telegramUserId: "user_andre",
+      displayName: "Andre",
+      walletReady: true,
+      settled: false,
+    },
+    {
+      telegramUserId: "user_noi",
+      displayName: "Noi",
+      walletReady: true,
+      settled: true,
+    },
+    {
+      telegramUserId: "user_ploy",
+      displayName: "Ploy",
       walletReady: false,
+      settled: false,
+    },
+    {
+      telegramUserId: "user_tim",
+      displayName: "Tim",
+      walletReady: true,
       settled: false,
     },
   ],

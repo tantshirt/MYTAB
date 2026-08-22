@@ -17,8 +17,16 @@ type Store = Record<string, Row[]>;
 
 export type FakeIdentity = { subject: string; tokenIdentifier: string } | null;
 
+/** One recorded `ctx.scheduler.runAfter` call. */
+export type ScheduledCall = {
+  delayMs: number;
+  reference: unknown;
+  args: unknown;
+};
+
 export function createFakeCtx(store: Store, identity: FakeIdentity = null) {
   let nextId = 1000;
+  const scheduled: ScheduledCall[] = [];
 
   const tableOf = (id: string): string => id.split(":")[0] ?? "";
 
@@ -85,11 +93,27 @@ export function createFakeCtx(store: Store, identity: FakeIdentity = null) {
     }
   };
 
+  // Recorded, never executed: a scheduled function is a promise about the
+  // future, and a test that runs it inline is testing a different program.
+  const scheduler = {
+    runAfter: async (delayMs: number, reference: unknown, args: unknown) => {
+      scheduled.push({ delayMs, reference, args });
+      return `scheduled:${scheduled.length}`;
+    },
+    runAt: async (timestamp: number, reference: unknown, args: unknown) => {
+      scheduled.push({ delayMs: timestamp, reference, args });
+      return `scheduled:${scheduled.length}`;
+    },
+    cancel: async () => undefined,
+  };
+
   return {
     store,
+    scheduled,
     ctx: {
       auth: { getUserIdentity: async () => identity },
       db: { get, query, insert, patch },
+      scheduler,
     } as never,
   };
 }

@@ -1,6 +1,34 @@
 import { MYTAB_COLORS, MYTAB_ELEVATION, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "./tokens";
 
 /**
+ * Splices the Thai face in directly behind the Latin one.
+ *
+ * Font fallback is per glyph, not per element: Instrument Sans carries no Thai
+ * at all, so every Thai codepoint walks past it to the next family that has the
+ * glyph. Putting Noto Sans Thai second means that family is ours, with metrics
+ * we measured, instead of whatever the platform installs (POLISH-SPEC §2.2).
+ *
+ * Consumed by `--mytab-font-family-thai`, never by `--mytab-font-family`. The
+ * difference matters more than it looks: **Instrument Sans has no U+0E3F either**,
+ * so `฿1,840.00` — which is on nearly every screen in the product — contains a
+ * Thai codepoint. Splice the Thai face into the global stack and every amount
+ * row at `line-height: normal` takes Noto's taller line box: measured in Chrome,
+ * a 20px/600 line grows 23px → 30px. That is a product-wide rhythm change nobody
+ * asked for, so the Thai stack is opt-in, on the elements that hold *names*, and
+ * names never contain ฿.
+ */
+export function withThaiFallback(stack: string): string {
+  const families = stack.split(",").map((one) => one.trim());
+  return [families[0], "var(--font-noto-thai)", ...families.slice(1)].join(", ");
+}
+
+/**
+ * What a name-bearing element asks for. Degrades to the Latin stack when the
+ * binding has not landed, rather than to an invalid `font-family`.
+ */
+const THAI_STACK = "var(--mytab-font-family-thai, var(--mytab-font-family))";
+
+/**
  * Global CSS injected by MyTabThemeProvider.
  *
  * Three jobs:
@@ -175,6 +203,39 @@ export const MYTAB_GLOBAL_CSS = `
   }
 
   /* ---------------------------------------------------------------------
+     Names — the one place Thai and Latin share a line (DESIGN.md, *Typography*).
+
+     A scanned receipt puts ต้มยำกุ้ง and "Pad Thai" in the same column, so these
+     two classes are where the Thai face is switched on. Nowhere else: they mark
+     elements that hold a *name*, and a name never carries the ฿ that would drag
+     the Thai line box onto every amount in the product.
+
+     .mytab-name swaps the family and nothing else, for elements already at
+     line-height: normal. normal is content-scoped and measures correctly for
+     both scripts — a Latin-only tab name at 20px/600 is 23px tall whether or not
+     the Thai family is in its stack, because the face is subset to Thai and so
+     carries unicode-range: U+0E01-0E5B, …; the same element holding Thai grows
+     to 30px, which is the marks getting their room. Pinning a number on those
+     would loosen Latin to buy space Thai already has.
+
+     .mytab-item-name additionally pins the line box, for the two elements that
+     already had a tight explicit one. Measured in Chrome at 15px/500 with Noto
+     Sans Thai, the canonical fixture strings draw ink 12.71px above the baseline
+     and 3.91px below; a line-height: 1.2 box gives 14px and 4px, which clips —
+     12 ink pixels lost on ต้มยำกุ้ง under the platform fallback face. At 1.45 the
+     box is 21.75px and the marks clear by 3.29px above and 1.84px below.
+     --------------------------------------------------------------------- */
+
+  .mytab-name,
+  .mytab-item-name {
+    font-family: ${THAI_STACK};
+  }
+
+  .mytab-item-name {
+    line-height: 1.45;
+  }
+
+  /* ---------------------------------------------------------------------
      Screen-reader-only text. Semantic colour never travels alone (EXPERIENCE,
      *Accessibility Floor*), so a dot or a tint always has a word beside it that
      only assistive technology reads. The standard 1px-clip pattern, defined
@@ -309,30 +370,47 @@ export const MYTAB_GLOBAL_CSS = `
     cursor: not-allowed;
   }
 
-  /* 16px is not negotiable — anything smaller triggers iOS focus-zoom. */
+  /*
+   * 16px is not negotiable — anything smaller triggers iOS focus-zoom.
+   *
+   * The vertical padding and the line box are a measured pair. A tab name and a
+   * merchant name are typed here and are routinely Thai. At the previous
+   * padding: 15px + line-height: 1.2 the content box was 20px against a
+   * baseline 16px down and 4.18px of Thai descender — 0.18px short, and Chrome
+   * dropped 4 ink pixels off ผัดไทยกุ้งสด. 13px of padding with a 1.4 line box
+   * gives 24px of content and 1.82px of clearance.
+   *
+   * Nothing a Latin user can see moves: the control is still 52px, the type is
+   * still 16px, and because the line box stays centred the Latin baseline lands
+   * on the same pixel row as before (32px from the top of the control, measured
+   * both ways).
+   */
   .mytab-input {
     display: block;
     width: 100%;
     max-width: 100%;
     min-width: 0;
     min-height: 52px;
-    padding: 15px 16px;
+    padding: 13px 16px;
     border: 1px solid ${MYTAB_COLORS.border};
     border-radius: ${MYTAB_RADIUS.sm};
     background: ${MYTAB_COLORS.surface};
     color: ${MYTAB_COLORS.ink};
-    font-family: var(--mytab-font-family);
+    /* A tab name, a merchant and an item name are all typed into this control,
+       and all three are routinely Thai. */
+    font-family: ${THAI_STACK};
     font-size: 16px;
     font-weight: 500;
-    line-height: 1.2;
+    line-height: 1.4;
     letter-spacing: var(--mytab-tracking-base);
     transition: border-color 120ms ease;
   }
 
-  /* Secondary fields inside a dense editor — still above the 44px floor. */
+  /* Secondary fields inside a dense editor — still above the 44px floor, and
+     the same 24px content box, so Thai clears here too. */
   .mytab-input--compact {
     min-height: 44px;
-    padding: 11px 14px;
+    padding: 9px 14px;
   }
 
   input.mytab-input,

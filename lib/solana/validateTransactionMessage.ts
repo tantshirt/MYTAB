@@ -69,6 +69,18 @@ export type SettlementIntentValidationContext = {
   sponsorAddress: string;
   blockhash: string;
   lastValidBlockHeight: number;
+  /**
+   * Finalized block height observed from the RPC, when the caller has one.
+   *
+   * AD-10 requires that "recent blockhash and `lastValidBlockHeight` remain
+   * valid". The blockhash string was already compared; the height bound was
+   * accepted and discarded, which meant a quote whose blockhash had aged out
+   * could still reach the sponsor key and burn a fee on a transaction the
+   * cluster would refuse. Supplying this makes the second half of that rule
+   * real. Omitting it is still permitted for callers with no chain view (the
+   * pre-client gate at build time), so this can only ever reject more.
+   */
+  currentBlockHeight?: number;
   nowMs?: number;
   telegramContextFresh?: boolean;
   targetSuperseded?: boolean;
@@ -125,6 +137,7 @@ export type ValidationFailureCode =
   | "MEMO_MISMATCH"
   | "MESSAGE_HASH_MISMATCH"
   | "BLOCKHASH_STALE"
+  | "BLOCKHASH_EXPIRED"
   | "TELEGRAM_CONTEXT_STALE"
   | "TARGET_SUPERSEDED"
   | "SELF_PAYMENT"
@@ -776,14 +789,27 @@ export function validateTransactionMessage(
     return fail("BLOCKHASH_STALE");
   }
 
+  // Prevents sponsoring a transaction the cluster can no longer include. Only
+  // enforced when the caller supplied a real observed height — a caller with no
+  // chain view is not silently granted a pass, it simply cannot answer this
+  // question and the pre-sponsor call site checks it directly.
+  if (
+    context.currentBlockHeight !== undefined &&
+    context.lastValidBlockHeight > 0 &&
+    context.currentBlockHeight > context.lastValidBlockHeight
+  ) {
+    return fail(
+      "BLOCKHASH_EXPIRED",
+      `height ${context.currentBlockHeight} > lastValidBlockHeight ${context.lastValidBlockHeight}`,
+    );
+  }
+
   // ---- Phase 12: hash binding -------------------------------------------
 
   // Prevents any change between the quote and the sponsor signature.
   if (context.intent.messageHash && context.intent.messageHash !== messageHash) {
     return fail("MESSAGE_HASH_MISMATCH");
   }
-
-  void context.lastValidBlockHeight;
 
   return {
     ok: true,

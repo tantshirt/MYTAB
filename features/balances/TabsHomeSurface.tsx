@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { PlusIcon, TipIcon } from "@/components/icons";
 import { AmountPair } from "@/components/primitives/amount-pair";
 import { EmptyState } from "@/components/primitives/empty-state";
@@ -9,11 +8,10 @@ import { ErrorState } from "@/components/primitives/error-state";
 import { SurfaceErrorBoundary } from "@/components/primitives/error-boundary";
 import { showSkeleton, type LoadState } from "@/components/primitives/load-state";
 import { STATE_COPY } from "@/components/primitives/state-copy";
-import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { BalanceHero } from "./BalanceHero";
 import { TabCard } from "./TabCard";
 import { ActivityFeed } from "./ActivityFeed";
-import { AllSquareCard, hasSeenAllSquare, markAllSquareSeen } from "./AllSquareCard";
+import { AllSquareWatcher } from "./AllSquareWatcher";
 import { BalanceLinkRow } from "./PaymentStateBadge";
 import { TabsHomeSkeleton, OfflineBar, OutsideTelegramBar } from "./LoadingStates";
 import { StartTabAction } from "./StartTabAction";
@@ -57,9 +55,11 @@ export type TabsHomeSurfaceProps = LoadState & {
   error?: boolean;
   onRetry?: () => void;
   offline?: boolean;
-  showAllSquare?: boolean;
-  allSquareBill?: { billId: string; name: string; amountLabel: string };
-  allSquareMembers?: Array<{ userId: string; displayName: string }>;
+  /**
+   * Posts the completion card to the group when the all-square moment fires.
+   * Absent → the moment offers only `Done` rather than a dead `Share to group`.
+   */
+  onShareAllSquare?: () => void;
   inTelegram?: boolean;
 };
 
@@ -218,25 +218,20 @@ export function TabsHomeSurface({
   error = false,
   onRetry,
   offline = false,
-  showAllSquare = false,
-  allSquareBill,
-  allSquareMembers = [],
+  onShareAllSquare,
   inTelegram = true,
 }: TabsHomeSurfaceProps) {
-  const [allSquareVisible, setAllSquareVisible] = useState(false);
   /*
-   * `window.matchMedia` used to be read during render here: undefined on the
-   * server, defined on the client, so the first client render disagreed with
-   * the server HTML — and nothing ever re-read it when the preference changed.
+   * The all-square moment is no longer a `showAllSquare` prop nobody ever
+   * passed. `AllSquareWatcher` subscribes each open tab to
+   * `balances.billCompletion` and fires on the live completion EDGE — never on
+   * mount over an already-complete bill, and never on the group net position,
+   * which is a different fact (EXPERIENCE, *Money Legibility*).
    */
-  const reduceMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (showAllSquare && allSquareBill && !hasSeenAllSquare(allSquareBill.billId)) {
-      setAllSquareVisible(true);
-      markAllSquareSeen(allSquareBill.billId);
-    }
-  }, [showAllSquare, allSquareBill]);
+  const allSquareCast = Object.entries(memberNames).map(([userId, displayName]) => ({
+    userId,
+    displayName,
+  }));
 
   // A skeleton only on a first paint with nothing cached — never on a tab
   // switch, never over data we already have (§2.9).
@@ -267,17 +262,15 @@ export function TabsHomeSurface({
       ) : null}
 
       <SurfaceErrorBoundary headline={TABS_HOME_COPY.error} retryLabel={TABS_HOME_COPY.retry}>
-        {allSquareVisible && allSquareBill ? (
-          <div style={{ marginBottom: "24px" }}>
-            <AllSquareCard
-              billName={allSquareBill.name}
-              amountLabel={allSquareBill.amountLabel}
-              members={allSquareMembers}
-              reduceMotion={reduceMotion}
-              onDismiss={() => setAllSquareVisible(false)}
-            />
-          </div>
-        ) : null}
+        <AllSquareWatcher
+          tabs={openTabs.map((tab) => ({
+            tabId: tab.tabId,
+            name: tab.name,
+            totalLabel: tab.totalLabel,
+          }))}
+          members={allSquareCast}
+          onShare={onShareAllSquare}
+        />
 
         <BalanceHero state={balanceHero} />
         <PrimaryActions groups={groups} blockedReason={blockedReason} />

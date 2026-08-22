@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, ClaimRow, type ClaimantIdentity } from "@/components/claim-row";
+import { ClaimRow, type ClaimantIdentity } from "@/components/claim-row";
+import { PresenceStack } from "@/components/presence-stack";
+import { StickyFooter } from "@/components/sticky-claim-footer";
 import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { BillEmptyState } from "@/features/bills/BillEmptyState";
 import { WhoHasThisSheet } from "./WhoHasThisSheet";
@@ -249,8 +251,9 @@ export function ClaimBoard(props: ClaimBoardProps) {
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* A tab name is user text and is as likely to be Thai as English. */}
           <h1
-            className="mytab-row__label"
+            className="mytab-row__label mytab-name"
             style={{
               margin: 0,
               fontSize: MYTAB_TYPOGRAPHY.title.size,
@@ -284,50 +287,21 @@ export function ClaimBoard(props: ClaimBoardProps) {
           </p>
         </div>
 
-        {presence.length > 0 ? (
-          <div
-            aria-label={`${presence.length} ${presence.length === 1 ? "other person" : "others"} here now`}
-            role="img"
-            style={{ display: "flex", alignItems: "center", gap: 6, flex: "none", minHeight: 44 }}
-          >
-            <span style={{ display: "flex" }}>
-              {presence.slice(0, PRESENCE_MAX).map((participant, index) => (
-                <span
-                  key={participant.userId}
-                  style={{ marginLeft: index === 0 ? 0 : -8, display: "inline-flex" }}
-                >
-                  <Avatar
-                    participant={participant}
-                    size={24}
-                    ringColor={MYTAB_COLORS.paper}
-                    arriving={paintedOnce.current}
-                    reducedMotion={reducedMotion}
-                    tint={tints.get(participant.userId)}
-                  />
-                </span>
-              ))}
-            </span>
-            {presence.length > PRESENCE_MAX ? (
-              <span
-                className="mytab-tabular"
-                style={{ fontSize: 12, fontWeight: 600, color: MYTAB_COLORS.inkMuted }}
-              >
-                +{presence.length - PRESENCE_MAX}
-              </span>
-            ) : null}
-            {/* Live, not idle: the dot is the only thing on the header that means "now". */}
-            <span
-              aria-hidden
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "999px",
-                background: MYTAB_COLORS.settled,
-                flex: "none",
-              }}
-            />
-          </div>
-        ) : null}
+        {/* Never the viewer, never "1 person here" — `presence` is already filtered. */}
+        <PresenceStack
+          people={presence}
+          max={PRESENCE_MAX}
+          size={24}
+          overlap={-8}
+          ringColor={MYTAB_COLORS.paper}
+          liveDotColor={MYTAB_COLORS.settled}
+          overflowColor={MYTAB_COLORS.inkMuted}
+          tints={tints}
+          arriving={paintedOnce.current}
+          reducedMotion={reducedMotion}
+          minHeight={44}
+          label={`${presence.length} ${presence.length === 1 ? "other person" : "others"} here now`}
+        />
       </header>
 
       <div
@@ -397,28 +371,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
         )}
       </div>
 
-      <footer
-        style={{
-          position: "sticky",
-          bottom: 0,
-          background: MYTAB_COLORS.surface,
-          borderTop: `1px solid ${MYTAB_COLORS.border}`,
-          padding: `12px ${MYTAB_LAYOUT.gutter} calc(22px + var(--app-pad-bottom, 0px))`,
-        }}
-      >
-        {removedLine || staleLine ? (
-          <p
-            role="status"
-            style={{
-              margin: "0 0 8px",
-              fontSize: MYTAB_TYPOGRAPHY.meta.size,
-              color: MYTAB_COLORS.inkMuted,
-            }}
-          >
-            {removedLine ?? staleLine}
-          </p>
-        ) : null}
-
+      <StickyFooter notice={removedLine ?? staleLine} noticeGap={8} paddingTop={12}>
         {props.items.length > 0 ? (
           <p
             style={{
@@ -493,7 +446,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
             <span className="mytab-row__label">{action.label}</span>
           </button>
         </div>
-      </footer>
+      </StickyFooter>
 
       {openItem ? (
         <WhoHasThisSheet
