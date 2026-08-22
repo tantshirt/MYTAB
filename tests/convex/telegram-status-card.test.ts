@@ -8,6 +8,7 @@ import {
   findBannedCopyWords,
   renderBotAdminRepairMessage,
   renderNotAMemberMessage,
+  renderTabInvite,
   renderTabStatusCard,
   renderTipConfirmation,
   type TelegramStatusEvent,
@@ -215,6 +216,21 @@ describe("NFR-7 — a group message carries group facts only", () => {
   });
 });
 
+describe("INVITE-FLOW §5.3 — the invite share carries no amounts", () => {
+  const invite = renderTabInvite({ tabName: "Sukhumvit Dinner", organizerName: "Maya" });
+  const blob = `${invite.title}\n${invite.description}\n${invite.messageText}`;
+
+  it("names the tab and the organizer, never a figure", () => {
+    expect(invite.title).toBe("Sukhumvit Dinner");
+    expect(invite.description).toContain("Maya");
+    expect(blob).not.toMatch(/฿|\$|USDC|\d+\.\d{2}/);
+  });
+
+  it("uses none of the banned words", () => {
+    expect(findBannedCopyWords(blob)).toEqual([]);
+  });
+});
+
 describe("exactly five events may post", () => {
   it("names five and only five", () => {
     expect(TELEGRAM_POSTING_EVENTS).toEqual([
@@ -288,6 +304,36 @@ describe("one status message per tab", () => {
 
     expect(repeat).toEqual({ recorded: false, reason: "UNCHANGED" });
     expect(store.telegramStatusMessages[0]?.eventVersion).toBe(1);
+  });
+
+  it("puts the creation token on the Open tab button and reuses it on edit", async () => {
+    const { ctx, store } = seedTab();
+
+    await recordTabStatusEvent(ctx, {
+      tabId: TAB_ID,
+      event: "tab_opened",
+      now: 1_000,
+      initialToken: "creation-token",
+    });
+
+    const first = await claimStatusDelivery(ctx, TAB_ID, 1_000);
+    expect(first.claimed).toBe(true);
+    if (first.claimed) {
+      expect(first.work.buttonUrl).toContain("startapp=creation-token");
+    }
+
+    store.telegramStatusMessages[0]!.deliveryState = "idle";
+    store.telegramStatusMessages[0]!.claimExpiresAt = 0;
+    store.telegramStatusMessages[0]!.deliveredVersion = 0;
+    store.telegramStatusMessages[0]!.eventVersion = 2;
+    store.telegramStatusMessages[0]!.messageId = 501;
+
+    const second = await claimStatusDelivery(ctx, TAB_ID, 2_000);
+    expect(second.claimed).toBe(true);
+    if (second.claimed) {
+      expect(second.work.buttonUrl).toContain("startapp=creation-token");
+    }
+    expect(store.sessionTokens).toHaveLength(0);
   });
 });
 

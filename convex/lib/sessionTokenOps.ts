@@ -12,6 +12,7 @@ import {
   type SessionTokenType,
 } from "./sessionTokenSync";
 import { isCheckFresh } from "./telegramMembership";
+import { tabOrigin } from "./tabOrigin";
 
 export type MintSessionTokenInput = {
   tokenType: SessionTokenType;
@@ -277,7 +278,7 @@ export function seatAvailable(
   return participantCount < policy.seats;
 }
 
-async function countParticipants(ctx: ReadCtx, tabId: Id<"tabs">): Promise<number> {
+export async function countParticipants(ctx: ReadCtx, tabId: Id<"tabs">): Promise<number> {
   const rows = await ctx.db
     .query("tabParticipants")
     .withIndex("by_tab_id", (q) => q.eq("tabId", tabId))
@@ -401,29 +402,32 @@ export async function decideTabAdmission(
   }
 
   // 6 — binding decision 2, verbatim, on the chat-origin tabs it was written
-  // for. A cached row is not a membership check; a proven one under five
-  // minutes old is.
-  const proof = await readChatMembershipProof(ctx, {
-    groupId: tab.groupId,
-    telegramUserId: input.user.telegramUserId,
-    now: input.now,
-  });
-  if (!proof.groupExists || proof.chatId === null) {
-    return refuse(TAB_ADMISSION_FAILURE.LINK_NOT_FOUND, facts);
-  }
-  if (!proof.proven) {
-    return {
-      outcome: "needs_membership_proof",
+  // for. A personal-origin tab has no chat to prove membership against (D-06):
+  // the token admits, the seat bound holds, BOT_NOT_ADMIN does not fire.
+  // Missing origin is `"chat"` so every existing row keeps the admin gate.
+  if (tabOrigin(tab) === "chat") {
+    const proof = await readChatMembershipProof(ctx, {
       groupId: tab.groupId,
-      chatId: proof.chatId,
       telegramUserId: input.user.telegramUserId,
-    };
-  }
-  if (!proof.memberActive) {
-    return refuse(TAB_ADMISSION_FAILURE.NOT_GROUP_MEMBER, facts);
-  }
-  if (!proof.botIsAdmin) {
-    return refuse(TAB_ADMISSION_FAILURE.BOT_NOT_ADMIN, facts);
+      now: input.now,
+    });
+    if (!proof.groupExists || proof.chatId === null) {
+      return refuse(TAB_ADMISSION_FAILURE.LINK_NOT_FOUND, facts);
+    }
+    if (!proof.proven) {
+      return {
+        outcome: "needs_membership_proof",
+        groupId: tab.groupId,
+        chatId: proof.chatId,
+        telegramUserId: input.user.telegramUserId,
+      };
+    }
+    if (!proof.memberActive) {
+      return refuse(TAB_ADMISSION_FAILURE.NOT_GROUP_MEMBER, facts);
+    }
+    if (!proof.botIsAdmin) {
+      return refuse(TAB_ADMISSION_FAILURE.BOT_NOT_ADMIN, facts);
+    }
   }
 
   // 7 — a locked or settled bill admits nobody new.
@@ -489,11 +493,10 @@ export async function admitToTabSession(
       };
     }
 
-    await ctx.db.insert("tabParticipants", {
+    await ensureTabParticipant(ctx, {
       tabId: tab._id,
-      userId: input.user._id,
-      telegramUserId: input.user.telegramUserId,
-      joinedAt: now,
+      user: input.user,
+      now,
     });
   }
 
@@ -577,27 +580,32 @@ export async function decideInviteMint(
     return { outcome: "refuse", code: INVITE_MINT_FAILURE.OPEN_IN_TELEGRAM };
   }
 
-  const proof = await readChatMembershipProof(ctx, {
-    groupId: tab.groupId,
-    telegramUserId: input.user.telegramUserId,
-    now: input.now,
-  });
-  if (!proof.groupExists || proof.chatId === null) {
-    return { outcome: "refuse", code: INVITE_MINT_FAILURE.TAB_NOT_FOUND };
-  }
-  if (!proof.proven) {
-    return {
-      outcome: "needs_membership_proof",
+  // Chat-origin still requires a live admin bot. Personal-origin is the invite
+  // door: the organizer is already on the roster and there is no chat to
+  // administer. Missing origin is `"chat"`.
+  if (tabOrigin(tab) === "chat") {
+    const proof = await readChatMembershipProof(ctx, {
       groupId: tab.groupId,
-      chatId: proof.chatId,
       telegramUserId: input.user.telegramUserId,
-    };
-  }
-  if (!proof.memberActive) {
-    return { outcome: "refuse", code: INVITE_MINT_FAILURE.NOT_GROUP_MEMBER };
-  }
-  if (!proof.botIsAdmin) {
-    return { outcome: "refuse", code: INVITE_MINT_FAILURE.BOT_NOT_ADMIN };
+      now: input.now,
+    });
+    if (!proof.groupExists || proof.chatId === null) {
+      return { outcome: "refuse", code: INVITE_MINT_FAILURE.TAB_NOT_FOUND };
+    }
+    if (!proof.proven) {
+      return {
+        outcome: "needs_membership_proof",
+        groupId: tab.groupId,
+        chatId: proof.chatId,
+        telegramUserId: input.user.telegramUserId,
+      };
+    }
+    if (!proof.memberActive) {
+      return { outcome: "refuse", code: INVITE_MINT_FAILURE.NOT_GROUP_MEMBER };
+    }
+    if (!proof.botIsAdmin) {
+      return { outcome: "refuse", code: INVITE_MINT_FAILURE.BOT_NOT_ADMIN };
+    }
   }
 
   return { outcome: "allow", tab };
@@ -626,6 +634,11 @@ export async function mintTabInviteToken(
     return { ok: false, code: INVITE_MINT_FAILURE.MEMBERSHIP_UNPROVEN };
   }
 
+  const reused = await reuseLiveTabSession(ctx, decision.tab, now);
+  if (reused) {
+    return { ok: true, token: reused.token, expiresAt: reused.expiresAt };
+  }
+
   const minted = await mintSessionToken(ctx, {
     tokenType: "tab_session",
     subjectKind: "tab",
@@ -634,6 +647,211 @@ export async function mintTabInviteToken(
     groupId: decision.tab.groupId,
     now,
   });
+  await persistLiveInviteToken(ctx, decision.tab._id, minted.token);
 
   return { ok: true, token: minted.token, expiresAt: minted.expiresAt };
+}
+
+/**
+ * INVITE-FLOW B7 — the organizer is on the roster from the moment the tab
+ * exists, on both doors. Join is no longer the only insert.
+ */
+export async function ensureTabParticipant(
+  ctx: MutationCtx,
+  input: { tabId: Id<"tabs">; user: Doc<"users">; now: number },
+): Promise<{ inserted: boolean }> {
+  const existing = await ctx.db
+    .query("tabParticipants")
+    .withIndex("by_tab_and_user", (q) =>
+      q.eq("tabId", input.tabId).eq("userId", input.user._id),
+    )
+    .unique();
+  if (existing) {
+    return { inserted: false };
+  }
+
+  await ctx.db.insert("tabParticipants", {
+    tabId: input.tabId,
+    userId: input.user._id,
+    telegramUserId: input.user.telegramUserId,
+    joinedAt: input.now,
+  });
+  return { inserted: true };
+}
+
+/**
+ * Looks the organizer up by the telegram id on the stored tab and inserts them
+ * if that user row exists. A `/tab` typed by someone who has never opened the
+ * Mini App has no `users` row yet — there is nothing to insert, and they still
+ * join by tapping Open tab.
+ */
+export async function ensureOrganizerParticipant(
+  ctx: MutationCtx,
+  input: { tabId: Id<"tabs">; organizerTelegramUserId: string; now: number },
+): Promise<{ inserted: boolean }> {
+  const organizer = await ctx.db
+    .query("users")
+    .withIndex("by_telegram_user_id", (q) =>
+      q.eq("telegramUserId", input.organizerTelegramUserId),
+    )
+    .first();
+  if (!organizer) {
+    return { inserted: false };
+  }
+  return ensureTabParticipant(ctx, {
+    tabId: input.tabId,
+    user: organizer,
+    now: input.now,
+  });
+}
+
+export async function listLiveTabSessions(
+  ctx: ReadCtx,
+  tabId: Id<"tabs">,
+  now: number,
+): Promise<Doc<"sessionTokens">[]> {
+  const rows = await ctx.db
+    .query("sessionTokens")
+    .withIndex("by_subject", (q) => q.eq("subjectKind", "tab").eq("subjectId", tabId))
+    .collect();
+
+  return rows.filter(
+    (row) =>
+      row.tokenType === "tab_session" &&
+      row.status === "active" &&
+      !isTokenExpired(row.expiresAt, now),
+  );
+}
+
+async function readLiveInvitePlaintext(
+  ctx: ReadCtx,
+  tabId: Id<"tabs">,
+): Promise<string | null> {
+  const tab = await ctx.db.get(tabId);
+  if (tab?.liveInviteToken) {
+    return tab.liveInviteToken;
+  }
+
+  const status = await ctx.db
+    .query("telegramStatusMessages")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", tabId))
+    .unique();
+  return status?.deepLinkToken ?? null;
+}
+
+export async function persistLiveInviteToken(
+  ctx: MutationCtx,
+  tabId: Id<"tabs">,
+  token: string,
+): Promise<void> {
+  await ctx.db.patch(tabId, { liveInviteToken: token });
+
+  const status = await ctx.db
+    .query("telegramStatusMessages")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", tabId))
+    .unique();
+  if (status) {
+    await ctx.db.patch(status._id, { deepLinkToken: token });
+  }
+}
+
+/**
+ * One token per tab (INVITE-FLOW §5.1). Reuses the live `tab_session` when the
+ * plaintext is still in hand — on the tab row, or on the status card Phase 0
+ * already persists. Mints only when none is live.
+ */
+export async function reuseLiveTabSession(
+  ctx: MutationCtx,
+  tab: Doc<"tabs">,
+  now: number,
+): Promise<{ token: string; expiresAt: number; tokenId: Id<"sessionTokens"> } | null> {
+  const live = await listLiveTabSessions(ctx, tab._id, now);
+  const plaintext = await readLiveInvitePlaintext(ctx, tab._id);
+
+  if (plaintext) {
+    const hashed = hashSessionToken(plaintext);
+    const match = live.find((row) => row.tokenHash === hashed);
+    if (match) {
+      if (tab.liveInviteToken !== plaintext) {
+        await persistLiveInviteToken(ctx, tab._id, plaintext);
+      }
+      return { token: plaintext, expiresAt: match.expiresAt, tokenId: match._id };
+    }
+  }
+
+  return null;
+}
+
+export const TOKEN_REVOKE_FAILURE = {
+  UNAUTHORIZED: "UNAUTHORIZED",
+} as const;
+
+export type TokenRevokeDecision =
+  | { outcome: "allow"; tokenId: Id<"sessionTokens">; tabId: Id<"tabs"> }
+  | { outcome: "refuse"; code: typeof TOKEN_REVOKE_FAILURE.UNAUTHORIZED };
+
+/**
+ * U-9 / D-16 H7 — organizer-on-roster, parties from stored rows. A stranger
+ * and a missing token are the same refusal, so the endpoint is not an oracle.
+ */
+export async function decideTokenRevoke(
+  ctx: ReadCtx,
+  input: { tokenId: Id<"sessionTokens">; user: Doc<"users"> },
+): Promise<TokenRevokeDecision> {
+  const refuse = (): TokenRevokeDecision => ({
+    outcome: "refuse",
+    code: TOKEN_REVOKE_FAILURE.UNAUTHORIZED,
+  });
+
+  const record = await ctx.db.get(input.tokenId);
+  if (!record || record.tokenType !== "tab_session" || record.subjectKind !== "tab") {
+    return refuse();
+  }
+
+  const tabId = record.subjectId as Id<"tabs">;
+  const tab = await ctx.db.get(tabId);
+  if (!tab) {
+    return refuse();
+  }
+
+  if (tab.organizerTelegramUserId !== input.user.telegramUserId) {
+    return refuse();
+  }
+
+  const participant = await ctx.db
+    .query("tabParticipants")
+    .withIndex("by_tab_and_user", (q) => q.eq("tabId", tabId).eq("userId", input.user._id))
+    .unique();
+  if (!participant) {
+    return refuse();
+  }
+
+  return { outcome: "allow", tokenId: record._id, tabId };
+}
+
+export async function revokeTabInviteForOrganizer(
+  ctx: MutationCtx,
+  input: { tokenId: Id<"sessionTokens">; user: Doc<"users">; now?: number },
+): Promise<{ ok: true } | { ok: false; code: typeof TOKEN_REVOKE_FAILURE.UNAUTHORIZED }> {
+  const now = input.now ?? Date.now();
+  const decision = await decideTokenRevoke(ctx, {
+    tokenId: input.tokenId,
+    user: input.user,
+  });
+  if (decision.outcome === "refuse") {
+    return { ok: false, code: decision.code };
+  }
+
+  await revokeSessionToken(ctx, decision.tokenId, now);
+  await ctx.db.patch(decision.tabId, { liveInviteToken: undefined });
+
+  const status = await ctx.db
+    .query("telegramStatusMessages")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", decision.tabId))
+    .unique();
+  if (status?.deepLinkToken) {
+    await ctx.db.patch(status._id, { deepLinkToken: undefined });
+  }
+
+  return { ok: true };
 }

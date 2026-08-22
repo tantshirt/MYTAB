@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { STATE_COPY } from "@/components/primitives/state-copy";
 import { useOffline } from "@/components/primitives/use-offline";
+import { api } from "@/convex/_generated/api";
+import { useLiveMutation } from "@/features/convex/useConvexData";
 import { computeBillBreakdown } from "@/lib/domain/bill";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
-import { isReceiptScanEnabled } from "@/lib/features/flags";
+import { SEAT_DEFAULT } from "@/convex/lib/tabOrigin";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AdjustmentsPanel } from "./AdjustmentsPanel";
 import { BillEmptyState } from "./BillEmptyState";
@@ -31,9 +34,9 @@ export type BillAuthoringSurfaceProps = {
   /**
    * Receipt Review entry (`/tabs/[publicToken]/receipt`, POLISH-SPEC §1.5).
    *
-   * Every scan affordance on this surface is gated on this handler *and*
-   * `isReceiptScanEnabled()`. Without both it does not render at all — a visible
-   * button that does nothing is worse than an absent one (§1.4).
+   * Every scan affordance on this surface is gated on this handler. The parent
+   * passes it only when `api.receipts.isScanEnabled` is true. A visible button
+   * that does nothing is worse than an absent one (§1.4).
    */
   onScanReceipt?: () => void;
 };
@@ -48,9 +51,13 @@ export function BillAuthoringSurface({
   onScanReceipt,
 }: BillAuthoringSurfaceProps) {
   const resolved = data ?? null;
+  const router = useRouter();
+  const createPersonalTab = useLiveMutation(api.tabs.createPersonalTab);
   const [phase, setPhase] = useState<AuthorPhase>(() =>
     resolved?.items.length ? "items" : "setup",
   );
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const offline = useOffline();
   const [showEditor, setShowEditor] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -64,6 +71,8 @@ export function BillAuthoringSurface({
     members: resolved?.members ?? [],
     organizerDisplayName: resolved?.organizerDisplayName ?? "Organizer",
     fxFixtureBadge: resolved?.fxFixtureBadge,
+    seats: resolved?.seats ?? SEAT_DEFAULT,
+    origin: resolved?.origin ?? "personal",
   }));
 
   const [items, setItems] = useState<BillItemView[]>(resolved?.items ?? []);
@@ -92,7 +101,7 @@ export function BillAuthoringSurface({
    */
   const showSkeleton = resolved == null;
 
-  const scanAvailable = isReceiptScanEnabled() && onScanReceipt != null;
+  const scanAvailable = onScanReceipt != null;
 
   const breakdown = useMemo(() => {
     if (items.length === 0) {
@@ -192,13 +201,47 @@ export function BillAuthoringSurface({
   }, []);
 
   const startCapture = useCallback(() => {
+    if (form.origin === "personal") {
+      if (!createPersonalTab || creating) {
+        return;
+      }
+      setCreating(true);
+      setCreateError(null);
+      void createPersonalTab({
+        name: form.title.trim(),
+        seats: form.seats,
+        merchantName: form.merchantName.trim() || undefined,
+        displayCurrency: form.displayCurrency,
+      })
+        .then((created) => {
+          router.push(`/tabs/${created.token}`);
+        })
+        .catch(() => {
+          setCreateError("Couldn't start this tab. Try again.");
+          setCreating(false);
+        });
+      return;
+    }
+
     if (form.captureMethod === "scan" && onScanReceipt) {
       onScanReceipt();
       return;
     }
     setPhase("items");
     openNewItemEditor();
-  }, [form.captureMethod, onScanReceipt, openNewItemEditor]);
+  }, [
+    createPersonalTab,
+    creating,
+    form.captureMethod,
+    form.displayCurrency,
+    form.merchantName,
+    form.origin,
+    form.seats,
+    form.title,
+    onScanReceipt,
+    openNewItemEditor,
+    router,
+  ]);
 
   const primaryAction = (
     <>
@@ -207,7 +250,12 @@ export function BillAuthoringSurface({
           type="button"
           className="mytab-button-primary"
           onClick={startCapture}
-          disabled={offline || form.title.trim().length === 0}
+          disabled={
+            offline ||
+            form.title.trim().length === 0 ||
+            creating ||
+            (form.origin === "personal" && !createPersonalTab)
+          }
           data-testid="primary-add-items"
         >
           Add items
@@ -224,6 +272,11 @@ export function BillAuthoringSurface({
         </button>
       )}
       {/* A disabled control states its reason rather than going silent (§4.4). */}
+      {createError ? (
+        <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
+          {createError}
+        </p>
+      ) : null}
       {offline ? (
         <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
           {STATE_COPY.needsConnection}
@@ -263,7 +316,9 @@ export function BillAuthoringSurface({
             members={form.members}
             viewerUserId={viewerUserId}
             captureMethod={scanAvailable ? form.captureMethod : "manual"}
-            scanAvailable={scanAvailable}
+            scanAvailable={scanAvailable && form.origin !== "personal"}
+            seats={form.origin === "personal" ? form.seats : undefined}
+            showCapture={form.origin !== "personal"}
             fxFixtureBadge={form.fxFixtureBadge}
             onChange={handleFormChange}
           />

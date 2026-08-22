@@ -1,6 +1,6 @@
 "use client";
 
-import type { SettleSheetData } from "../../features/settlement/useSettleSheetData";
+import type { SettleSheetData } from "../../features/settlement/types";
 import { FIXTURE_SETTLE_SHEET } from "@/tests/fixtures/settlement";
 
 export type { SettleSheetData };

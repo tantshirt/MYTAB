@@ -83,6 +83,8 @@ export function PaymentProgress({
     return onBackToTab;
   };
 
+  const held = status === SETTLEMENT_STATUS.UNKNOWN;
+
   return (
     <section
       aria-label="Payment progress"
@@ -107,6 +109,8 @@ export function PaymentProgress({
                 letterSpacing: MYTAB_TYPOGRAPHY.amountLg.tracking,
                 lineHeight: 1,
                 color: MYTAB_COLORS.ink,
+                // D-30: last known figure holds at 40% opacity. Never a dash, never blanked.
+                opacity: held ? 0.4 : 1,
               }}
             >
               {amount}

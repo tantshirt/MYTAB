@@ -81,6 +81,8 @@ export type StatusDeliveryWork = {
   buttonUrl: string;
   targetVersion: number;
   attempt: number;
+  /** Telegram file_id. Absent until U-8 decides what the photo depicts. */
+  photoFileId?: string;
 };
 
 export type ClaimStatusDeliveryResult =
@@ -135,8 +137,7 @@ export async function deriveTabStatusFacts(
   return {
     tabName: tab.name,
     event,
-    // The organizer counts even before anyone has opened the link.
-    peopleCount: Math.max(1, participants.length),
+    peopleCount: participants.length,
     billTotalMinor: tab.billTotalMinor === undefined ? null : Number(tab.billTotalMinor),
     claimedItemCount,
     totalItemCount: itemRows.length,
@@ -217,6 +218,7 @@ export async function recordTabStatusEvent(
       settledObligationCount: facts.settledShareCount,
       totalObligationCount: facts.totalShareCount,
       lastEditedAt: now,
+      ...(input.initialToken === undefined ? {} : { deepLinkToken: input.initialToken }),
     });
 
     return { recorded: true, statusMessageId, eventVersion: 1 };
@@ -305,15 +307,20 @@ export async function claimStatusDelivery(
     return { claimed: false, reason: "NO_STATUS_MESSAGE" };
   }
 
-  // A tab-scoped session token, minted per delivery. The button always lands
-  // on the Claim Board for this tab, already authenticated and scoped (FR-N3).
-  const { token } = await mintSessionToken(ctx, {
-    tokenType: "tab_session",
-    subjectKind: "tab",
-    subjectId: tabId,
-    groupId: tab.groupId,
-    now,
-  });
+  // Reuse the token minted at tab creation. A fresh mint on every edit is how
+  // the Open tab button silently lost the token it was handed (INVITE-FLOW B8).
+  let token = row.deepLinkToken;
+  if (!token) {
+    const minted = await mintSessionToken(ctx, {
+      tokenType: "tab_session",
+      subjectKind: "tab",
+      subjectId: tabId,
+      groupId: tab.groupId,
+      now,
+    });
+    token = minted.token;
+    await ctx.db.patch(row._id, { deepLinkToken: token });
+  }
 
   return {
     claimed: true,
@@ -335,6 +342,7 @@ export async function claimStatusDelivery(
       buttonUrl: buildTelegramDeepLink(token),
       targetVersion: row.eventVersion,
       attempt: attempt + 1,
+      ...(row.photoFileId ? { photoFileId: row.photoFileId } : {}),
     },
   };
 }

@@ -18,6 +18,15 @@ export const FIXTURE_YOU_SURFACE: YouSurfaceData = {
   },
   buildLabel: "2026.08.22",
   supportUrl: "https://t.me/mytabsupport",
+  liveInvites: [
+    {
+      tabId: "tabs:sukhumvit",
+      tokenId: "sessionTokens:live",
+      tabName: "Sukhumvit Dinner",
+      expiresAt: Date.now() + 86_400_000,
+      seatsRemaining: 3,
+    },
+  ],
 };
 
 /** First paint with no cached viewer (POLISH-SPEC §3.4). */

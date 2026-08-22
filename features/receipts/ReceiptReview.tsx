@@ -10,7 +10,6 @@ import { formatDiscrepancyCopy, recomputeReconciliation } from "@/lib/domain/rec
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import type { FiatMinor } from "@/lib/domain/money";
-import { isReceiptScanEnabled } from "@/lib/features/flags";
 import { MYTAB_COLORS, MYTAB_LAYOUT, MYTAB_RADIUS } from "@/lib/theme/tokens";
 
 export type DiscrepancyCardProps = {
@@ -180,7 +179,7 @@ export function ReceiptReview({
 
   const reconciliation = recomputeReconciliation({ lines, receiptTotalMinor });
   const flaggedCount = lines.filter((line) => line.flagged).length;
-  const scanAvailable = isReceiptScanEnabled() && onScanReceipt != null;
+  const scanAvailable = onScanReceipt != null;
 
   const updateLine = (index: number, patch: Partial<ParsedReceiptLine>) => {
     setLines((current) =>

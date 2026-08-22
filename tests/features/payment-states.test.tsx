@@ -6,6 +6,8 @@ import { AllSquareCard } from "@/features/balances/AllSquareCard";
 import {
   formatPaymentFailureMessage,
   getPaymentStatePresentation,
+  mapSettlementStatusToDisplay,
+  SETTLEMENT_STATUS,
 } from "@/lib/domain/paymentState";
 
 describe("Story 7.4 — Payment states", () => {
@@ -25,6 +27,32 @@ describe("Story 7.4 — Payment states", () => {
     const message = formatPaymentFailureMessage("CONFIRMATION_REJECTED");
     expect(message).toContain("network");
     expect(message).not.toMatch(/Error:|stack/i);
+  });
+});
+
+describe("D-30 — unknown is a held state, not submitted", () => {
+  it("does not collapse unknown into submitted", () => {
+    expect(mapSettlementStatusToDisplay(SETTLEMENT_STATUS.UNKNOWN)).toBe("held");
+    expect(mapSettlementStatusToDisplay(SETTLEMENT_STATUS.SUBMITTED)).toBe("submitted");
+    expect(mapSettlementStatusToDisplay(SETTLEMENT_STATUS.UNKNOWN)).not.toBe(
+      mapSettlementStatusToDisplay(SETTLEMENT_STATUS.SUBMITTED),
+    );
+  });
+
+  it("presents held as still checking, never failed", () => {
+    const held = getPaymentStatePresentation("held");
+    const submitted = getPaymentStatePresentation("submitted");
+    const failed = getPaymentStatePresentation("failed");
+
+    expect(held.label).toBe("Still checking");
+    expect(held.label).not.toBe(submitted.label);
+    expect(held.label).not.toBe(failed.label);
+    expect(held.color).not.toBe(failed.color);
+
+    const html = renderToStaticMarkup(<PaymentStateBadge state="held" />);
+    expect(html).toContain("Still checking");
+    expect(html).not.toContain("Failed");
+    expect(html).not.toContain("Submitted");
   });
 });
 

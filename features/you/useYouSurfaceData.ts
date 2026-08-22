@@ -54,16 +54,29 @@ export function useYouSurfaceData(): YouSurfaceData {
   const { initDataUnsafe } = useTelegramRuntime();
   const subject = useViewer();
   const wallet = useLiveQuery(api.wallets.defaultReceivingWallet, {});
+  const liveInvites = useLiveQuery(api.tabInvite.listOrganizerLiveInvites, {});
 
   const chrome = { buildLabel: BUILD_LABEL, supportUrl: SUPPORT_URL };
 
   // §3.4 — the read failed, and the cards below still render. Never a takeover.
   if (wallet.error) {
-    return { ...chrome, status: "error", viewer: null, wallet: { kind: "failed" } };
+    return {
+      ...chrome,
+      status: "error",
+      viewer: null,
+      wallet: { kind: "failed" },
+      liveInvites: [],
+    };
   }
 
   if (subject === undefined || wallet.loading || wallet.fixture) {
-    return { ...chrome, status: "loading", viewer: null, wallet: { kind: "provisioning" } };
+    return {
+      ...chrome,
+      status: "loading",
+      viewer: null,
+      wallet: { kind: "provisioning" },
+      liveInvites: [],
+    };
   }
 
   return {
@@ -73,6 +86,13 @@ export function useYouSurfaceData(): YouSurfaceData {
     // Not an error and never a warning colour: Privy provisions on first login.
     wallet: wallet.data
       ? { kind: "ready", publicKey: wallet.data.solanaAddress }
-      : { kind: "provisioning" },
+      : { kind: "none" },
+    liveInvites: (liveInvites.data ?? []).map((row) => ({
+      tabId: row.tabId,
+      tokenId: row.tokenId,
+      tabName: row.tabName,
+      expiresAt: row.expiresAt,
+      seatsRemaining: row.seatsRemaining,
+    })),
   };
 }

@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { isPrivyFixtureMode } from "@/lib/privy/config";
 import { TelegramBootstrapGate } from "@/features/telegram/TelegramBootstrapGate";
 import { useFixtureAuth } from "./fixture-auth";
+import { ConnectGate } from "./ConnectGate";
 import { LaunchSurface } from "./LaunchSurface";
 import { FirstRunCard, hasSeenFirstRun } from "@/features/onboarding/FirstRunCard";
 import { WalletSyncGate } from "./WalletSyncGate";
@@ -81,7 +82,9 @@ function PrivyAuthGate({ children }: AuthGateProps) {
     <>
       {(isReconnecting || error) && <ReconnectingBar />}
       <TelegramBootstrapGate>
-        <WalletSyncGate>{children}</WalletSyncGate>
+        <WalletSyncGate>
+          <ConnectGate>{children}</ConnectGate>
+        </WalletSyncGate>
       </TelegramBootstrapGate>
     </>
   );

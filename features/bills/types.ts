@@ -53,4 +53,11 @@ export type BillAuthoringData = {
   adjustments: BillAdjustmentView[];
   totalDisplay: string;
   fxFixtureBadge: string;
+  /**
+   * INVITE-FLOW §4 — head count for a personal tab. Absent on a group-origin
+   * form, where the chat bounds the roster.
+   */
+  seats?: number;
+  /** No `?group=` means the invite door. */
+  origin?: "chat" | "personal";
 };

@@ -15,11 +15,14 @@ import { internal } from "../_generated/api";
 import { internalAction, internalMutation } from "../_generated/server";
 import {
   deleteMessage,
+  editMessageCaption,
   editMessageText,
   getChatMember,
   sendMessage,
+  sendPhoto,
   singleButtonKeyboard,
 } from "../../lib/telegram/api";
+import { clipTelegramPhotoCaption } from "../../lib/telegram/caption";
 import {
   deliverOutboundMessage,
   deliverTabStatus,
@@ -180,23 +183,43 @@ export const recordBotAdmin = internalMutation({
 
 function telegramPort(botToken: string, buttonLabel: string): TelegramPort {
   return {
-    send: (input) =>
-      sendMessage(botToken, {
+    send: (input) => {
+      const markup = input.buttonUrl
+        ? { replyMarkup: singleButtonKeyboard(buttonLabel, input.buttonUrl) }
+        : {};
+      if (input.photoFileId) {
+        return sendPhoto(botToken, {
+          chatId: input.chatId,
+          photoFileId: input.photoFileId,
+          caption: clipTelegramPhotoCaption(input.text),
+          ...markup,
+        });
+      }
+      return sendMessage(botToken, {
         chatId: input.chatId,
         text: input.text,
-        ...(input.buttonUrl
-          ? { replyMarkup: singleButtonKeyboard(buttonLabel, input.buttonUrl) }
-          : {}),
-      }),
-    edit: (input) =>
-      editMessageText(botToken, {
+        ...markup,
+      });
+    },
+    edit: (input) => {
+      const markup = input.buttonUrl
+        ? { replyMarkup: singleButtonKeyboard(buttonLabel, input.buttonUrl) }
+        : {};
+      if (input.photoFileId) {
+        return editMessageCaption(botToken, {
+          chatId: input.chatId,
+          messageId: input.messageId,
+          caption: clipTelegramPhotoCaption(input.text),
+          ...markup,
+        });
+      }
+      return editMessageText(botToken, {
         chatId: input.chatId,
         messageId: input.messageId,
         text: input.text,
-        ...(input.buttonUrl
-          ? { replyMarkup: singleButtonKeyboard(buttonLabel, input.buttonUrl) }
-          : {}),
-      }),
+        ...markup,
+      });
+    },
     remove: (input) => deleteMessage(botToken, input),
     fixtureMessageId: nextFixtureMessageId,
   };

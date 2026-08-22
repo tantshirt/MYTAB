@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ReceiptReview } from "@/features/receipts/ReceiptReview";
 import { ReceiptCapture, ManualEntryFallback } from "@/features/receipts/ReceiptCapture";
 import { FIXTURE_PARSED_RECEIPT } from "@/lib/domain/receiptFixture";
@@ -77,22 +77,13 @@ describe("Story 8.4 — Receipt review", () => {
 });
 
 describe("Story 8.1/8.6 — Receipt capture", () => {
-  afterEach(() => {
-    delete process.env.NEXT_PUBLIC_FEATURE_RECEIPT_SCAN;
-  });
-
   it("AC7 — scan affordance without AI framing", () => {
-    const previous = process.env.NEXT_PUBLIC_FEATURE_RECEIPT_SCAN;
-    process.env.NEXT_PUBLIC_FEATURE_RECEIPT_SCAN = "true";
-
     const html = renderToStaticMarkup(
       <ReceiptCapture onCapture={() => undefined} onSelectFile={() => undefined} />,
     );
 
     expect(html).toContain("Scan receipt");
     expect(html).not.toMatch(/AI|magic|sparkle|robot/i);
-
-    process.env.NEXT_PUBLIC_FEATURE_RECEIPT_SCAN = previous;
   });
 
   it("AC2 — failure fallback to manual entry", () => {

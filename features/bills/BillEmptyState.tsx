@@ -45,7 +45,7 @@ export function BillEmptyState({
             </button>
             {onScanReceipt ? (
               <button type="button" className="mytab-button-secondary" onClick={onScanReceipt}>
-                Scan a receipt
+                Scan receipt
               </button>
             ) : null}
           </div>

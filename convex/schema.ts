@@ -25,7 +25,22 @@ export default defineSchema({
 
   wallets: defineTable({
     userId: v.id("users"),
-    privyWalletId: v.string(),
+    /**
+     * D-21 — discriminated provenance. Embedded rows carry `privyWalletId`
+     * (Privy vouches server-side). External rows carry `provider` and must
+     * not have a Privy wallet id. `solanaAddress` is written only after the
+     * matching voucher (Privy sync, or a verified signed challenge).
+     */
+    kind: v.union(v.literal("embedded"), v.literal("external")),
+    privyWalletId: v.optional(v.string()),
+    provider: v.optional(
+      v.union(
+        v.literal("phantom"),
+        v.literal("solflare"),
+        v.literal("backpack"),
+        v.literal("standard"),
+      ),
+    ),
     solanaAddress: v.string(),
     isEmbedded: v.boolean(),
     isDefaultReceiving: v.boolean(),
@@ -33,7 +48,22 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user_id", ["userId"])
-    .index("by_user_and_default", ["userId", "isDefaultReceiving"]),
+    .index("by_user_and_default", ["userId", "isDefaultReceiving"])
+    .index("by_solana_address", ["solanaAddress"]),
+
+  /**
+   * Short-lived nonces for `linkExternalWallet` (D-21). The client signs the
+   * server-issued message; replay is refused once `consumedAt` is set.
+   */
+  walletLinkChallenges: defineTable({
+    userId: v.id("users"),
+    nonce: v.string(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_nonce", ["nonce"]),
 
   telegramUpdates: defineTable({
     botId: v.string(),
@@ -46,11 +76,20 @@ export default defineSchema({
     telegramChatId: v.string(),
     displayName: v.string(),
     avatarUrl: v.optional(v.string()),
+    /**
+     * INVITE-FLOW §1.7 — a personal/synthetic group hangs off the organizer's
+     * private chat with the bot. Absent means `"chat"`: every group that exists
+     * today. Personal tabs still need a group row (`tabs.groupId` is required);
+     * this is that row, not a second admission path.
+     */
+    kind: v.optional(v.union(v.literal("chat"), v.literal("personal"))),
     botIsAdmin: v.boolean(),
     // When the bot's administrator status was last proven against Telegram
     // rather than inferred from a webhook. Older than five minutes is stale
     // for a privileged action (binding decision 2).
     botAdminCheckedAt: v.optional(v.number()),
+    /** Set when the one-shot group-add welcome has been scheduled. Never sent twice. */
+    botWelcomeSentAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_telegram_chat_id", ["telegramChatId"]),
@@ -345,6 +384,19 @@ export default defineSchema({
     organizerTelegramUserId: v.string(),
     name: v.string(),
     merchantName: v.optional(v.string()),
+    /**
+     * D-06 — which door wrote this tab. Absent means `"chat"` so every existing
+     * row keeps the group-admin gate. `"personal"` is the invite door: bounded
+     * by `seatPolicy: { kind: "fixed", seats }`, not by `getChatMember`.
+     */
+    origin: v.optional(v.union(v.literal("chat"), v.literal("personal"))),
+    /**
+     * The one live `tab_session` plaintext. Only the hash lives on
+     * `sessionTokens`; the QR and the share sheet need the value. Never
+     * returned from a participant-facing read — organizer-only queries strip
+     * it onto a deep link rather than handing the raw field out.
+     */
+    liveInviteToken: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("open"),
@@ -391,7 +443,8 @@ export default defineSchema({
   })
     .index("by_group_id", ["groupId"])
     .index("by_group_and_status", ["groupId", "status"])
-    .index("by_group_and_organizer", ["groupId", "organizerTelegramUserId"]),
+    .index("by_group_and_organizer", ["groupId", "organizerTelegramUserId"])
+    .index("by_organizer", ["organizerTelegramUserId"]),
 
   items: defineTable({
     tabId: v.id("tabs"),
@@ -561,7 +614,21 @@ export default defineSchema({
     settledObligationCount: v.optional(v.number()),
     totalObligationCount: v.optional(v.number()),
     lastEditedAt: v.number(),
+    /** The Open tab token. Minted once at tab_opened and reused on every edit (D-06 B8). */
+    deepLinkToken: v.optional(v.string()),
+    /**
+     * Telegram file_id for a photo header (D-31). Absent until U-8 is decided
+     * and a photo is stored — delivery keeps sendMessage / editMessageText.
+     * Never generate this field from tab name or a house style in the meantime.
+     */
+    photoFileId: v.optional(v.string()),
   }).index("by_tab_id", ["tabId"]),
+
+  /** Private-chat fallback rate limit: one unrecognised reply per person per 60s. */
+  telegramDmRateLimits: defineTable({
+    telegramUserId: v.string(),
+    lastFallbackAt: v.number(),
+  }).index("by_telegram_user_id", ["telegramUserId"]),
 
   tabCreationCounts: defineTable({
     scopeKind: v.union(v.literal("user"), v.literal("group")),
@@ -671,6 +738,30 @@ export default defineSchema({
     cooldownUntil: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_cluster_and_source", ["cluster", "source"]),
+
+  /**
+   * Operator-only record of a finalized-but-mismatched settlement (D-30).
+   *
+   * Written when reconciliation stops polling while the intent stays `unknown`.
+   * `failed` would tell the payer nothing happened while their money may have
+   * moved. This table is the other half of that held state: a human can find
+   * the intent. `failedCheck` is only what was actually observed — never an
+   * invented reason for a bare `false` from the provider.
+   */
+  reconciliationIncidents: defineTable({
+    intentId: v.id("settlementIntents"),
+    tabId: v.optional(v.id("tabs")),
+    observedSignature: v.optional(v.string()),
+    /** Confirmation predicate that failed, when one was named. Omitted if unknown. */
+    failedCheck: v.optional(v.string()),
+    createdAt: v.number(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    notes: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_intent_id", ["intentId"])
+    .index("by_status", ["status"])
+    .index("by_tab_id", ["tabId"]),
 
   receiptImports: defineTable({
     tabId: v.id("tabs"),

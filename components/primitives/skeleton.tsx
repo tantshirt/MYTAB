@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { SURFACE_CARD_STYLE } from "@/components/primitives/list-card";
 import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
 
 /**
@@ -138,12 +139,10 @@ export function SkeletonCard({ height, children }: SkeletonCardProps) {
     <div
       aria-hidden="true"
       style={{
+        ...SURFACE_CARD_STYLE,
         minHeight: height,
         boxSizing: "border-box",
         padding: "20px",
-        background: MYTAB_COLORS.surface,
-        border: `1px solid ${MYTAB_COLORS.border}`,
-        borderRadius: MYTAB_RADIUS.md,
       }}
     >
       {children}

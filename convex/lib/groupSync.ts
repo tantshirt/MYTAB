@@ -17,9 +17,11 @@ type NormalizedUpdate =
       kind: "message";
       updateId: number;
       chatId: string;
+      chatType: "private" | "group" | "supergroup";
       fromId: string;
       messageId: number;
       command: string | null;
+      commandArg: string | null;
       chatTitle?: string;
       fromDisplayName: string;
       fromUsername?: string;

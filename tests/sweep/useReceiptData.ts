@@ -14,6 +14,7 @@ export function useReceiptData(
   return {
     importId: "receiptImports:sweep",
     parsed: FIXTURE_PARSED_RECEIPT,
+    status: "needs_review",
     capturedAtLabel: "Tonight",
   };
 }

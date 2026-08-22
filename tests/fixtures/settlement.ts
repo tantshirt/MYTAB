@@ -8,7 +8,7 @@
  * ships may be able to reach these numbers.
  */
 import type { PaymentProgressData } from "../../features/settlement/usePaymentProgressData";
-import type { SettleSheetData } from "../../features/settlement/useSettleSheetData";
+import type { SettleSheetData } from "../../features/settlement/types";
 
 export const FIXTURE_SETTLE_SHEET: SettleSheetData = {
   status: "ready",
@@ -26,6 +26,7 @@ export const FIXTURE_SETTLE_SHEET: SettleSheetData = {
   quoteExpired: false,
   quoteResolving: false,
   staleRevision: false,
+  held: false,
   roundUpLabel: "Round up to ฿300",
   roundUpAmountLabel: "+฿8.26",
   tokens: [
@@ -33,6 +34,9 @@ export const FIXTURE_SETTLE_SHEET: SettleSheetData = {
     { id: "sol", name: "SOL", balanceLabel: "0.0612 SOL", affordable: true },
     { id: "usdt", name: "USDT", balanceLabel: "1.02 USDT", affordable: false },
   ],
+  walletKind: null,
+  walletProvider: null,
+  preparedTxBase64: null,
 };
 
 export const FIXTURE_PAYMENT_PROGRESS: PaymentProgressData = {
@@ -40,5 +44,7 @@ export const FIXTURE_PAYMENT_PROGRESS: PaymentProgressData = {
   recipientName: "Maya",
   failureCode: null,
   amountLabel: "฿291.74",
+  billName: "Sukhumvit Dinner",
+  recipientReceivesLabel: "8.25 USDC",
   tabHref: "/",
 };

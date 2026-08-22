@@ -45,7 +45,7 @@ export function YouSkeleton() {
     <div aria-busy="true" aria-label={YOU_COPY.loadingLabel}>
       <div
         aria-hidden="true"
-        style={{ display: "flex", alignItems: "center", gap: "14px", marginTop: "24px" }}
+        style={{ display: "flex", alignItems: "center", gap: "14px" }}
       >
         <span
           style={{

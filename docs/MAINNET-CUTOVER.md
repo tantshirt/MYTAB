@@ -37,6 +37,7 @@ split, and `npm run check:env-contract` asserts it).
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` | rotated |
 | `DFLOW_API_KEY` | production key — **2–5 day lead time via Google Form**; stream access is a separate per-key permission and must be requested explicitly |
 | `MYTAB_ALLOW_FIXTURES` | **must be unset everywhere** |
+| `OPERATOR_RECONCILIATION_SECRET` | long random; gates the D-30 incident list. Missing → 403, never a public list |
 
 Vercel side: `NEXT_PUBLIC_PRIVY_APP_ID`, and `CONVEX_DEPLOY_KEY` per environment.
 `NEXT_PUBLIC_CONVEX_URL` is injected by `convex deploy --cmd` at build time.
@@ -144,12 +145,21 @@ a blockhash valid on mainnet and invalid on devnet.
 
 ## 7. Known gaps at cutover
 
-- **No operator surface for a finalized-but-mismatched transaction.** If a
-  transaction finalizes successfully but fails one of the eight confirmation
-  checks, the intent stays `unknown` and polling stops — correct, because
-  `failed` would tell the payer nothing happened while their money is gone. It
-  needs a reconciliation-incident table and an alert. **This is the one gap I
-  would close before real money.**
+- **Finalized-but-mismatched transactions stay `unknown` and stop polling** —
+  correct, because `failed` would tell the payer nothing happened while their
+  money may have moved. D-30 is implemented: the payer sees a held state (last
+  figure at 40% opacity, never a dash, never `failed`), and an open row is
+  written to `reconciliationIncidents`. **Operators read incidents** via
+  `internal.reconciliation.listIncidentsInternal` (Convex dashboard /
+  `npx convex run reconciliation:listIncidentsInternal`) or
+  `GET https://<deployment>.convex.site/reconciliation` with
+  `Authorization: Bearer <OPERATOR_RECONCILIATION_SECRET>`. The Mini App route
+  `/internal/reconciliation` is a form that calls that HTTP list. The public
+  query always 403s. Set the secret in Convex env before real funds move — a
+  missing secret fails closed (403), it does not list.
+- **No paging alert** beyond the table and the HTTP list. If you need a pager,
+  wire it to new `open` rows; do not invent a failure reason for a bare
+  `false` from the provider.
 - **Partial payment is not representable.** `settlementLedgerEvents` carries no
   amount; a confirmed chain payment is a full clear.
 - **`obligations.displayAmountThbMinor` is THB-named but holds any currency.**

@@ -237,6 +237,23 @@ export type CompletionShareCopy = {
   messageText: string;
 };
 
+/**
+ * The invite Maya sends. No amounts, ever (INVITE-FLOW §5.3, NFR-7).
+ * Title and description match the sent message so the share-sheet preview
+ * never disagrees with what lands.
+ */
+export function renderTabInvite(facts: {
+  tabName: string;
+  organizerName: string;
+}): CompletionShareCopy {
+  const description = `${facts.organizerName} started a tab. Tap to claim what you ordered.`;
+  return {
+    title: facts.tabName,
+    description,
+    messageText: `🍜 ${facts.tabName}\n\n${description}`,
+  };
+}
+
 export function renderCompletionShare(
   facts: Omit<TabStatusFacts, "event">,
 ): CompletionShareCopy {

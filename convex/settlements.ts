@@ -58,6 +58,13 @@ import {
 } from "./lib/solanaFixture";
 import { assertFixturePathAllowed } from "../lib/solana/runtimeGuard";
 import { resolveSponsorWalletAddress } from "../lib/solana/fixture";
+import {
+  assembleObligationQuote,
+  classifyBalanceRead,
+  formatThbLabel,
+  formatUsdcLabel,
+  type ObligationQuoteResult,
+} from "../lib/settlement/obligationQuote";
 
 export {
   SETTLEMENT_FAILURE,
@@ -111,12 +118,42 @@ export const getIntent = query({
         ? { ...ownedIntent, status: SETTLEMENT_STATUS.EXPIRED as typeof ownedIntent.status }
         : ownedIntent;
 
+    const recipient = await ctx.db.get(intent.recipientUserId);
+    const recipientName = recipient?.displayName ?? "them";
+
+    let amountLabel: string | null = null;
+    let billName: string | null = null;
+    let tabHref = "/";
+    const guaranteedAtomic = intent.quotedOtherAmountThreshold ?? intent.minimumOutputAtomic;
+    const recipientReceivesLabel = formatUsdcLabel(guaranteedAtomic);
+
+    const obligation = intent.obligationId ? await ctx.db.get(intent.obligationId) : null;
+    if (obligation) {
+      amountLabel = formatThbLabel(obligation.displayAmountThbMinor);
+      const tab = await ctx.db.get(obligation.tabId);
+      if (tab) {
+        billName = tab.name;
+        const card = await ctx.db
+          .query("telegramStatusMessages")
+          .withIndex("by_tab_id", (q) => q.eq("tabId", tab._id))
+          .first();
+        if (card?.deepLinkToken) {
+          tabHref = `/tabs/${card.deepLinkToken}`;
+        }
+      }
+    }
+
     return {
       intentId: intent._id,
       status: intent.status,
       failureCode: intent.failureCode ?? null,
       transactionSignature: intent.transactionSignature ?? null,
       expiresAt: intent.expiresAt,
+      recipientName,
+      amountLabel,
+      billName,
+      tabHref,
+      recipientReceivesLabel,
     };
   },
 });
@@ -1089,14 +1126,21 @@ export const getObligationQuoteBaseInternal = internalQuery({
     const intent = nonTerminal ?? linked ?? newest;
 
     const fx = tab.fxSnapshotId ? await ctx.db.get(tab.fxSnapshotId) : null;
+    const recipient = await ctx.db.get(obligation.creditorUserId);
 
     const currentRevision = tab.lockedRevision ?? tab.revision ?? 0;
 
     return {
       obligationId: obligation._id,
       payerAddress: payerWallet?.solanaAddress ?? null,
+      walletKind: payerWallet?.kind ?? null,
+      walletProvider: payerWallet?.provider ?? null,
       outputMint: obligation.outputMint,
       obligationAmountAtomic: obligation.amountAtomic,
+      displayAmountThbMinor: obligation.displayAmountThbMinor,
+      tabName: tab.name,
+      recipientName: recipient?.displayName ?? "",
+      recipientId: obligation.creditorUserId,
       // The bill moved under the quote — the sheet must refresh before paying.
       staleRevision:
         obligation.tabRevision !== currentRevision ||
@@ -1113,11 +1157,13 @@ export const getObligationQuoteBaseInternal = internalQuery({
               outputMint: intent.outputMint,
               maximumInputAtomic: intent.maximumInputAtomic,
               minimumOutputAtomic: intent.minimumOutputAtomic,
+              quotedOtherAmountThreshold: intent.quotedOtherAmountThreshold ?? null,
               roundUpAtomic: intent.roundUpAtomic ?? null,
               excessOutputAtomic: intent.excessOutputAtomic ?? null,
               expiresAt: intent.expiresAt,
               failureCode: intent.failureCode ?? null,
               transactionSignature: intent.transactionSignature ?? null,
+              serializedMessage: intent.serializedMessage ?? null,
             },
     };
   },
@@ -1159,30 +1205,10 @@ const QUOTE_TOKENS: ReadonlyArray<{ mint: string; symbol: string; decimals: numb
  * so an unauthenticated or non-debtor caller is refused before any balance is
  * fetched.
  *
- * A balance read that fails does not fail the whole sheet: the quote still
- * renders and the affected token reports `affordable: null`. Refusing to show a
- * price because an RPC hiccuped would be a worse answer than an honest unknown.
+ * Balances fail closed (D-11, H7): no stored wallet, or an RPC failure, means
+ * the sheet stays unavailable. Invented zeros are not balances.
  */
-export type ObligationQuote = {
-  intentId: Id<"settlementIntents"> | null;
-  /** One of the ten persisted AD-21 states, or null before any intent exists. */
-  status: string | null;
-  quoteResolving: boolean;
-  quoteExpired: boolean;
-  quoteRemainingMs: number;
-  staleRevision: boolean;
-  maximumInputAtomic: bigint | null;
-  minimumOutputAtomic: bigint;
-  inputMint: string | null;
-  outputMint: string;
-  roundUpAtomic: bigint | null;
-  excessOutputAtomic: bigint | null;
-  failureCode: string | null;
-  transactionSignature: string | null;
-  rateNumeratorAtomic: bigint | null;
-  rateDenominatorMinor: bigint | null;
-  tokens: QuoteTokenRow[];
-};
+export type ObligationQuote = ObligationQuoteResult;
 
 export const getObligationQuote = action({
   args: { obligationId: v.id("obligations") },
@@ -1212,33 +1238,69 @@ export const getObligationQuote = action({
         intent.status === SETTLEMENT_STATUS.READY_FOR_SIGNATURE ||
         intent.status === SETTLEMENT_STATUS.EXPIRED);
 
-    const tokens = await readQuoteTokenBalances({
+    let rpcReady = true;
+    try {
+      createSolanaRpcClient();
+    } catch {
+      rpcReady = false;
+    }
+
+    const closed = classifyBalanceRead({
+      payerAddress: base.payerAddress,
+      rpcConfigured: rpcReady,
+    });
+    if (closed) {
+      return { available: false, reason: closed };
+    }
+
+    const balances = await readQuoteTokenBalances({
       payerAddress: base.payerAddress,
       intentInputMint: intent?.inputMint ?? null,
       requiredAtomic: intent?.maximumInputAtomic ?? null,
       outputMint: base.outputMint,
       obligationAmountAtomic: base.obligationAmountAtomic,
     });
+    if (!balances.ok) {
+      return { available: false, reason: balances.reason };
+    }
 
-    return {
+    const metadata = await ctx.runQuery(internal.tokens.readCached, {
+      mints: balances.tokens.map((token) => token.mint),
+    });
+
+    return assembleObligationQuote({
       intentId: intent?._id ?? null,
       status: intent?.status ?? null,
       quoteResolving,
       quoteExpired,
       quoteRemainingMs,
       staleRevision: base.staleRevision,
-      maximumInputAtomic: intent?.maximumInputAtomic ?? null,
+      quotedOtherAmountThreshold: intent?.quotedOtherAmountThreshold ?? null,
       minimumOutputAtomic: intent?.minimumOutputAtomic ?? base.obligationAmountAtomic,
+      obligationAmountAtomic: base.obligationAmountAtomic,
+      maximumInputAtomic: intent?.maximumInputAtomic ?? null,
       inputMint: intent?.inputMint ?? null,
       outputMint: intent?.outputMint ?? base.outputMint,
       roundUpAtomic: intent?.roundUpAtomic ?? null,
-      excessOutputAtomic: intent?.excessOutputAtomic ?? null,
-      failureCode: intent?.failureCode ?? null,
-      transactionSignature: intent?.transactionSignature ?? null,
       rateNumeratorAtomic: base.rateNumeratorAtomic,
       rateDenominatorMinor: base.rateDenominatorMinor,
-      tokens,
-    };
+      displayAmountThbMinor: base.displayAmountThbMinor,
+      tabName: base.tabName,
+      recipientName: base.recipientName,
+      recipientId: base.recipientId,
+      walletKind: base.walletKind,
+      walletProvider: base.walletProvider,
+      preparedTxBase64: intent?.serializedMessage ?? null,
+      tokens: balances.tokens.map((token) => ({
+        mint: token.mint,
+        fallbackName: token.symbol,
+        fallbackDecimals: token.decimals,
+        balanceAtomic: token.balanceAtomic,
+        requiredAtomic: token.requiredAtomic,
+        affordable: token.affordable,
+      })),
+      metadata: metadata.results,
+    });
   },
 });
 
@@ -1255,45 +1317,43 @@ async function readQuoteTokenBalances(input: {
   requiredAtomic: bigint | null;
   outputMint: string;
   obligationAmountAtomic: bigint;
-}): Promise<QuoteTokenRow[]> {
-  const rows: QuoteTokenRow[] = QUOTE_TOKENS.map((token) => ({
-    mint: token.mint,
-    symbol: token.symbol,
-    decimals: token.decimals,
-    balanceAtomic: 0n,
-    requiredAtomic: requiredForMint(token.mint, input),
-    affordable: null,
-  }));
-
+}): Promise<
+  | { ok: true; tokens: QuoteTokenRow[] }
+  | { ok: false; reason: "NO_WALLET" | "RPC_FAILED" }
+> {
   if (!input.payerAddress) {
-    // No wallet yet. Balances are unknown, not zero-and-therefore-unaffordable.
-    return rows;
+    return { ok: false, reason: "NO_WALLET" };
   }
 
   let rpc: SolanaRpcClient;
   try {
     rpc = createSolanaRpcClient();
   } catch {
-    // Unconfigured or disagreeing RPC: report unknown rather than a false zero.
-    return rows;
+    return { ok: false, reason: "RPC_FAILED" };
   }
 
-  for (const row of rows) {
+  const rows: QuoteTokenRow[] = [];
+  for (const token of QUOTE_TOKENS) {
     try {
-      row.balanceAtomic =
-        row.mint === WRAPPED_SOL_MINT
+      const balanceAtomic =
+        token.mint === WRAPPED_SOL_MINT
           ? await readNativeSolBalance(rpc, input.payerAddress)
-          : await readSplBalance(rpc, input.payerAddress, row.mint);
-      row.affordable =
-        row.requiredAtomic === null ? null : row.balanceAtomic >= row.requiredAtomic;
+          : await readSplBalance(rpc, input.payerAddress, token.mint);
+      const requiredAtomic = requiredForMint(token.mint, input);
+      rows.push({
+        mint: token.mint,
+        symbol: token.symbol,
+        decimals: token.decimals,
+        balanceAtomic,
+        requiredAtomic,
+        affordable: requiredAtomic === null ? null : balanceAtomic >= requiredAtomic,
+      });
     } catch {
-      // One token's RPC failure must not blank the whole sheet.
-      row.balanceAtomic = 0n;
-      row.affordable = null;
+      return { ok: false, reason: "RPC_FAILED" };
     }
   }
 
-  return rows;
+  return { ok: true, tokens: rows };
 }
 
 function requiredForMint(

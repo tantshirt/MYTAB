@@ -17,6 +17,8 @@ import {
   MYTAB_TYPOGRAPHY,
   avatarTintForUserId,
 } from "@/lib/theme/tokens";
+import { HELD_PAYMENT_MESSAGE } from "@/lib/domain/paymentState";
+import { PRICE_PROTECTION_LABEL } from "@/lib/settlement/obligationQuote";
 import { PaymentTokenSelector, type PaymentTokenOption } from "./PaymentTokenSelector";
 import { RoundUpControl } from "./RoundUpControl";
 
@@ -180,6 +182,11 @@ export type PaymentSheetProps = {
   quoteResolving?: boolean;
   /** The bill moved under the quote. The amounts hold; the message appears in place. */
   staleRevision?: boolean;
+  /**
+   * Persisted `unknown` intent (D-30). Last figures hold at 40% opacity.
+   * Never a dash, never blanked, never labelled failed. Pay stays disabled.
+   */
+  held?: boolean;
   paymentsPaused?: boolean;
   onPay: () => void;
   onRefreshQuote?: () => void;
@@ -215,6 +222,7 @@ export function PaymentSheet({
   quoteExpired = false,
   quoteResolving = false,
   staleRevision = false,
+  held = false,
   paymentsPaused = false,
   onPay,
   onRefreshQuote,
@@ -234,33 +242,37 @@ export function PaymentSheet({
 
   // The amounts hold their last values rather than blanking, so the person keeps
   // their bearings while the bill or the quote is refreshed.
-  const dimmed = staleRevision || expired;
+  const dimmed = staleRevision || expired || held;
   const announcement = useCountdownAnnouncement(
     remainingMs,
-    paymentsPaused || staleRevision || resolving,
+    paymentsPaused || staleRevision || resolving || held,
   );
 
-  const statusLine = staleRevision
-    ? STALE_REVISION_MESSAGE
-    : resolving
-      ? QUOTE_RESOLVING_MESSAGE
-      : formatQuoteCountdownLabel(expired ? 0 : remainingMs);
-  const statusEmphasised = staleRevision || expired || warning;
+  const statusLine = held
+    ? HELD_PAYMENT_MESSAGE
+    : staleRevision
+      ? STALE_REVISION_MESSAGE
+      : resolving
+        ? QUOTE_RESOLVING_MESSAGE
+        : formatQuoteCountdownLabel(expired ? 0 : remainingMs);
+  const statusEmphasised = !held && (staleRevision || expired || warning);
   // The ticking countdown and its expiry are already spoken by the bucketed live region
-  // below; only the two messages it never covers get a live region of their own.
-  const statusIsLive = staleRevision || resolving;
+  // below; only the messages it never covers get a live region of their own.
+  const statusIsLive = staleRevision || resolving || held;
 
-  const actionLabel = staleRevision
-    ? "Refresh bill"
-    : expired
-      ? "Refresh quote"
-      : `Pay ${billAmount}`;
+  const actionLabel = held
+    ? `Pay ${billAmount}`
+    : staleRevision
+      ? "Refresh bill"
+      : expired
+        ? "Refresh quote"
+        : `Pay ${billAmount}`;
   const actionHandler = staleRevision
     ? onRefreshBill
     : expired
       ? onRefreshQuote
       : onPay;
-  const actionDisabled = !staleRevision && !expired && (paymentsPaused || resolving);
+  const actionDisabled = held || (!staleRevision && !expired && (paymentsPaused || resolving));
 
   const avatarTint = avatarTintForUserId(recipientId ?? recipientName);
   const recipientInitial = recipientName.trim().slice(0, 1).toUpperCase() || "?";
@@ -373,6 +385,12 @@ export function PaymentSheet({
           <SheetLine label="You spend" value={spendLabel} />
           <SheetLine
             label={`${recipientName} receives at least`}
+            value={minimumReceiveAmount}
+            valueColor={MYTAB_COLORS.settled}
+            valueWeight={600}
+          />
+          <SheetLine
+            label={PRICE_PROTECTION_LABEL}
             value={minimumReceiveAmount}
             valueColor={MYTAB_COLORS.settled}
             valueWeight={600}

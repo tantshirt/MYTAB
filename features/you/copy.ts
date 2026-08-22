@@ -34,6 +34,11 @@ export const YOU_COPY = {
 
   helpLabel: "Help",
 
+  liveLinksSection: "LIVE LINKS",
+  liveLinksEmpty: "No live links.",
+  stopLink: "Stop this link",
+  seatsLeft: (seats: number) => `${seats} ${seats === 1 ? "seat" : "seats"} left`,
+
   footerNote: "My Tab holds no keys. Your wallet is yours — export it any time.",
   buildPrefix: "My Tab · build ",
 
@@ -41,6 +46,9 @@ export const YOU_COPY = {
   provisioningFailed:
     "We couldn't finish setting up your wallet. Close My Tab and open it again.",
   walletNotReady: "Your wallet isn't ready yet.",
+  noneLabel: "No wallet linked",
+  noneSub: "Claim without one. You'll need a wallet to pay.",
+  addWallet: "Add a wallet",
 
   viewerFailed: "Couldn't load your details.",
   retry: STATE_COPY.retry,

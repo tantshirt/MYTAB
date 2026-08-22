@@ -213,13 +213,70 @@ export async function callTelegramApi<T>(
   return classifyTelegramResponse(response.status, body) as TelegramCallResult<T>;
 }
 
+export type InlineKeyboardUrlButton = { text: string; url: string };
+export type InlineKeyboardWebAppButton = { text: string; web_app: { url: string } };
+export type InlineKeyboardButton = InlineKeyboardUrlButton | InlineKeyboardWebAppButton;
+
 export type InlineKeyboardMarkup = {
-  inline_keyboard: Array<Array<{ text: string; url: string }>>;
+  inline_keyboard: Array<Array<InlineKeyboardButton>>;
 };
 
-/** The one button this product ever renders in a group. */
+/** The one button this product ever renders in a group. URL only — groups cannot host web_app buttons. */
 export function singleButtonKeyboard(label: string, url: string): InlineKeyboardMarkup {
   return { inline_keyboard: [[{ text: label, url }]] };
+}
+
+/** A private-chat web_app button. Telegram forbids these in groups. */
+export function webAppButton(label: string, url: string): InlineKeyboardWebAppButton {
+  return { text: label, web_app: { url } };
+}
+
+export function urlButton(label: string, url: string): InlineKeyboardUrlButton {
+  return { text: label, url };
+}
+
+export type TelegramBotCommand = {
+  command: string;
+  description: string;
+};
+
+export type TelegramBotCommandScope =
+  | { type: "default" }
+  | { type: "all_private_chats" }
+  | { type: "all_group_chats" };
+
+export function setMyCommands(
+  botToken: string,
+  input: { commands: readonly TelegramBotCommand[]; scope?: TelegramBotCommandScope },
+  options?: TelegramCallOptions,
+): Promise<TelegramCallResult<boolean>> {
+  return callTelegramApi<boolean>(
+    botToken,
+    "setMyCommands",
+    {
+      commands: input.commands,
+      ...(input.scope ? { scope: input.scope } : {}),
+    },
+    options,
+  );
+}
+
+export type TelegramMenuButton =
+  | { type: "commands" }
+  | { type: "default" }
+  | { type: "web_app"; text: string; web_app: { url: string } };
+
+export function setChatMenuButton(
+  botToken: string,
+  input: { menuButton: TelegramMenuButton },
+  options?: TelegramCallOptions,
+): Promise<TelegramCallResult<boolean>> {
+  return callTelegramApi<boolean>(
+    botToken,
+    "setChatMenuButton",
+    { menu_button: input.menuButton },
+    options,
+  );
 }
 
 export function sendMessage(
@@ -270,6 +327,59 @@ export function editMessageText(
   );
 }
 
+/**
+ * Photo header on the tab status card (D-31). `photo` is a Telegram `file_id`
+ * already stored on the status row — this function never generates an image.
+ * U-8 still blocks choosing what to generate.
+ */
+export function sendPhoto(
+  botToken: string,
+  input: {
+    chatId: string;
+    photoFileId: string;
+    caption: string;
+    replyMarkup?: InlineKeyboardMarkup;
+    disableNotification?: boolean;
+  },
+  options?: TelegramCallOptions,
+): Promise<TelegramCallResult<TelegramMessage>> {
+  return callTelegramApi<TelegramMessage>(
+    botToken,
+    "sendPhoto",
+    {
+      chat_id: input.chatId,
+      photo: input.photoFileId,
+      caption: input.caption,
+      ...(input.disableNotification ? { disable_notification: true } : {}),
+      ...(input.replyMarkup ? { reply_markup: input.replyMarkup } : {}),
+    },
+    options,
+  );
+}
+
+export function editMessageCaption(
+  botToken: string,
+  input: {
+    chatId: string;
+    messageId: number;
+    caption: string;
+    replyMarkup?: InlineKeyboardMarkup;
+  },
+  options?: TelegramCallOptions,
+): Promise<TelegramCallResult<TelegramMessage>> {
+  return callTelegramApi<TelegramMessage>(
+    botToken,
+    "editMessageCaption",
+    {
+      chat_id: input.chatId,
+      message_id: input.messageId,
+      caption: input.caption,
+      ...(input.replyMarkup ? { reply_markup: input.replyMarkup } : {}),
+    },
+    options,
+  );
+}
+
 export function deleteMessage(
   botToken: string,
   input: { chatId: string; messageId: number },
@@ -307,9 +417,9 @@ export function getMe(
  * `InlineQueryResultArticle` — the only inline result this product ever builds.
  *
  * Bot API: `type` must be `article`; `id` is 1–64 **bytes**; `title` and
- * `input_message_content` are required. Everything else is optional and
- * deliberately left off — no `url`, no `thumbnail_url`, no `reply_markup`,
- * because a link out of the shared card is exactly what NFR-7 forbids.
+ * `input_message_content` are required. `reply_markup` is required for the
+ * invite share (INVITE-FLOW §5.1) so the sent message has an Open tab button.
+ * The completion share still omits it — that message is a recap, not a door.
  */
 export type InlineQueryResultArticle = {
   type: "article";
@@ -321,6 +431,7 @@ export type InlineQueryResultArticle = {
     /** Bot API 7.0 replacement for `disable_web_page_preview`. */
     link_preview_options?: { is_disabled: true };
   };
+  reply_markup?: InlineKeyboardMarkup;
 };
 
 /** The `PreparedInlineMessage` returned by `savePreparedInlineMessage`. */

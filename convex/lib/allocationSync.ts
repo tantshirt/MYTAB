@@ -13,12 +13,19 @@ import {
   type ClaimWeight,
   type PersistedShare,
 } from "../../lib/domain/allocation";
+import {
+  allocateQuantityKOfN,
+  claimedQuantitySum,
+  quantityShortfall,
+  resolveItemAllocationMode,
+} from "../../lib/domain/quantityClaim";
 import { fiatMinorFromInteger, type FiatMinor } from "../../lib/domain/money";
 
 export type ItemClaimRow = {
   itemId: Id<"items">;
   lineTotalMinor: FiatMinor;
   mode: AllocationMode;
+  itemQuantity: number;
   claims: ClaimWeight[];
 };
 
@@ -132,12 +139,19 @@ export function resolveTabAdjustments(
   };
 }
 
+export function sharesForItemRow(row: ItemClaimRow): PersistedShare[] {
+  if (row.mode === "quantity") {
+    return allocateQuantityKOfN(row.lineTotalMinor, row.itemQuantity, row.claims);
+  }
+  return allocateByMode(row.lineTotalMinor, row.mode, row.claims);
+}
+
 /** Computes item shares from claim rows without persistence. */
 export function computeItemShares(rows: readonly ItemClaimRow[]): PersistedShare[] {
   const combined = new Map<string, { amountMinor: FiatMinor; roundingMinor: FiatMinor }>();
 
   for (const row of rows) {
-    const shares = allocateByMode(row.lineTotalMinor, row.mode, row.claims);
+    const shares = sharesForItemRow(row);
     for (const share of shares) {
       const existing = combined.get(share.participantId) ?? {
         amountMinor: fiatMinorFromInteger(0),
@@ -159,9 +173,17 @@ export function computeItemShares(rows: readonly ItemClaimRow[]): PersistedShare
     }));
 }
 
-/** Counts items with no claimants. */
+/**
+ * Counts items that still need an owner.
+ * Quantity-mode shortfall (claimed < n) is unassigned — lock refuses UNASSIGNED_ITEMS (D-29).
+ */
 export function countUnassignedItems(rows: readonly ItemClaimRow[]): number {
-  return rows.filter((row) => row.claims.length === 0).length;
+  return rows.filter((row) => {
+    if (row.mode === "quantity") {
+      return quantityShortfall(row.itemQuantity, claimedQuantitySum(row.claims)) > 0;
+    }
+    return row.claims.length === 0;
+  }).length;
 }
 
 /** Builds participant breakdowns for footer and bill review. */
@@ -211,7 +233,8 @@ export async function loadItemClaimRows(
     rows.push({
       itemId: item._id,
       lineTotalMinor: toFiatMinor(item.lineTotalMinor),
-      mode: item.allocationMode ?? "equal",
+      mode: resolveItemAllocationMode(item.allocationMode, item.quantity),
+      itemQuantity: item.quantity,
       claims,
     });
   }
@@ -252,7 +275,7 @@ export async function persistComputedAllocations(
   }
 
   for (const itemRow of args.itemRows) {
-    const shares = allocateByMode(itemRow.lineTotalMinor, itemRow.mode, itemRow.claims);
+    const shares = sharesForItemRow(itemRow);
     for (const share of shares) {
       const claim = itemRow.claims.find((candidate) => candidate.participantId === share.participantId);
       await ctx.db.insert("allocations", {

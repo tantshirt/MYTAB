@@ -15,6 +15,11 @@ import {
 } from "./lib/telegramWebhook";
 import { normalizeTelegramUpdate } from "../lib/telegram/webhook";
 import { buildTelegramDeepLink } from "./lib/telegramDeepLink";
+import {
+  authorizeOperatorReconciliation,
+  parseBearerSecret,
+  readOperatorReconciliationSecret,
+} from "./lib/reconciliation";
 
 const http = httpRouter();
 
@@ -186,6 +191,30 @@ http.route({
       deepLinkUrl: buildTelegramDeepLink(result.token),
       expiresAt: result.expiresAt,
     });
+  }),
+});
+
+/**
+ * Operator list of open reconciliation incidents (D-30).
+ *
+ * Gated by `OPERATOR_RECONCILIATION_SECRET` in Convex env. Missing, empty, or
+ * wrong secret is the same 403 — a stranger learns nothing. This is not a
+ * Mini App money surface.
+ */
+http.route({
+  path: "/reconciliation",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const provided = parseBearerSecret(request.headers.get("Authorization"));
+    const configured = readOperatorReconciliationSecret();
+    if (!authorizeOperatorReconciliation(provided, configured)) {
+      return new Response(null, { status: 403 });
+    }
+
+    const incidents = await ctx.runQuery(internal.reconciliation.listIncidentsInternal, {
+      status: "open",
+    });
+    return jsonResponse({ incidents });
   }),
 });
 

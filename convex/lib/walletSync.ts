@@ -15,8 +15,15 @@ export class WalletError extends Error {
 type WalletCtx = MutationCtx | QueryCtx;
 export type WalletRecord = Pick<
   Doc<"wallets">,
-  "_id" | "privyWalletId" | "solanaAddress" | "isEmbedded" | "isDefaultReceiving"
+  | "_id"
+  | "kind"
+  | "privyWalletId"
+  | "provider"
+  | "solanaAddress"
+  | "isEmbedded"
+  | "isDefaultReceiving"
 >;
+export type ExternalWalletProvider = NonNullable<Doc<"wallets">["provider"]>;
 
 /** Whether a new embedded wallet should become the default receiving wallet. */
 export function shouldNewEmbeddedWalletBeDefault(
@@ -61,7 +68,7 @@ export async function setDefaultReceivingWallet(
 }
 
 export async function listUserWallets(
-  ctx: MutationCtx,
+  ctx: WalletCtx,
   userId: Id<"users">,
 ): Promise<Array<Doc<"wallets">>> {
   return ctx.db
@@ -77,11 +84,15 @@ export async function upsertEmbeddedWallet(
   solanaAddress: string,
 ): Promise<{ walletId: Id<"wallets">; created: boolean }> {
   const existingWallets = await listUserWallets(ctx, userId);
-  const existing = existingWallets.find((wallet) => wallet.privyWalletId === privyWalletId);
+  const existing = existingWallets.find(
+    (wallet) => wallet.kind === "embedded" && wallet.privyWalletId === privyWalletId,
+  );
   const now = Date.now();
 
   if (existing) {
     await ctx.db.patch(existing._id, {
+      kind: "embedded",
+      privyWalletId,
       solanaAddress,
       isEmbedded: true,
       updatedAt: now,
@@ -92,6 +103,7 @@ export async function upsertEmbeddedWallet(
   const isDefaultReceiving = shouldNewEmbeddedWalletBeDefault(existingWallets);
   const walletId = await ctx.db.insert("wallets", {
     userId,
+    kind: "embedded",
     privyWalletId,
     solanaAddress,
     isEmbedded: true,
@@ -101,6 +113,58 @@ export async function upsertEmbeddedWallet(
   });
 
   return { walletId, created: true };
+}
+
+/**
+ * Upsert an external wallet whose address was recovered from a verified
+ * signed challenge — never from a client argument (D-21, H7).
+ */
+export async function upsertExternalWallet(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  solanaAddress: string,
+  provider: ExternalWalletProvider,
+): Promise<{ walletId: Id<"wallets">; created: boolean }> {
+  const existingWallets = await listUserWallets(ctx, userId);
+  const existing = existingWallets.find(
+    (wallet) => wallet.kind === "external" && wallet.solanaAddress === solanaAddress,
+  );
+  const now = Date.now();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      provider,
+      isEmbedded: false,
+      updatedAt: now,
+    });
+    return { walletId: existing._id, created: false };
+  }
+
+  const isDefaultReceiving = shouldNewEmbeddedWalletBeDefault(existingWallets);
+  const walletId = await ctx.db.insert("wallets", {
+    userId,
+    kind: "external",
+    provider,
+    solanaAddress,
+    isEmbedded: false,
+    isDefaultReceiving,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return { walletId, created: true };
+}
+
+/** Another user's row already holds this address — refuse rather than steal it. */
+export async function findWalletBySolanaAddress(
+  ctx: WalletCtx,
+  solanaAddress: string,
+): Promise<Doc<"wallets"> | null> {
+  const matches = await ctx.db
+    .query("wallets")
+    .withIndex("by_solana_address", (q) => q.eq("solanaAddress", solanaAddress))
+    .collect();
+  return matches[0] ?? null;
 }
 
 /** Resolves the user's default receiving wallet from stored records only (FR-T5, AD-13). */

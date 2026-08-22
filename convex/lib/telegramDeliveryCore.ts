@@ -31,12 +31,15 @@ export type TelegramPort = {
     chatId: string;
     text: string;
     buttonUrl?: string;
+    /** Present only when a photo was stored. U-8 still blocks generation. */
+    photoFileId?: string;
   }): Promise<TelegramCallResult<TelegramMessage>>;
   edit(input: {
     chatId: string;
     messageId: number;
     text: string;
     buttonUrl?: string;
+    photoFileId?: string;
   }): Promise<TelegramCallResult<TelegramMessage>>;
   remove(input: { chatId: string; messageId: number }): Promise<unknown>;
   /** Message id to use when there is no bot token — tests and local dev. */
@@ -96,6 +99,7 @@ export async function deliverTabStatus(
       messageId: work.messageId,
       text: work.text,
       buttonUrl: work.buttonUrl,
+      ...(work.photoFileId ? { photoFileId: work.photoFileId } : {}),
     });
 
     if (!outcome.ok && outcome.kind === "not_modified") {
@@ -127,6 +131,7 @@ export async function deliverTabStatus(
         chatId: work.chatId,
         text: work.text,
         buttonUrl: work.buttonUrl,
+        ...(work.photoFileId ? { photoFileId: work.photoFileId } : {}),
       });
       if (outcome.ok) {
         postedMessageId = outcome.result.message_id;
@@ -139,6 +144,7 @@ export async function deliverTabStatus(
       chatId: work.chatId,
       text: work.text,
       buttonUrl: work.buttonUrl,
+      ...(work.photoFileId ? { photoFileId: work.photoFileId } : {}),
     });
     if (outcome.ok) {
       postedMessageId = outcome.result.message_id;

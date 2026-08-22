@@ -20,6 +20,16 @@ sources:
 > the visual authority; `EXPERIENCE.md` is the behavioral authority from the Claim Board onward;
 > `INVITE-FLOW.md` is the authority on everything before it. Each carries an amendment banner
 > naming the decisions that supersede specific sections.
+>
+> Amendments from the 2026-08-22 session, recorded in `docs/DECISIONS.md`:
+>
+> - **D-21 / D-25 / D-27** — principle 6's "no connect wallet" is superseded for wallet
+>   provenance. Telegram identity stays invisible. Launch is a connect *prompt*, not a wall;
+>   the board is reachable with no wallet.
+> - **D-22** — DFlow gets a picker. Banned copy still applies at full force.
+> - **D-23 / D-29** — principle 4 is extended: *k*-of-*n*, integer only.
+> - **D-26** — §Users, Andre: the audience is crypto-native. He still claims at the table
+>   with 8% battery; he is no longer someone who has never heard of a wallet.
 
 ## Register
 
@@ -57,8 +67,10 @@ exists in the product; a real deployment can only ever show real money.
 - **Maya**, 31 — organizes the Thursday dinner for a twelve-person Bangkok group chat and
   always ends up fronting the bill. She is the organizer: names the tab, scans the
   receipt, invites the five people who actually ate, locks the bill.
-- **Andre**, 28 — in the group, has never owned a crypto wallet, and does not intend to
-  start now. He is the participant: taps a link, taps his dishes, taps pay.
+- **Andre**, 28 — in the group, holds a wallet, claims at the table with 8% battery.
+  He is the participant: taps a link, taps his dishes, pays from the wallet he already
+  has. A Privy embedded wallet is the fallback for someone who has none, not his default.
+  *(Revised by D-26.)*
 - **Noi, Ploy, Tim** — round out the table. Two of them will claim the same dish. One of
   them was at dinner and is not in the group chat, which is exactly why the invite door
   exists.

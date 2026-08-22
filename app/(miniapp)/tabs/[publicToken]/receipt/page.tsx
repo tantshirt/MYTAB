@@ -4,8 +4,9 @@ import { use, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
-import { ReceiptReview } from "@/features/receipts";
+import { ManualEntryFallback, ReceiptCapture, ReceiptReview } from "@/features/receipts";
 import { useReceiptData } from "@/features/receipts/useReceiptData";
+import { useReceiptScanEnabled } from "@/features/receipts/useReceiptScanEnabled";
 import { useResolvedTab } from "@/features/tabs/useTabData";
 import { useLiveMutation } from "@/features/convex/useConvexData";
 import { api } from "@/convex/_generated/api";
@@ -21,30 +22,20 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
   const router = useRouter();
   const session = useResolvedTab(publicToken);
   const tabId = session.status === "ready" ? session.tabId : null;
+  const scanEnabled = useReceiptScanEnabled();
 
-  /*
-   * The second argument is the import this session created, which supersedes
-   * the cold read from the tab. This route has no capture step of its own —
-   * `finalizeUpload` runs in `features/receipts/ReceiptCapture` — so it always
-   * reads the tab's newest live import.
-   */
-  const { importId, parsed, capturedAtLabel } = useReceiptData(tabId, null);
+  const [sessionImportId, setSessionImportId] = useState<string | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureFailed, setCaptureFailed] = useState(false);
+
+  const { importId, parsed, capturedAtLabel, status } = useReceiptData(
+    tabId,
+    sessionImportId,
+  );
 
   const confirmReceipt = useLiveMutation(api.receipts.confirmReceipt);
-
-  /*
-   * §1.5 requires the Confirm action pinned, and it cannot pin from inside
-   * `ReceiptReview`: `AppShell`'s content column sets `overflow-x: hidden`,
-   * which makes it a scroll container, so any `position: sticky` descendant is
-   * inert. `AppShell`'s `footer` slot is the element that actually pins, so the
-   * route owns that element and the surface portals its action bar into it.
-   */
   const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null);
 
-  /**
-   * `api.receipts.confirmReceipt` re-checks reconciliation server-side and
-   * rejects a shortfall, so the client never has the last word on the total.
-   */
   const handleConfirm = useCallback(
     (lines: ParsedReceiptLine[], receiptTotalMinor: FiatMinor) => {
       const land = () => router.push(`/tabs/${publicToken}`);
@@ -63,7 +54,6 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
         })),
         receiptTotalMinor: BigInt(receiptTotalMinor),
       })
-        // Confirmed items become claimable, so the person lands on the Claim Board.
         .then(land)
         .catch(() => {
           /* The discrepancy card is already the surface's own rejection path. */
@@ -76,15 +66,59 @@ function ReceiptSurface({ publicToken }: { publicToken: string }) {
     router.push("/tabs/new");
   }, [router]);
 
+  const startCapture = useCallback(() => {
+    setCaptureFailed(false);
+    setCaptureOpen(true);
+  }, []);
+
+  const extracting = status === "extracting" || status === "uploaded";
+  const failed = captureFailed || status === "failed";
+  const showCapture =
+    scanEnabled &&
+    tabId != null &&
+    (captureOpen || (!parsed.lines.length && !extracting && !failed && status !== "needs_review"));
+
   return (
-    <AppShell footer={<div ref={setFooterSlot} />}>
-      <ReceiptReview
-        parsed={parsed}
-        capturedAtLabel={capturedAtLabel}
-        onConfirm={handleConfirm}
-        onManualEntry={handleManualEntry}
-        footerSlot={footerSlot}
-      />
+    <AppShell footer={parsed.lines.length > 0 && !extracting ? <div ref={setFooterSlot} /> : undefined}>
+      {extracting ? (
+        <p className="mytab-type-body" style={{ marginTop: 24 }}>
+          Checking the receipt.
+        </p>
+      ) : null}
+
+      {failed && !extracting ? (
+        <ManualEntryFallback
+          failureMessage="Could not read photo"
+          onManualEntry={handleManualEntry}
+          onRetryCapture={scanEnabled ? startCapture : undefined}
+        />
+      ) : null}
+
+      {showCapture && !extracting && !failed ? (
+        <ReceiptCapture
+          tabId={tabId}
+          enabled
+          onUploaded={(nextImportId) => {
+            setSessionImportId(nextImportId);
+            setCaptureOpen(false);
+          }}
+          onFailure={() => {
+            setCaptureFailed(true);
+            setCaptureOpen(false);
+          }}
+        />
+      ) : null}
+
+      {!extracting && !failed && !showCapture ? (
+        <ReceiptReview
+          parsed={parsed}
+          capturedAtLabel={capturedAtLabel}
+          onConfirm={handleConfirm}
+          onManualEntry={handleManualEntry}
+          onScanReceipt={scanEnabled ? startCapture : undefined}
+          footerSlot={footerSlot}
+        />
+      ) : null}
     </AppShell>
   );
 }

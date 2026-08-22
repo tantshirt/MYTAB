@@ -44,6 +44,12 @@ describe("preview egress guard (AD-3)", () => {
     ).toThrow(PreviewEgressBlockedError);
   });
 
+  it("blocks Vercel AI Gateway in preview (D-32)", () => {
+    expect(() =>
+      assertPreviewEgressAllowed("https://ai-gateway.vercel.sh/v1/responses", previewEnv),
+    ).toThrow(PreviewEgressBlockedError);
+  });
+
   it("blocks production Solana RPC in preview", () => {
     expect(() =>
       assertPreviewEgressAllowed("https://mainnet.helius-rpc.com/", previewEnv),
@@ -67,6 +73,7 @@ describe("preview egress guard (AD-3)", () => {
     expect(patternSources.some((s) => s.includes("privy"))).toBe(true);
     expect(patternSources.some((s) => s.includes("dflow"))).toBe(true);
     expect(patternSources.some((s) => s.includes("openai"))).toBe(true);
+    expect(patternSources.some((s) => s.includes("ai-gateway"))).toBe(true);
     expect(
       patternSources.some((s) => s.includes("helius") || s.includes("solana")),
     ).toBe(true);

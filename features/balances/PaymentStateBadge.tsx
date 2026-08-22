@@ -11,7 +11,7 @@ export type PaymentStateBadgeProps = {
   failureMessage?: string;
 };
 
-/** Six visually distinct payment states (Story 7.4 AC1). */
+/** Visually distinct payment states (Story 7.4 AC1, D-30). */
 export function PaymentStateBadge({ state, failureMessage }: PaymentStateBadgeProps) {
   const presentation = getPaymentStatePresentation(state);
 
@@ -64,21 +64,16 @@ export function BalanceLinkRow({
   return (
     <Link
       href={href}
+      className="mytab-row"
       style={{
-        display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
-        padding: "12px 0",
-        minHeight: "44px",
+        padding: "16px",
+        minHeight: "56px",
         textDecoration: "none",
         color: MYTAB_COLORS.ink,
-        borderBottom: `1px solid ${MYTAB_COLORS.border}`,
       }}
     >
-      <span className="mytab-type-body mytab-row__label" style={{ flex: 1, minWidth: 0 }}>
-        {label}
-      </span>
+      <span className="mytab-type-body mytab-row__label mytab-name">{label}</span>
       <span
         className="mytab-type-amount-row mytab-tabular mytab-row__amount"
         data-mytab-amount

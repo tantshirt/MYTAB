@@ -2,10 +2,15 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { AuthError, UNAUTHORIZED, getCurrentUser } from "./lib/auth";
 import {
+  issueWalletLinkChallenge as issueWalletLinkChallengeCore,
+  linkExternalWalletCore,
+} from "./lib/walletChallenge";
+import {
   DUPLICATE_DEFAULT_RECEIVING,
   USER_REQUIRED,
   WalletError,
   getDefaultReceivingWalletForUser,
+  listUserWallets,
   setDefaultReceivingWallet,
   upsertEmbeddedWallet,
 } from "./lib/walletSync";
@@ -15,6 +20,8 @@ export {
   USER_REQUIRED,
   WalletError,
 } from "./lib/walletSync";
+export { WALLET_LINK_ARG_KEYS } from "./lib/walletChallenge";
+
 
 /** Upserts the authenticated user's Privy embedded Solana wallet (FR-W1, FR-W2). */
 export const syncEmbeddedWallet = mutation({
@@ -84,4 +91,48 @@ export const defaultReceivingWallet = query({
 
     return getDefaultReceivingWalletForUser(ctx, user._id);
   },
+});
+
+/** True when the authenticated user already has any linked wallet (D-25). */
+export const hasLinkedWallet = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      return { status: "unauthenticated" as const, linked: false };
+    }
+
+    const wallets = await listUserWallets(ctx, user._id);
+    return { status: "ready" as const, linked: wallets.length > 0 };
+  },
+});
+
+/**
+ * Mints a short-lived nonce bound to the authenticated user.
+ * The client signs the returned prefix plus its own `key=` line.
+ */
+export const issueWalletLinkChallenge = mutation({
+  args: {},
+  handler: async (ctx) => issueWalletLinkChallengeCore(ctx),
+});
+
+/**
+ * Link an external wallet from a signed challenge (D-21).
+ *
+ * Args are the signed message and signature — there is no address argument.
+ * The pubkey is recovered from the verified signed bytes, then written.
+ */
+export const linkExternalWallet = mutation({
+  args: {
+    challengeId: v.id("walletLinkChallenges"),
+    signedMessage: v.string(),
+    signature: v.string(),
+    provider: v.union(
+      v.literal("phantom"),
+      v.literal("solflare"),
+      v.literal("backpack"),
+      v.literal("standard"),
+    ),
+  },
+  handler: async (ctx, args) => linkExternalWalletCore(ctx, args),
 });

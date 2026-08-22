@@ -120,9 +120,11 @@ describe("Story 2.1 — update normalization (AC2, AC5)", () => {
         kind: "message",
         updateId: 9001,
         chatId: "-1001234567890",
+        chatType: "supergroup",
         fromId: "42",
         messageId: 77,
         command: "tab",
+        commandArg: null,
         chatTitle: "Dinner Crew",
         fromDisplayName: "Ada",
         fromUsername: "ada_test",
@@ -150,6 +152,43 @@ describe("Story 2.1 — update normalization (AC2, AC5)", () => {
         expect(result.update.membershipStatus).toBe("left");
         expect(result.update.role).toBe("left");
       }
+    }
+  });
+
+  it("normalizes a private /start instead of dropping it", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 9100,
+      message: {
+        message_id: 1,
+        date: 1_700_000_000,
+        chat: { id: 42, type: "private" },
+        from: TEST_USER,
+        text: "/start",
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.update.kind === "message") {
+      expect(result.update.chatType).toBe("private");
+      expect(result.update.command).toBe("start");
+      expect(result.update.commandArg).toBeNull();
+    }
+  });
+
+  it("parses a /start payload for the recovery path", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 9101,
+      message: {
+        message_id: 2,
+        date: 1_700_000_000,
+        chat: { id: 42, type: "private" },
+        from: TEST_USER,
+        text: "/start opaque-token-1",
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.update.kind === "message") {
+      expect(result.update.command).toBe("start");
+      expect(result.update.commandArg).toBe("opaque-token-1");
     }
   });
 
@@ -205,6 +244,9 @@ describe("Story 2.1 — idempotency by update id (AC4)", () => {
     let nextId = 1;
 
     const ctx = {
+      scheduler: {
+        runAfter: async () => "scheduled:1",
+      },
       db: {
         query: (table: string) => ({
           withIndex: (

@@ -31,6 +31,10 @@ import {
   createSolanaRpcClient,
   type SolanaRpcClient,
 } from "../../lib/solana/rpc";
+import {
+  incidentFromMismatchStop,
+  shouldRecordReconciliationIncident,
+} from "../lib/reconciliation";
 
 type PipelineFailure = { ok: false; failureCode: string };
 type SubmittedResult = { intentId: string; status: string };
@@ -562,7 +566,10 @@ async function reconcileOnce(
       transactionSignature: signature,
       failureCode: parsed.failureCode,
     });
-    return await unresolved(ctx, intentId, parsed.failureCode, attempt, false);
+    return await unresolved(ctx, intentId, parsed.failureCode, attempt, false, {
+      tabId: intent.tabId,
+      signature,
+    });
   }
 
   // ---- Not finalized. Is it anywhere? --------------------------------------
@@ -684,11 +691,27 @@ async function unresolved(
   reason: string,
   attempt: number,
   reschedule = true,
+  observed?: { tabId?: Doc<"tabs">["_id"]; signature?: string },
 ): Promise<ReconcileOutcome> {
   await ctx.runMutation(internal.settlements.markUnknownInternal, {
     intentId,
     reason,
     ...(reschedule ? { scheduleAttempt: attempt } : {}),
   });
+
+  // D-30: polling has stopped on a finalized-but-mismatched observation.
+  // Do not resume it. Record what is known; do not invent a check name.
+  if (shouldRecordReconciliationIncident(reschedule)) {
+    await ctx.runMutation(
+      internal.reconciliation.recordIncidentInternal,
+      incidentFromMismatchStop({
+        intentId,
+        tabId: observed?.tabId,
+        observedSignature: observed?.signature,
+        failedCheck: reason,
+      }),
+    );
+  }
+
   return { resolution: "unresolved", reason, reschedule };
 }

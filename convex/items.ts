@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { allocationModeForItemQuantity } from "../lib/domain/quantityClaim";
 import { fiatMinorFromInteger } from "../lib/domain/money";
 import {
   bumpTabRevision,
@@ -55,6 +56,7 @@ export const addItem = mutation({
       quantity: validated.quantity,
       unitPriceMinor: validated.unitPriceMinor,
       lineTotalMinor: validated.lineTotalMinor,
+      allocationMode: allocationModeForItemQuantity(validated.quantity),
       sortOrder,
       source: args.source ?? "manual",
       createdAt: now,
@@ -95,6 +97,7 @@ export const updateItem = mutation({
       quantity: validated.quantity,
       unitPriceMinor: validated.unitPriceMinor,
       lineTotalMinor: validated.lineTotalMinor,
+      allocationMode: allocationModeForItemQuantity(validated.quantity),
       updatedAt: now,
     });
 
@@ -125,6 +128,7 @@ export const duplicateItem = mutation({
       quantity: item.quantity,
       unitPriceMinor: item.unitPriceMinor,
       lineTotalMinor: item.lineTotalMinor,
+      allocationMode: item.allocationMode ?? allocationModeForItemQuantity(item.quantity),
       sortOrder,
       source: item.source,
       createdAt: now,

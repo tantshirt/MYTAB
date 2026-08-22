@@ -96,6 +96,11 @@ export function createFakeCtx(store: Store, identity: FakeIdentity = null) {
     }
   };
 
+  const remove = async (id: string) => {
+    const table = tableOf(id);
+    store[table] = (store[table] ?? []).filter((row) => row._id !== id);
+  };
+
   // Recorded, never executed: a scheduled function is a promise about the
   // future, and a test that runs it inline is testing a different program.
   const scheduler = {
@@ -115,7 +120,7 @@ export function createFakeCtx(store: Store, identity: FakeIdentity = null) {
     scheduled,
     ctx: {
       auth: { getUserIdentity: async () => identity },
-      db: { get, query, insert, patch },
+      db: { get, query, insert, patch, delete: remove },
       scheduler,
     } as never,
   };

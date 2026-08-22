@@ -54,7 +54,9 @@ describe("Payment Sheet — §1.8", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
     // The amount on the button is the last thing a person reads.
     expect(html.lastIndexOf("Pay ฿291.74")).toBeGreaterThan(order[order.length - 1]!);
-    expect(html).not.toMatch(/execute|swap|broadcast|signature|mint|blockhash|\broute\b/i);
+    expect(html).toContain("Price protection");
+    expect(html).toContain("Powered by Jupiter");
+    expect(html).not.toMatch(/execute|swap|broadcast|signature|mint|blockhash|\broute\b|slippage/i);
   });
 
   it("carries the obligation at amount-lg, not at list-row size", () => {
@@ -66,6 +68,7 @@ describe("Payment Sheet — §1.8", () => {
     const html = sheet({ recipientName: "Maya", minimumReceiveAmount: "8.25 USDC" });
     expect(html).toContain("Maya receives at least");
     expect(html).toContain("8.25 USDC");
+    expect(html).toContain("Price protection");
     // "At least" is the honest word, so the figure is never presented as exact.
     expect(html).not.toContain("Minimum they receive");
   });
@@ -148,6 +151,21 @@ describe("Payment Progress — §1.9", () => {
     expect(html).toContain("Usually takes a few seconds");
   });
 
+  it("shows what the recipient received after confirmation, not a route", () => {
+    const html = renderToStaticMarkup(
+      <PaymentProgress
+        status={SETTLEMENT_STATUS.CONFIRMED}
+        recipientName="Maya"
+        recipientReceivesLabel="8.25 USDC"
+        billName="Sukhumvit Dinner"
+      />,
+    );
+
+    expect(html).toContain("Maya received 8.25 USDC");
+    expect(html).toContain("Your share of Sukhumvit Dinner is settled.");
+    expect(html).not.toMatch(/swap|route|slippage|execute/i);
+  });
+
   it("leads with the amount in flight rather than a heading", () => {
     const html = renderToStaticMarkup(
       <PaymentProgress
@@ -209,6 +227,35 @@ describe("Payment Progress — §1.9", () => {
     expect(html).toContain("Verifying");
     expect(html).not.toContain("Try again");
     expect(html).not.toContain("Sending payment");
+  });
+
+  it("holds the last figure at 40% opacity while unknown — never a dash, never failed", () => {
+    const html = renderToStaticMarkup(
+      <PaymentProgress
+        status={SETTLEMENT_STATUS.UNKNOWN}
+        recipientName="Maya"
+        amount="฿291.74"
+      />,
+    );
+
+    expect(html).toContain("฿291.74");
+    expect(html).toContain("opacity:0.4");
+    expect(html).toContain("data-mytab-amount");
+    expect(html).not.toContain("Failed");
+    expect(html).not.toMatch(/data-mytab-amount[^>]*>\s*[—–-]\s*</);
+  });
+
+  it("dims the payment sheet's last figures when the intent is held", () => {
+    const html = sheet({ held: true });
+
+    expect(html).toContain("฿291.74");
+    expect(html).toContain("8.25 USDC");
+    expect(html).toContain("opacity:0.4");
+    expect(html).toContain("Still checking — don&#x27;t pay again.");
+    expect(html).toContain("disabled");
+    expect(html).toContain("Pay ฿291.74");
+    expect(html).not.toContain("Failed");
+    expect(html).not.toMatch(/data-mytab-amount[^>]*>\s*[—–-]\s*</);
   });
 
   it("never renders an expired payment as approved and active", () => {

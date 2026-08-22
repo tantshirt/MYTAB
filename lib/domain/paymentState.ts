@@ -17,14 +17,24 @@ export const SETTLEMENT_STATUS = {
 export type SettlementStatus =
   (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS];
 
-/** Six visually distinct payment states for lists (Story 7.4 AC1). */
+/**
+ * Visually distinct payment states for lists (Story 7.4 AC1, D-30).
+ *
+ * `held` is the payer-facing face of a persisted `unknown` intent. It must
+ * never collapse into `submitted` (still in flight) or `failed` (money did
+ * not move). Confirmation moves the ledger, not submission (AD-11).
+ */
 export type PaymentDisplayState =
   | "quoted"
   | "awaiting_signature"
   | "submitted"
+  | "held"
   | "confirmed"
   | "failed"
   | "expired";
+
+/** Payer-facing held copy (D-30). The last figure stays; this sentence names the wait. */
+export const HELD_PAYMENT_MESSAGE = "Still checking — don't pay again.";
 
 export type PaymentStatePresentation = {
   state: PaymentDisplayState;
@@ -83,8 +93,9 @@ export function mapSettlementStatusToDisplay(
     case SETTLEMENT_STATUS.USER_SIGNED:
       return "awaiting_signature";
     case SETTLEMENT_STATUS.SUBMITTED:
-    case SETTLEMENT_STATUS.UNKNOWN:
       return "submitted";
+    case SETTLEMENT_STATUS.UNKNOWN:
+      return "held";
     case SETTLEMENT_STATUS.CONFIRMED:
       return "confirmed";
     case SETTLEMENT_STATUS.FAILED:
@@ -124,6 +135,14 @@ export function getPaymentStatePresentation(
         glyph: "↗",
         color: MYTAB_COLORS.warning,
         background: MYTAB_COLORS.warningSoft,
+      };
+    case "held":
+      return {
+        state,
+        label: "Still checking",
+        glyph: "◌",
+        color: MYTAB_COLORS.inkMuted,
+        background: MYTAB_COLORS.sunk,
       };
     case "confirmed":
       return {

@@ -9,11 +9,15 @@ import { describe, expect, it } from "vitest";
 import {
   INVITE_MINT_FAILURE,
   TAB_ADMISSION_FAILURE,
+  TOKEN_REVOKE_FAILURE,
   admitToTabSession,
   decideInviteMint,
   decideTabAdmission,
+  decideTokenRevoke,
+  ensureOrganizerParticipant,
   mintTabInviteToken,
   readChatMembershipProof,
+  revokeTabInviteForOrganizer,
   seatAvailable,
 } from "../../convex/lib/sessionTokenOps";
 import { hashSessionToken } from "../../convex/lib/sessionTokenSync";
@@ -33,6 +37,8 @@ type Options = {
   /** Tab lifecycle. */
   tabStatus?: "draft" | "open" | "locked" | "settled" | "closed";
   seatPolicy?: Doc<"tabs">["seatPolicy"];
+  origin?: Doc<"tabs">["origin"];
+  liveInviteToken?: string;
   /** The arriving person. */
   onRoster?: boolean;
   hasTelegramContext?: boolean;
@@ -183,6 +189,8 @@ function seed(options: Options = {}) {
         name: "Sukhumvit Dinner",
         status: options.tabStatus ?? "open",
         ...(options.seatPolicy ? { seatPolicy: options.seatPolicy } : {}),
+        ...(options.origin ? { origin: options.origin } : {}),
+        ...(options.liveInviteToken ? { liveInviteToken: options.liveInviteToken } : {}),
         createdAt: 0,
         updatedAt: 0,
       },
@@ -201,6 +209,7 @@ function seed(options: Options = {}) {
         createdAt: NOW - 10_000,
       },
     ],
+    telegramStatusMessages: [],
   };
 
   const { ctx, store: live } = createFakeCtx(store);
@@ -605,5 +614,183 @@ describe("§1.5 — seats", () => {
   it("a fixed policy admits up to the head count and no further", () => {
     expect(seatAvailable({ seatPolicy: { kind: "fixed", seats: 5 } }, 4)).toBe(true);
     expect(seatAvailable({ seatPolicy: { kind: "fixed", seats: 5 } }, 5)).toBe(false);
+  });
+});
+
+describe("D-06 — personal origin skips BOT_NOT_ADMIN", () => {
+  it("admits a stranger on a personal tab when the bot is not an admin", async () => {
+    const { ctx, store } = seed({
+      origin: "personal",
+      seatPolicy: { kind: "fixed", seats: 5 },
+      botIsAdmin: false,
+      memberRowMissing: true,
+    });
+
+    const result = await admitToTabSession(ctx, {
+      token: TOKEN,
+      user: userFrom(store, "users:2"),
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({ ok: true, tabId: TAB_ID, joined: true });
+    expect(store.tabParticipants).toHaveLength(1);
+  });
+
+  it("still refuses BOT_NOT_ADMIN on a chat-origin tab (missing origin counts as chat)", async () => {
+    const { ctx, store } = seed({ botIsAdmin: false });
+
+    const result = await admitToTabSession(ctx, {
+      token: TOKEN,
+      user: userFrom(store, "users:2"),
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, code: TAB_ADMISSION_FAILURE.BOT_NOT_ADMIN });
+  });
+
+  it("lets the organizer mint an invite on a personal tab without bot admin", async () => {
+    const { ctx, store } = seed({
+      origin: "personal",
+      seatPolicy: { kind: "fixed", seats: 5 },
+      botIsAdmin: false,
+      liveInviteToken: TOKEN,
+    });
+
+    const result = await mintTabInviteToken(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      user: userFrom(store, "users:1"),
+      now: NOW,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.token).toBe(TOKEN);
+    expect(store.sessionTokens).toHaveLength(1);
+  });
+});
+
+describe("INVITE-FLOW §5.1 — one token per tab", () => {
+  it("reuses the live token instead of minting a second", async () => {
+    const { ctx, store } = seed({ liveInviteToken: TOKEN });
+
+    const first = await mintTabInviteToken(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      user: userFrom(store, "users:1"),
+      now: NOW,
+    });
+    const second = await mintTabInviteToken(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      user: userFrom(store, "users:1"),
+      now: NOW,
+    });
+
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      return;
+    }
+    expect(first.token).toBe(TOKEN);
+    expect(second.token).toBe(TOKEN);
+    expect(store.sessionTokens).toHaveLength(1);
+  });
+});
+
+describe("INVITE-FLOW B7 — organizer on the roster at creation", () => {
+  it("inserts the organizer when the users row exists", async () => {
+    const { ctx, store } = seed();
+
+    const inserted = await ensureOrganizerParticipant(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      organizerTelegramUserId: "100",
+      now: NOW,
+    });
+
+    expect(inserted.inserted).toBe(true);
+    expect(store.tabParticipants).toHaveLength(1);
+    expect(store.tabParticipants![0]).toMatchObject({
+      tabId: TAB_ID,
+      userId: "users:1",
+      telegramUserId: "100",
+    });
+  });
+
+  it("does not write a second row when they are already on it", async () => {
+    const { ctx } = seed({ onRoster: true });
+    // seed onRoster puts Andre, not Maya. Insert Maya twice.
+    const first = await ensureOrganizerParticipant(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      organizerTelegramUserId: "100",
+      now: NOW,
+    });
+    const second = await ensureOrganizerParticipant(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      organizerTelegramUserId: "100",
+      now: NOW,
+    });
+    expect(first.inserted).toBe(true);
+    expect(second.inserted).toBe(false);
+  });
+});
+
+describe("U-9 — revoke is organizer-on-roster", () => {
+  it("lets the organizer who is on the roster stop the link", async () => {
+    const { ctx, store } = seed({ liveInviteToken: TOKEN });
+    await ensureOrganizerParticipant(ctx, {
+      tabId: TAB_ID as Doc<"tabs">["_id"],
+      organizerTelegramUserId: "100",
+      now: NOW,
+    });
+
+    const result = await revokeTabInviteForOrganizer(ctx, {
+      tokenId: "sessionTokens:1" as Doc<"sessionTokens">["_id"],
+      user: userFrom(store, "users:1"),
+      now: NOW,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(store.sessionTokens![0]).toMatchObject({ status: "revoked" });
+    expect(store.tabs![0]!.liveInviteToken).toBeUndefined();
+  });
+
+  it("a stranger gets UNAUTHORIZED, not TOKEN_NOT_FOUND", async () => {
+    const { ctx, store } = seed();
+
+    const result = await revokeTabInviteForOrganizer(ctx, {
+      tokenId: "sessionTokens:1" as Doc<"sessionTokens">["_id"],
+      user: userFrom(store, "users:3"),
+      now: NOW,
+    });
+    expect(result).toEqual({ ok: false, code: TOKEN_REVOKE_FAILURE.UNAUTHORIZED });
+    expect(store.sessionTokens![0]).toMatchObject({ status: "active" });
+  });
+
+  it("a missing token is the same refusal as a stranger — nothing leaks", async () => {
+    const { ctx, store } = seed();
+
+    const missing = await decideTokenRevoke(ctx, {
+      tokenId: "sessionTokens:missing" as Doc<"sessionTokens">["_id"],
+      user: userFrom(store, "users:1"),
+    });
+    const stranger = await decideTokenRevoke(ctx, {
+      tokenId: "sessionTokens:1" as Doc<"sessionTokens">["_id"],
+      user: userFrom(store, "users:3"),
+    });
+
+    expect(missing).toEqual(stranger);
+    expect(missing).toEqual({
+      outcome: "refuse",
+      code: TOKEN_REVOKE_FAILURE.UNAUTHORIZED,
+    });
+  });
+
+  it("an organizer who is not on the roster cannot revoke", async () => {
+    const { ctx, store } = seed();
+
+    const result = await revokeTabInviteForOrganizer(ctx, {
+      tokenId: "sessionTokens:1" as Doc<"sessionTokens">["_id"],
+      user: userFrom(store, "users:1"),
+      now: NOW,
+    });
+    expect(result).toEqual({ ok: false, code: TOKEN_REVOKE_FAILURE.UNAUTHORIZED });
   });
 });

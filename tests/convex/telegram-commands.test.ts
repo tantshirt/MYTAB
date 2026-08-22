@@ -47,6 +47,14 @@ function seedGroup(options: { botIsAdmin?: boolean; membershipStatus?: string; v
         verifiedAt: options.verifiedAt ?? NOW,
       },
     ],
+    users: [
+      {
+        _id: "users:ada",
+        privyDid: "did:privy:ada",
+        telegramUserId: "42",
+        displayName: "Ada",
+      },
+    ],
     tabs: [],
     tabParticipants: [],
     tabCreationCounts: [],
@@ -109,6 +117,25 @@ describe("Story 2.5 — the four commands", () => {
     expect(normalizeBotCommand("help")).toBeNull();
     expect(normalizeBotCommand("start")).toBeNull();
     expect(normalizeBotCommand(null)).toBeNull();
+  });
+
+  it("inserts the organizer into the roster when they already have a users row (B7)", async () => {
+    const { ctx, store } = seedGroup();
+
+    await startTabForGroup(ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      now: NOW,
+    });
+
+    expect(store.tabs![0]).toMatchObject({ origin: "chat", seatPolicy: { kind: "chat" } });
+    expect(store.tabParticipants).toHaveLength(1);
+    expect(store.tabParticipants![0]).toMatchObject({
+      telegramUserId: "42",
+      userId: "users:ada",
+    });
+    expect(typeof store.tabs![0]!.liveInviteToken).toBe("string");
   });
 });
 
@@ -223,5 +250,33 @@ describe("Story 2.1 — ingress schedules, it does not act", () => {
     await processTelegramUpdate(ctx, "110201543", commandUpdate(9001), NOW + 500);
 
     expect(scheduled).toHaveLength(1);
+  });
+
+  it("schedules a private reply for a DM /start and does not invent a group", async () => {
+    const { ctx, store, scheduled } = seedGroup();
+    const normalized = normalizeTelegramUpdate({
+      update_id: 9100,
+      message: {
+        message_id: 1,
+        date: 1_700_000_000,
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Ada", username: "ada_test" },
+        text: "/start",
+      },
+    });
+    if (!normalized.ok) {
+      throw new Error("expected a normalized update");
+    }
+
+    const result = await processTelegramUpdate(ctx, "110201543", normalized.update, NOW);
+
+    expect(result).toMatchObject({ duplicate: false, outcome: "processed", command: "start" });
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]?.args).toMatchObject({
+      command: "start",
+      commandArg: null,
+      fromId: "42",
+    });
+    expect(store.groups).toHaveLength(1);
   });
 });

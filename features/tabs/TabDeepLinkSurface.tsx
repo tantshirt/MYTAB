@@ -15,13 +15,14 @@ import {
 } from "@/features/convex/useConvexData";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { isReceiptScanEnabled } from "@/lib/features/flags";
+import { useReceiptScanEnabled } from "@/features/receipts/useReceiptScanEnabled";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   TAB_REFUSAL_ACTION_LABEL,
   useResolvedTab,
 } from "@/features/tabs/useTabData";
+import { InviteSheet } from "@/features/invite/InviteSheet";
 
 /**
  * A text action that is still a 44px target.
@@ -153,6 +154,7 @@ function DeepLinkedClaimBoard({
    */
   const canWrite = isTelegramWebApp;
   const toggleOwnClaim = useLiveMutation(api.allocations.toggleOwnClaim);
+  const setOwnClaimQuantity = useLiveMutation(api.allocations.setOwnClaimQuantity);
   const organizerAssignItem = useLiveMutation(api.allocations.organizerAssignItem);
 
   /*
@@ -163,6 +165,7 @@ function DeepLinkedClaimBoard({
    * (EXPERIENCE, *Concurrency and Revision*).
    */
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const openBillReview = useCallback(() => {
     router.push(`/tabs/${publicToken}/bill`);
@@ -203,6 +206,28 @@ function DeepLinkedClaimBoard({
     [toggleOwnClaim, tabId, board.revision],
   );
 
+  const handleSetClaimQuantity = useCallback(
+    (itemId: string, quantity: number) => {
+      if (!setOwnClaimQuantity) {
+        return;
+      }
+      setStaleNotice(null);
+      void setOwnClaimQuantity({
+        tabId: tabId as Id<"tabs">,
+        itemId: itemId as Id<"items">,
+        clientRevision: board.revision,
+        quantity,
+      })
+        .then((result) => {
+          if (result && "stale" in result && result.stale) {
+            setStaleNotice(STALE_NOTICE);
+          }
+        })
+        .catch(() => setStaleNotice(STALE_NOTICE));
+    },
+    [setOwnClaimQuantity, tabId, board.revision],
+  );
+
   /** The organizer override — Flow 4 step 2. */
   const handleAssignItem = useCallback(
     (itemId: string, userId: string) => {
@@ -231,10 +256,11 @@ function DeepLinkedClaimBoard({
    * a new backend function.
    */
   const addManualItem = useCallback(() => {}, []);
+  const scanEnabled = useReceiptScanEnabled();
 
-  // "Scan a receipt" routes at the Receipt Review surface for this tab. Gated on
-  // the flag as well as the handler: §4.2 shows the scan action only when receipt
-  // scanning is on, and a visible button that does nothing is worse than none.
+  // "Scan receipt" routes at the Receipt Review surface for this tab. Gated on
+  // the Convex capability: §4.2 shows the scan action only when scanning can
+  // run, and a visible button that does nothing is worse than none.
   const scanReceipt = useCallback(() => {
     router.push(`/tabs/${publicToken}/receipt`);
   }, [router, publicToken]);
@@ -268,12 +294,21 @@ function DeepLinkedClaimBoard({
         {...board}
         staleNotice={staleNotice}
         onToggleClaim={canWrite && toggleOwnClaim ? handleToggleClaim : undefined}
+        onSetClaimQuantity={canWrite && setOwnClaimQuantity ? handleSetClaimQuantity : undefined}
         onOpenBillReview={openBillReview}
         onSettleUp={openSettleSheet}
         onAssignItem={canWrite && organizerAssignItem ? handleAssignItem : undefined}
         onAddManual={addManualItem}
-        onScanReceipt={isReceiptScanEnabled() ? scanReceipt : undefined}
+        onScanReceipt={scanEnabled ? scanReceipt : undefined}
+        onInvite={board.isOrganizer ? () => setInviteOpen(true) : undefined}
       />
+      {board.isOrganizer ? (
+        <InviteSheet
+          open={inviteOpen}
+          tabId={tabId}
+          onDismiss={() => setInviteOpen(false)}
+        />
+      ) : null}
       <SettleSheetHost />
     </AppShell>
   );

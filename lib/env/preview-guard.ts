@@ -18,6 +18,7 @@ export const PREVIEW_BLOCKED_HOST_PATTERNS: RegExp[] = [
   /^.*\.dflow\.net$/i,
   /^quote-api\.dflow\.net$/i,
   /^api\.openai\.com$/i,
+  /^ai-gateway\.vercel\.sh$/i,
   /^.*\.helius-rpc\.com$/i,
   /^.*\.quicknode\.com$/i,
   /^api\.mainnet-beta\.solana\.com$/i,
@@ -84,14 +85,16 @@ export function assertPreviewEgressAllowed(
 
 /**
  * Guarded fetch wrapper — denies blocked hosts in preview/non-production.
+ * `fetchImpl` is for tests; production callers omit it.
  */
 export async function guardedFetch(
   input: string | URL,
   init?: RequestInit,
   env?: RuntimeEnv,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
   assertPreviewEgressAllowed(input, env);
-  return fetch(input, init);
+  return fetchImpl(input, init);
 }
 
 function readProcessEnv(): RuntimeEnv {

@@ -13,7 +13,8 @@ export type YouViewer = {
 export type YouWallet =
   | { kind: "ready"; publicKey: string }
   | { kind: "provisioning" }
-  | { kind: "failed" };
+  | { kind: "failed" }
+  | { kind: "none" };
 
 export type YouSurfaceData = {
   status: "loading" | "ready" | "error";
@@ -23,4 +24,14 @@ export type YouSurfaceData = {
   buildLabel: string;
   /** Telegram support chat. */
   supportUrl: string;
+  /** U-9 — live invite links this organizer can stop. */
+  liveInvites?: LiveInvite[];
+};
+
+export type LiveInvite = {
+  tabId: string;
+  tokenId: string;
+  tabName: string;
+  expiresAt: number;
+  seatsRemaining: number | null;
 };

@@ -24,6 +24,8 @@ export const EMPTY_CLAIM_BOARD: ClaimBoardProps = {
   unassignedCount: 0,
   viewerSubtotalMinor: 0,
   viewerHasClaims: false,
+  tabId: undefined,
+  seatsRemaining: null,
 };
 
 /** `getClaimBoard` returns participants and the organizer's Telegram id, not a name. */
@@ -70,6 +72,8 @@ export function useClaimBoardData(
       revision: view.tab.revision,
       isLocked: view.isLocked,
       isOrganizer: view.isOrganizer,
+      tabId: view.tab._id,
+      seatsRemaining: view.tab.seatsRemaining,
       viewerUserId: view.viewerUserId,
       organizerDisplayName: organizerNameFor(view),
       participants: view.participants.map((participant) => ({
@@ -80,10 +84,15 @@ export function useClaimBoardData(
       items: view.items.map((item) => ({
         id: item._id,
         name: item.name,
+        quantity: item.quantity,
+        allocationMode: item.allocationMode,
         lineTotalMinor: item.lineTotalMinor,
         claimantIds: item.claimantIds,
         viewerOwns: item.viewerOwns,
         unassigned: item.unassigned,
+        claimedCount: item.claimedCount,
+        shortfall: item.shortfall,
+        viewerClaimedQuantity: item.viewerClaimedQuantity,
       })),
       unassignedCount: view.unassignedCount,
       viewerSubtotalMinor: view.viewerSubtotalMinor,

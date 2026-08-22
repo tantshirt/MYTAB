@@ -28,8 +28,9 @@ export function isConvexAuthFixtureMode(): boolean {
 }
 
 /**
- * Privy client config for zero-click Telegram login with an embedded Solana wallet.
- * No external wallet connectors in P0 (FR-A1, FR-W1).
+ * Privy client config (D-21). Telegram still authenticates identity.
+ * An embedded wallet is created only when the person chooses "Use a My Tab
+ * wallet". External connectors are admitted — wallet-standard first (D-28).
  */
 export function createPrivyConfig(): PrivyClientConfig {
   return {
@@ -40,10 +41,26 @@ export function createPrivyConfig(): PrivyClientConfig {
     },
     embeddedWallets: {
       solana: {
-        createOnLogin: "users-without-wallets",
+        createOnLogin: "off",
+      },
+    },
+    externalWallets: {
+      solana: {
+        connectors: solanaConnectors(),
       },
     },
   };
+}
+
+function solanaConnectors(): NonNullable<
+  NonNullable<PrivyClientConfig["externalWallets"]>["solana"]
+>["connectors"] {
+  const mod = require("@privy-io/react-auth/solana") as {
+    toSolanaWalletConnectors: (args?: { shouldAutoConnect?: boolean }) => NonNullable<
+      NonNullable<PrivyClientConfig["externalWallets"]>["solana"]
+    >["connectors"];
+  };
+  return mod.toSolanaWalletConnectors({ shouldAutoConnect: false });
 }
 
 /**

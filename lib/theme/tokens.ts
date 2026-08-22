@@ -62,6 +62,12 @@ export const MYTAB_ELEVATION = {
   cardShadow: "0 1px 2px rgba(10,32,56,0.045)",
   buttonInset: "inset 0 -1px 0 rgba(10,32,56,0.24)",
   /*
+   * Pressed primary: the inset edge flips to the top so the fill reads as
+   * pushed in. Colour still does the state work; this is pressure, not lift
+   * (DESIGN.md: no hover lift, no pressed elevation).
+   */
+  buttonPressed: "inset 0 1px 0 rgba(10,32,56,0.28)",
+  /*
    * Bottom sheets rise from the bottom edge, so the shadow must fall UPWARD onto
    * the content being obscured. The previous `0 8px 32px` cast it downward, off
    * the bottom of the screen, where it is invisible (POLISH-SPEC §1.8).

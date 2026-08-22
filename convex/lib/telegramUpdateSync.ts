@@ -9,9 +9,11 @@ type NormalizedUpdate =
       kind: "message";
       updateId: number;
       chatId: string;
+      chatType: "private" | "group" | "supergroup";
       fromId: string;
       messageId: number;
       command: string | null;
+      commandArg: string | null;
       chatTitle?: string;
       fromDisplayName: string;
       fromUsername?: string;
@@ -89,7 +91,34 @@ export async function processTelegramUpdate(
     return { ok: true, duplicate: false, outcome };
   }
 
+  if (update.kind === "message" && update.chatType === "private") {
+    await ctx.scheduler.runAfter(0, internal.internal.telegramCommands.runPrivateReply, {
+      chatId: update.chatId,
+      fromId: update.fromId,
+      command: update.command,
+      commandArg: update.commandArg,
+    });
+    return {
+      ok: true,
+      duplicate: false,
+      outcome,
+      command: update.command ?? "dm",
+    };
+  }
+
   const groupResult = await resolveGroupFromChat(ctx, update, now);
+
+  if (update.kind === "my_chat_member" && groupResult.groupId) {
+    const group = await ctx.db.get(groupResult.groupId);
+    if (group && group.botWelcomeSentAt === undefined) {
+      await ctx.db.patch(groupResult.groupId, { botWelcomeSentAt: now });
+      await ctx.scheduler.runAfter(0, internal.internal.telegramCommands.runGroupWelcome, {
+        chatId: update.chatId,
+        botIsAdmin: update.botIsAdmin,
+      });
+    }
+    return { ok: true, duplicate: false, outcome, groupId: groupResult.groupId };
+  }
 
   if (update.kind === "message" && groupResult.groupId) {
     const command = normalizeBotCommand(update.command);

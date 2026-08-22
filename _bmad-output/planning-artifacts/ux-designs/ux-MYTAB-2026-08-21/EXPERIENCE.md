@@ -38,6 +38,16 @@ companion: ./DESIGN.md
 >   still binds.
 > - **D-17** — the five-minute Telegram context must be **renewed**; it expired mid-meal and
 >   every write failed silently.
+> - **D-21 / D-25 / D-27** — §Foundation *"no login screen, no 'connect wallet', no
+>   wallet-selection step"* is superseded for *wallet provenance*. Telegram identity stays
+>   invisible. Launch is an explicit connect gate for a first-timer; a returning person
+>   passes through; declining is allowed and the board stays open.
+> - **D-22** — DFlow gets a screen: token picker, live quote, price protection. The
+>   anti-swap-UI bans (no route diagram, no slippage slider, no banned words) still bind.
+> - **D-23 / D-29** — §The Claim Board: a qty-*n* line can be claimed *k*-of-*n*, integer
+>   only. Additive equal-split remains the default for a shared unit.
+> - **D-26** — Flow 2's premise (*"no idea what Solana is"*, never asked to connect) is
+>   revised. The audience is crypto-native. Claiming still requires nothing installed.
 
 
 # My Tab — Experience Spine

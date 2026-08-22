@@ -214,6 +214,9 @@ function TabBarItem({
         color: active ? MYTAB_COLORS.primary : MYTAB_COLORS.inkMuted,
         textDecoration: "none",
         WebkitTapHighlightColor: "transparent",
+        WebkitTouchCallout: "none",
+        userSelect: "none",
+        touchAction: "manipulation",
       }}
     >
       <Glyph size={22} />
@@ -302,9 +305,16 @@ export function AppShellRoot({ children }: { children: ReactNode }) {
             style={{
               position: "sticky",
               bottom: 0,
+              zIndex: 20,
+              isolation: "isolate",
               background: MYTAB_COLORS.surface,
               borderTop: `1px solid ${MYTAB_COLORS.border}`,
               padding: "10px 0 calc(10px + var(--app-pad-bottom, 0px))",
+              userSelect: "none",
+              touchAction: "manipulation",
+              // Keep a flick inside the bar from chaining into the page or
+              // Telegram's overscroll — the bar is chrome, not a scrollport.
+              overscrollBehavior: "none",
             }}
           >
             <div

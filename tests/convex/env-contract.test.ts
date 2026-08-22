@@ -16,6 +16,7 @@ describe("env contract (AD-19)", () => {
         TELEGRAM_BOT_TOKEN: "bot-token",
         PRIVY_APP_SECRET: "privy-secret",
         DFLOW_API_KEY: "dflow-key",
+        AI_GATEWAY_API_KEY: "gateway-key",
         OPENAI_API_KEY: "openai-key",
         SOLANA_RPC_URL: "https://rpc.example.com",
       },
@@ -47,6 +48,28 @@ describe("env contract (AD-19)", () => {
 
     expect(result.valid).toBe(false);
     expect(result.violations.some((v) => v.key === "CONVEX_DEPLOY_KEY")).toBe(
+      true,
+    );
+  });
+
+  it("fails when AI_GATEWAY_API_KEY is configured on Vercel (AD-19, D-32)", () => {
+    const result = validateEnvPlacement(
+      { AI_GATEWAY_API_KEY: "misplaced-gateway-key" },
+      {},
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.violations.some((v) => v.key === "AI_GATEWAY_API_KEY")).toBe(true);
+  });
+
+  it("fails when OPERATOR_RECONCILIATION_SECRET is configured on Vercel (AD-19, D-30)", () => {
+    const result = validateEnvPlacement(
+      { OPERATOR_RECONCILIATION_SECRET: "misplaced-operator-secret" },
+      {},
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.violations.some((v) => v.key === "OPERATOR_RECONCILIATION_SECRET")).toBe(
       true,
     );
   });

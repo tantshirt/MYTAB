@@ -81,6 +81,7 @@ export const FIXTURE_BILL_AUTHORING: BillAuthoringData = {
   ],
   totalDisplay: formatFiatMinorThb(thbMinorFromWholeBaht(601)),
   fxFixtureBadge: "Fixture rate",
+  origin: "chat",
 };
 
 export const FIXTURE_EMPTY_BILL: BillAuthoringData = {

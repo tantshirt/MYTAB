@@ -9,7 +9,7 @@ import {
   SkeletonRegion,
 } from "@/components/primitives/skeleton";
 import { STATE_COPY } from "@/components/primitives/state-copy";
-import { MYTAB_COLORS } from "@/lib/theme/tokens";
+import { SURFACE_CARD_STYLE } from "@/components/primitives/list-card";
 
 export type OfflineBarProps = {
   visible: boolean;
@@ -101,7 +101,7 @@ export type TabsHomeSkeletonProps = {
  */
 export function TabsHomeSkeleton({ activityRows = 3 }: TabsHomeSkeletonProps) {
   return (
-    <SkeletonRegion label="Loading your tabs" style={{ paddingTop: "8px", paddingBottom: "24px" }}>
+    <SkeletonRegion label="Loading your tabs" style={{ paddingTop: "24px", paddingBottom: "32px" }}>
       {/* Hero: the `meta` label above, the figure alone below — the same two
           elements `BalanceHero` renders, so the figure lands where it paints. */}
       <SkeletonBar width="72px" height="13px" />
@@ -142,30 +142,26 @@ export function TabsHomeSkeleton({ activityRows = 3 }: TabsHomeSkeletonProps) {
         <div
           aria-hidden="true"
           style={{
+            ...SURFACE_CARD_STYLE,
             display: "grid",
             gridTemplateColumns: "40px minmax(0, 1fr) auto",
             alignItems: "center",
             columnGap: "12px",
-            minHeight: 72,
+            minHeight: 56,
+            padding: "12px 16px",
           }}
         >
           <SkeletonCircle size={40} />
-          <span style={{ display: "block" }}>
+          <span style={{ display: "block", minWidth: 0 }}>
             <SkeletonBar width="60%" height="15px" />
-            <SkeletonBar width="40%" height="13px" style={{ marginTop: "6px" }} />
           </span>
-          <span style={{ display: "flex" }}>
-            <SkeletonCircle size={26} />
-            <span style={{ marginLeft: "-9px" }}>
-              <SkeletonCircle size={26} />
-            </span>
-          </span>
+          <SkeletonBar width="5.5ch" height="13px" />
         </div>
       </div>
 
       <div style={{ marginTop: "32px" }}>
         <MicroLabelSkeleton />
-        <div style={{ border: `1px solid ${MYTAB_COLORS.border}`, borderRadius: "12px", background: MYTAB_COLORS.surface, padding: "0 16px" }}>
+        <div style={{ ...SURFACE_CARD_STYLE, padding: "0 16px" }}>
           {Array.from({ length: activityRows }, (_, index) => (
             <SkeletonLine
               key={index}
@@ -233,7 +229,7 @@ export function GroupSkeleton({ memberCount = 5, activityRows = 4 }: GroupSkelet
 
       <div style={{ marginTop: "28px" }}>
         <MicroLabelSkeleton />
-        <div style={{ border: `1px solid ${MYTAB_COLORS.border}`, borderRadius: "12px", background: MYTAB_COLORS.surface, padding: "0 16px" }}>
+        <div style={{ ...SURFACE_CARD_STYLE, padding: "0 16px" }}>
           {Array.from({ length: activityRows }, (_, index) => (
             <SkeletonLine
               key={index}
@@ -262,7 +258,7 @@ export function ActivitySkeleton({ groups = 2, rowsPerGroup = 3 }: ActivitySkele
       {Array.from({ length: groups }, (_, groupIndex) => (
         <div key={groupIndex} style={{ marginBottom: "22px" }}>
           <MicroLabelSkeleton />
-          <div style={{ border: `1px solid ${MYTAB_COLORS.border}`, borderRadius: "12px", background: MYTAB_COLORS.surface, padding: "0 16px" }}>
+          <div style={{ ...SURFACE_CARD_STYLE, padding: "0 16px" }}>
             {Array.from({ length: rowsPerGroup }, (_, rowIndex) => (
               <SkeletonLine
                 key={rowIndex}
