@@ -270,7 +270,13 @@ export function beginUniversalLinkSign(input: {
     throw new Error("UL_SECRET_MISSING");
   }
 
-  const walletPub = storeGet(UL_PEER_KEY);
+  /*
+   * Same fallback chain as `beginUniversalLinkSignTransaction`, which always
+   * had it. Without it this threw UL_PEER_MISSING on any cold resume: the
+   * wallet's key lives in web storage written during the connect callback, and
+   * Telegram reopens the Mini App in a NEW WebView whose storage is empty.
+   */
+  const walletPub = storeGet(UL_PEER_KEY) ?? input.pending.walletEncryptionPublicKey;
   if (!walletPub) {
     throw new Error("UL_PEER_MISSING");
   }
@@ -289,7 +295,18 @@ export function beginUniversalLinkSign(input: {
     shared,
   );
 
-  writePendingUniversalLink({ ...input.pending, step: "sign", session: input.session });
+  /*
+   * The peer key goes INTO the pending record, so it survives to Convex via
+   * `persistIfPossible` and a later resume can rebuild this same link without
+   * web storage. Leaving it out is what made the sign step unrecoverable once
+   * the original WebView was gone.
+   */
+  writePendingUniversalLink({
+    ...input.pending,
+    step: "sign",
+    session: input.session,
+    walletEncryptionPublicKey: walletPub,
+  });
 
   const params = new URLSearchParams({
     dapp_encryption_public_key: theirPub,
