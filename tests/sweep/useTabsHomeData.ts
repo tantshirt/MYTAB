@@ -25,8 +25,16 @@ export function useTabsHomeData(): TabsHomeData {
     FIXTURE_MEMBERS.map((member) => [member.userId, member.displayName]),
   );
 
+  /*
+   * Both sides, not just what the viewer owes. The People section renders an
+   * "owes you" row in `colors/settled` as well as an "you owe" row in
+   * `colors/owed`, and a sweep that only ever saw one of them would never
+   * measure the other.
+   */
   const viewerComponents = FIXTURE_GROUP_BALANCE.components.filter(
-    (component) => component.debtorUserId === FIXTURE_VIEWER_USER_ID,
+    (component) =>
+      component.debtorUserId === FIXTURE_VIEWER_USER_ID ||
+      component.creditorUserId === FIXTURE_VIEWER_USER_ID,
   );
 
   return {
@@ -44,12 +52,21 @@ export function useTabsHomeData(): TabsHomeData {
         },
       ],
       recentActivity: FIXTURE_ACTIVITY,
-      balanceComponents: viewerComponents.map((component) => ({
-        label: `Owe ${memberNames[component.creditorUserId] ?? component.creditorUserId}`,
-        amountMinor: component.amountMinor,
-        tabId: component.tabId,
-        billId: component.billId,
-      })),
+      balanceComponents: viewerComponents.map((component) => {
+        const owes = component.debtorUserId === FIXTURE_VIEWER_USER_ID;
+        const counterpartyUserId = owes
+          ? component.creditorUserId
+          : component.debtorUserId;
+
+        return {
+          counterpartyUserId,
+          counterpartyName: memberNames[counterpartyUserId] ?? counterpartyUserId,
+          direction: (owes ? "owe" : "owed") as "owe" | "owed",
+          amountMinor: component.amountMinor,
+          tabId: component.tabId,
+          billId: component.billId,
+        };
+      }),
       compressedTransfers: FIXTURE_COMPRESSED_TRANSFERS,
       memberNames,
     },

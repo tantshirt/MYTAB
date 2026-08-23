@@ -10,6 +10,7 @@ import { STATE_COPY } from "@/components/primitives/state-copy";
 export const YOU_COPY = {
   title: "You",
 
+  groupsSection: "YOUR GROUPS",
   walletSection: "WALLET",
   aboutSection: "ABOUT",
 
@@ -33,6 +34,8 @@ export const YOU_COPY = {
     "Items go to whoever claimed them. Service charge, VAT and the group tip are shared in proportion to what each person ordered. If a satang is left over, it shows up as its own line so nobody is quietly rounded.",
 
   helpLabel: "Help",
+
+  groupMembers: (count: number) => `${count} ${count === 1 ? "member" : "members"}`,
 
   liveLinksSection: "LIVE LINKS",
   liveLinksEmpty: "No live links.",

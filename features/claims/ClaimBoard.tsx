@@ -250,6 +250,25 @@ export function ClaimBoard(props: ClaimBoardProps) {
 
   const peopleLabel = `${props.participants.length} ${props.participants.length === 1 ? "person" : "people"}`;
 
+  /*
+   * Who has taken nothing yet, derived from the board it is already rendering
+   * rather than asked for separately.
+   *
+   * "5 people" is a fact about the room; "3 still choosing" is a fact about
+   * what is HAPPENING in it, and it is the one that tells you whether the
+   * figure in the footer is finished moving.
+   */
+  const claimedAnything = new Set(props.items.flatMap((item) => item.claimantIds));
+  const stillChoosing = props.participants.filter(
+    (participant) => !claimedAnything.has(participant.userId),
+  ).length;
+  const roomLine =
+    props.participants.length <= 1
+      ? peopleLabel
+      : stillChoosing === 0
+        ? `${peopleLabel} · everyone has chosen`
+        : `${peopleLabel} · ${stillChoosing} still choosing`;
+
   return (
     <div
       style={{
@@ -303,7 +322,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
                 <span>{peopleLabel}</span>
               </>
             ) : (
-              <span>{peopleLabel} · tap what you had</span>
+              <span>{roomLine}</span>
             )}
           </p>
         </div>
@@ -315,7 +334,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
           size={24}
           overlap={-8}
           ringColor={MYTAB_COLORS.paper}
-          liveDotColor={MYTAB_COLORS.settled}
+          liveDotColor={MYTAB_COLORS.primary}
           overflowColor={MYTAB_COLORS.inkMuted}
           tints={tints}
           arriving={paintedOnce.current}
@@ -331,6 +350,21 @@ export function ClaimBoard(props: ClaimBoardProps) {
           padding: `0 ${MYTAB_LAYOUT.gutter} ${SCROLL_CLEARANCE_PX}px`,
         }}
       >
+        {/*
+          The one instruction, and only while it is still an instruction.
+          Someone who has already claimed does not need telling; someone who
+          has just arrived from an invite link needs it in three words before
+          they need anything else.
+        */}
+        {!props.isLocked && !props.viewerHasClaims ? (
+          <p
+            className="mytab-type-body"
+            style={{ margin: "14px 0 0", fontWeight: 500, color: MYTAB_COLORS.ink }}
+          >
+            Tap what you had.
+          </p>
+        ) : null}
+
         {props.isOrganizer && props.onInvite ? (
           <InvitePanel
             alone={props.participants.length <= 1}

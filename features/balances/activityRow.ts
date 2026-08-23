@@ -19,6 +19,16 @@ export function toActivityRow(event: {
   type: string;
   payload: unknown;
   createdAt: number;
+  /**
+   * Optional because not every activity read returns it, and because a
+   * group-scoped event (a member joining) genuinely has no tab.
+   *
+   * Carried through so the live tab card can attribute a change in the
+   * viewer's share to an event on THAT tab. Attribution across tabs would put
+   * a wrong sentence next to a right number, which is the one thing the
+   * surface may not do.
+   */
+  tabId?: string;
 }): ActivityRowData {
   const payload = (event.payload ?? {}) as ActivityEventPayload;
   const signature = payload.transactionSignature;
@@ -31,6 +41,7 @@ export function toActivityRow(event: {
     summary: payload.summary ?? "",
     amountLabel: payload.amountLabel,
     createdAt: event.createdAt,
+    tabId: event.tabId,
     detail: payload.detail,
     transactionSignature: signature,
     explorerUrl: signature ? `https://explorer.solana.com/tx/${signature}` : undefined,

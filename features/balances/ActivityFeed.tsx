@@ -33,6 +33,8 @@ export type ActivityRowData = {
   /** Spoken form. Derived from `amountLabel` when omitted. */
   amountA11yLabel?: string;
   createdAt: number;
+  /** The tab this happened on, when it happened on one. */
+  tabId?: string;
   detail?: string;
   /** The three disclosed lines of a settlement (§1.12). */
   breakdown?: {
@@ -69,20 +71,70 @@ function dayKey(timestamp: number): string {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
 /**
- * "TODAY", "YESTERDAY", then a plain date. `toLocaleDateString` is deliberately
- * not used — with no locale argument it resolves differently on the server and
- * in the webview, which is a hydration mismatch (POLISH-SPEC §1.3).
+ * How long an event stays worth a day of its own.
+ *
+ * Inside a week, "Tuesday's payments" is a thing a person remembers, so the
+ * day is the useful bucket. Past that nobody is looking for a day — they are
+ * looking for a tab, and a screen of fourteen one-row day headers is a worse
+ * index than four month headers. So the grouping widens rather than staying
+ * uniformly wrong at one end.
  */
-function dayLabel(timestamp: number, now: number): string {
+const DAY_BUCKET_WINDOW_MS = 7 * 86_400_000;
+
+/**
+ * The bucket an event belongs to: a day near the top of the feed, a month once
+ * it is history.
+ *
+ * Returned as `{ key, label }` together so the grouping and the heading can
+ * never disagree about where a boundary is.
+ *
+ * `toLocaleDateString` is deliberately not used — with no locale argument it
+ * resolves differently on the server and in the webview, which is a hydration
+ * mismatch (POLISH-SPEC §1.3).
+ */
+export function activityBucket(
+  timestamp: number,
+  now: number,
+): { key: string; label: string } {
   if (dayKey(timestamp) === dayKey(now)) {
-    return "Today";
+    return { key: `d:${dayKey(timestamp)}`, label: "Today" };
   }
   if (dayKey(timestamp) === dayKey(now - 86_400_000)) {
-    return "Yesterday";
+    return { key: `d:${dayKey(timestamp)}`, label: "Yesterday" };
   }
+
   const date = new Date(timestamp);
-  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+
+  if (now - timestamp < DAY_BUCKET_WINDOW_MS) {
+    return {
+      key: `d:${dayKey(timestamp)}`,
+      label: `${date.getDate()} ${MONTHS[date.getMonth()]}`,
+    };
+  }
+
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  const name = MONTH_NAMES[date.getMonth()]!;
+
+  return {
+    key: `m:${date.getFullYear()}-${date.getMonth()}`,
+    label: sameYear ? name : `${name} ${date.getFullYear()}`,
+  };
 }
 
 type ActivityTone = "settle" | "tip" | "quiet";
@@ -338,10 +390,10 @@ export function ActivityFeed({
   const sorted = [...events].sort((a, b) => b.createdAt - a.createdAt);
 
   const body = grouped ? (
-    groupByDay(sorted).map((group) => (
+    groupByBucket(sorted, now).map((group) => (
       <section key={group.key} style={{ marginBottom: "22px" }}>
         <h2 className="mytab-type-micro-label" suppressHydrationWarning style={{ margin: "0 0 10px" }}>
-          {dayLabel(group.at, now)}
+          {group.label}
         </h2>
         <RowCard>
           {group.events.map((event, index) => (
@@ -378,15 +430,18 @@ export function ActivityFeed({
   );
 }
 
-function groupByDay(sorted: ActivityRowData[]): Array<{ key: string; at: number; events: ActivityRowData[] }> {
-  const groups: Array<{ key: string; at: number; events: ActivityRowData[] }> = [];
+function groupByBucket(
+  sorted: ActivityRowData[],
+  now: number,
+): Array<{ key: string; label: string; events: ActivityRowData[] }> {
+  const groups: Array<{ key: string; label: string; events: ActivityRowData[] }> = [];
   for (const event of sorted) {
-    const key = dayKey(event.createdAt);
+    const { key, label } = activityBucket(event.createdAt, now);
     const last = groups[groups.length - 1];
     if (last && last.key === key) {
       last.events.push(event);
     } else {
-      groups.push({ key, at: event.createdAt, events: [event] });
+      groups.push({ key, label, events: [event] });
     }
   }
   return groups;

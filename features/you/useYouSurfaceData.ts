@@ -55,6 +55,7 @@ export function useYouSurfaceData(): YouSurfaceData {
   const subject = useViewer();
   const wallet = useLiveQuery(api.wallets.defaultReceivingWallet, {});
   const liveInvites = useLiveQuery(api.tabInvite.listOrganizerLiveInvites, {});
+  const groups = useLiveQuery(api.groups.listForViewer, {});
 
   const chrome = { buildLabel: BUILD_LABEL, supportUrl: SUPPORT_URL };
 
@@ -66,6 +67,7 @@ export function useYouSurfaceData(): YouSurfaceData {
       viewer: null,
       wallet: { kind: "failed" },
       liveInvites: [],
+      groups: [],
     };
   }
 
@@ -76,6 +78,7 @@ export function useYouSurfaceData(): YouSurfaceData {
       viewer: null,
       wallet: { kind: "provisioning" },
       liveInvites: [],
+      groups: [],
     };
   }
 
@@ -93,6 +96,11 @@ export function useYouSurfaceData(): YouSurfaceData {
       tabName: row.tabName,
       expiresAt: row.expiresAt,
       seatsRemaining: row.seatsRemaining,
+    })),
+    groups: (groups.data ?? []).map((group) => ({
+      id: group._id,
+      name: group.displayName,
+      memberCount: group.memberCount,
     })),
   };
 }

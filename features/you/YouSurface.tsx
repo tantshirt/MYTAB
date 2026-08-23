@@ -161,6 +161,27 @@ export function YouSurface({
             )}
           </div>
 
+          {/*
+            Groups moved here from Tabs home. A group is chosen inside the
+            start-a-tab flow, so a roster on the home screen sat above the
+            sections people actually acted on without ever being one of them.
+          */}
+          {data.groups && data.groups.length > 0 ? (
+            <div style={{ marginTop: "30px" }}>
+              <ListCard label={YOU_COPY.groupsSection}>
+                {data.groups.map((group) => (
+                  <ListRow
+                    key={group.id}
+                    label={group.name}
+                    sub={YOU_COPY.groupMembers(group.memberCount)}
+                    href={`/groups/${group.id}`}
+                    trailing={<ChevronGlyph />}
+                  />
+                ))}
+              </ListCard>
+            </div>
+          ) : null}
+
           <div style={{ marginTop: "30px" }}>
             <ListCard label={YOU_COPY.walletSection}>
               {walletRow}
