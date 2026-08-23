@@ -338,6 +338,19 @@ http.route({
     const errorCode =
       url.searchParams.get("errorCode") ?? url.searchParams.get("errorMessage") ?? undefined;
 
+    /*
+     * Shape only — never `data`, never the nonce, never the key. This route is
+     * the only evidence that a wallet came back at all: it is reached from
+     * Safari after the wallet's HTTPS redirect, so if it is never hit there is
+     * nothing anywhere to say whether the wallet redirected, the person
+     * returned to Telegram by hand, or the link was wrong.
+     */
+    console.log(
+      `[wallet/ul-callback] hit: challenge=${challengeId ? "yes" : "MISSING"} ` +
+        `data=${data ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} ` +
+        `key=${encryptionPublicKey ? "yes" : "no"} error=${errorCode ?? "none"}`,
+    );
+
     const recorded = await ctx.runMutation(internal.internal.walletUl.recordCallback, {
       challengeId,
       data,
@@ -347,8 +360,10 @@ http.route({
     });
 
     if (!recorded.ok) {
+      console.warn("[wallet/ul-callback] refused by recordCallback");
       return jsonResponse({ error: "REFUSED" }, 403);
     }
+    console.log("[wallet/ul-callback] recorded");
 
     let resumeUrl: string | undefined;
     try {
