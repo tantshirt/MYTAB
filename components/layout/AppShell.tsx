@@ -25,9 +25,11 @@ import {
   type IconProps,
 } from "@/components/icons";
 import { MYTAB_COLORS, MYTAB_LAYOUT, MYTAB_SPACING } from "@/lib/theme/tokens";
+import { useWalletUlResume } from "@/features/auth/useWalletUlResume";
 import { useBottomBarColor } from "@/features/telegram/useBottomBarColor";
 import { useHiddenTelegramBackButton } from "@/features/telegram/useBackAffordance";
 import type { BottomBarSurface } from "@/features/telegram/telegramChrome";
+import { isConvexAuthFixtureMode } from "@/lib/privy/config";
 
 /**
  * The Mini App shell (POLISH-SPEC §2.9, §2.10).
@@ -234,6 +236,11 @@ function TabBarItem({
   );
 }
 
+function WalletUlResumeMount() {
+  useWalletUlResume();
+  return null;
+}
+
 /**
  * Mounted once, by `app/(miniapp)/layout.tsx`.
  *
@@ -295,6 +302,7 @@ export function AppShellRoot({ children }: { children: ReactNode }) {
 
   return (
     <ShellContext.Provider value={contextValue}>
+      {isConvexAuthFixtureMode() ? null : <WalletUlResumeMount />}
       <div style={shellStyle}>
         {children}
 

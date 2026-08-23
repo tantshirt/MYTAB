@@ -20,6 +20,10 @@ import {
   parseBearerSecret,
   readOperatorReconciliationSecret,
 } from "./lib/reconciliation";
+import {
+  buildWalletUlStartParam,
+  readUniversalLinkEncryptionPublicKey,
+} from "../lib/wallet/universalLinkParams";
 
 const http = httpRouter();
 
@@ -215,6 +219,51 @@ http.route({
       status: "open",
     });
     return jsonResponse({ incidents });
+  }),
+});
+
+/**
+ * Unauthenticated Phantom / Solflare / Backpack HTTPS callback (U-10).
+ * Records the raw blob on the challenge row, then the Next.js route 302s
+ * to t.me with a short start param. Missing/expired/consumed is 403 with
+ * no existence leak. No address is accepted.
+ */
+http.route({
+  path: "/wallet/ul-callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const challengeId = url.searchParams.get("c")?.trim() ?? "";
+    const data = url.searchParams.get("data") ?? undefined;
+    const nonce = url.searchParams.get("nonce") ?? undefined;
+    const encryptionPublicKey =
+      readUniversalLinkEncryptionPublicKey(url.searchParams) ?? undefined;
+    const errorCode =
+      url.searchParams.get("errorCode") ?? url.searchParams.get("errorMessage") ?? undefined;
+
+    const recorded = await ctx.runMutation(internal.internal.walletUl.recordCallback, {
+      challengeId,
+      data,
+      nonce,
+      encryptionPublicKey,
+      errorCode,
+    });
+
+    if (!recorded.ok) {
+      return jsonResponse({ error: "REFUSED" }, 403);
+    }
+
+    let resumeUrl: string | undefined;
+    try {
+      resumeUrl = buildTelegramDeepLink(buildWalletUlStartParam(challengeId));
+    } catch {
+      resumeUrl = undefined;
+    }
+
+    if (!resumeUrl) {
+      return jsonResponse({ recorded: true });
+    }
+    return jsonResponse({ resumeUrl });
   }),
 });
 

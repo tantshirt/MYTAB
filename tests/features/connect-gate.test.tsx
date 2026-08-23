@@ -49,6 +49,9 @@ describe("D-25 / D-27 — connect gate", () => {
     expect(html).toContain(CONNECT_COPY.skip);
     expect(html).not.toContain("Claim Board");
     expect(html.toLowerCase()).not.toContain("connect wallet");
+    expect(html).toContain("font-size:28px");
+    expect(html).toContain("Bring the wallet you already use.");
+    expect(html).toContain("-webkit-text-fill-color:#FFFFFF");
   });
 
   it("skip from the sheet reveals the board (D-27)", () => {

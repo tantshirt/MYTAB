@@ -6,6 +6,10 @@ import {
   linkExternalWalletCore,
 } from "./lib/walletChallenge";
 import {
+  consumeWalletUlCallbackCore,
+  readWalletUlCallbackCore,
+} from "./lib/walletUlCallback";
+import {
   DUPLICATE_DEFAULT_RECEIVING,
   USER_REQUIRED,
   WalletError,
@@ -135,4 +139,19 @@ export const linkExternalWallet = mutation({
     ),
   },
   handler: async (ctx, args) => linkExternalWalletCore(ctx, args),
+});
+
+/**
+ * Authenticated read of a stashed UL callback. Null for strangers and
+ * the wrong user — same as a missing row.
+ */
+export const walletUlCallback = query({
+  args: { challengeId: v.id("walletLinkChallenges") },
+  handler: async (ctx, args) => readWalletUlCallbackCore(ctx, args.challengeId),
+});
+
+/** Marks the current UL recording as applied so a second waiter cannot reuse it. */
+export const consumeWalletUlCallback = mutation({
+  args: { challengeId: v.id("walletLinkChallenges") },
+  handler: async (ctx, args) => consumeWalletUlCallbackCore(ctx, args.challengeId),
 });

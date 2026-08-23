@@ -20,7 +20,11 @@ vi.mock("@/features/telegram/TelegramRuntimeProvider", () => ({
   useTelegramRuntime: () => runtime,
 }));
 
-import { useStartParamRoute, resetStartParamConsumption } from "@/features/telegram/useStartParamRoute";
+import {
+  useStartParamRoute,
+  resetStartParamConsumption,
+  resolveStartParamDestination,
+} from "@/features/telegram/useStartParamRoute";
 
 function Probe() {
   useStartParamRoute();
@@ -39,6 +43,20 @@ describe("Telegram deep link routing (FR-N3)", () => {
     runtime = { startParam: null, isTelegramWebApp: true };
     expect(() => renderToStaticMarkup(<Probe />)).not.toThrow();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("routes reserved start params before the opaque tab-token shape", () => {
+    expect(resolveStartParamDestination("tab")).toEqual({ kind: "new-tab" });
+    expect(resolveStartParamDestination("owe")).toEqual({ kind: "owe" });
+    expect(resolveStartParamDestination("ulcb_k57abcde0123")).toEqual({
+      kind: "wallet-ul",
+      challengeId: "k57abcde0123",
+    });
+    expect(resolveStartParamDestination("tabsess_9fA2Kx7QpL")).toEqual({
+      kind: "tab-token",
+      token: "tabsess_9fA2Kx7QpL",
+    });
+    expect(resolveStartParamDestination("short")).toEqual({ kind: "ignore" });
   });
 
   it("only accepts an opaque token shape", () => {

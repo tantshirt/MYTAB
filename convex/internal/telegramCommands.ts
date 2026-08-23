@@ -29,17 +29,12 @@ import {
   menuButtonForMiniApp,
 } from "../../lib/telegram/botSurface";
 import {
-  ADD_TO_GROUP_BUTTON_LABEL,
   GROUP_WELCOME_ADMIN,
   GROUP_WELCOME_MEMBER,
-  OPEN_MY_TAB_BUTTON_LABEL,
-  OPEN_TAB_BUTTON_LABEL,
-  SEND_TIP_BUTTON_LABEL,
-  START_TAB_BUTTON_LABEL,
-  WHAT_I_OWE_BUTTON_LABEL,
   planPrivateReply,
   type PrivateButtonKind,
 } from "../../lib/telegram/privateMessages";
+import { resolvePrivateButton } from "../../lib/telegram/privateButtons";
 import {
   BOT_COMMANDS,
   TabCommandError,
@@ -238,38 +233,20 @@ export const consumePrivateFallback = internalMutation({
 
 function privateKeyboard(buttons: PrivateButtonKind[], openTabToken?: string): InlineKeyboardMarkup {
   const httpsUrl = getTelegramMiniAppHttpsUrl();
-  const miniAppUrl = httpsUrl ?? buildTelegramMiniAppLink();
+  const miniAppLink = buildTelegramMiniAppLink();
   const startGroupUrl = buildTelegramStartGroupUrl();
 
-  const resolve = (kind: PrivateButtonKind) => {
-    switch (kind) {
-      case "start_tab":
-        return httpsUrl
-          ? { text: START_TAB_BUTTON_LABEL, web_app: { url: httpsUrl } }
-          : { text: START_TAB_BUTTON_LABEL, url: miniAppUrl };
-      case "what_i_owe":
-        return httpsUrl
-          ? { text: WHAT_I_OWE_BUTTON_LABEL, web_app: { url: httpsUrl } }
-          : { text: WHAT_I_OWE_BUTTON_LABEL, url: miniAppUrl };
-      case "add_to_group":
-        return { text: ADD_TO_GROUP_BUTTON_LABEL, url: startGroupUrl };
-      case "open_tab":
-        return {
-          text: OPEN_TAB_BUTTON_LABEL,
-          url: openTabToken ? buildTelegramDeepLink(openTabToken) : miniAppUrl,
-        };
-      case "send_tip":
-        return httpsUrl
-          ? { text: SEND_TIP_BUTTON_LABEL, web_app: { url: httpsUrl } }
-          : { text: SEND_TIP_BUTTON_LABEL, url: miniAppUrl };
-      case "open_my_tab":
-        return httpsUrl
-          ? { text: OPEN_MY_TAB_BUTTON_LABEL, web_app: { url: httpsUrl } }
-          : { text: OPEN_MY_TAB_BUTTON_LABEL, url: miniAppUrl };
-    }
+  return {
+    inline_keyboard: buttons.map((kind) => [
+      resolvePrivateButton(kind, {
+        httpsOrigin: httpsUrl,
+        miniAppLink,
+        startGroupUrl,
+        openTabToken,
+        buildDeepLink: buildTelegramDeepLink,
+      }),
+    ]),
   };
-
-  return { inline_keyboard: buttons.map((kind) => [resolve(kind)]) };
 }
 
 /**
