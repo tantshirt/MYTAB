@@ -38,26 +38,43 @@ http.route({
   path: "/telegram/bootstrap",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    /*
+     * Every branch below announces itself.
+     *
+     * This route hands back a `Response` rather than throwing, so Convex logs
+     * nothing for a rejection — and the client (`useTelegramBootstrap`)
+     * increments a failure counter and retries in silence. Between them, the
+     * one call that creates a user could fail forever while the only visible
+     * symptom was every mutation refusing with TELEGRAM_CONTEXT_REQUIRED and
+     * no clue why. That cost two rounds of guessing.
+     *
+     * Codes only. Never the initData, never the hash, never the subject.
+     */
+    const reject = (code: string, status: number): Response => {
+      console.warn(`[telegram/bootstrap] rejected: ${code} (${status})`);
+      return jsonResponse({ error: code }, status);
+    };
+
     const identity = await ctx.auth.getUserIdentity();
     if (!identity?.subject) {
-      return jsonResponse({ error: "UNAUTHORIZED" }, 401);
+      return reject("UNAUTHORIZED", 401);
     }
 
     let body: { initData?: unknown };
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: "INVALID_BODY" }, 400);
+      return reject("INVALID_BODY", 400);
     }
 
     if (typeof body.initData !== "string" || body.initData.trim().length === 0) {
-      return jsonResponse({ error: "INVALID_INIT_DATA" }, 400);
+      return reject("INVALID_INIT_DATA", 400);
     }
 
     const initData = body.initData.trim();
     const verification = verifyTelegramInitData(initData);
     if (!verification.ok) {
-      return jsonResponse({ error: verification.code }, 400);
+      return reject(verification.code, 400);
     }
 
     const { parsed } = verification;
@@ -78,9 +95,10 @@ http.route({
     });
 
     if (!result.ok) {
-      return jsonResponse({ error: result.code }, 409);
+      return reject(result.code, 409);
     }
 
+    console.log("[telegram/bootstrap] bound identity, context valid");
     return jsonResponse({ ok: true, userId: result.userId });
   }),
 });
