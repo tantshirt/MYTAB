@@ -15,6 +15,23 @@
  * `convex/server`, so `lib/privy` stays free of Convex imports (see
  * tests/privy/purity.test.ts) — and so call sites can read `provider.jwks`,
  * which the imported union type does not expose.
+ *
+ * ## The JWKS source changed, and why
+ *
+ * AD-5 recorded that "Privy publishes no hosted JWKS endpoint (research R-2,
+ * R-3)", which is why this module pinned a single PEM into a base64 data URI.
+ * That is no longer true. `https://auth.privy.io/api/v1/apps/<appId>/jwks.json`
+ * serves a live JWKS, and for this project's app it returns **two** ES256
+ * signing keys with different `kid`s.
+ *
+ * Two keys is the part that matters: a pinned single PEM verifies tokens signed
+ * with one of them and rejects everything signed with the other, so pinning
+ * produces intermittent, unattributable auth failures and breaks completely at
+ * the next rotation. Convex's own `customJwt` type documents `jwks` as "The URL
+ * to fetch the JWKS", so a URL is the shape this field wants.
+ *
+ * The hosted URL is therefore the default whenever an app id is configured. A
+ * PEM remains supported as an explicit pin for anyone who wants one.
  */
 
 import { pemEcP256PublicKeyToJwksDataUri } from "../crypto/pemEcJwk";
@@ -45,9 +62,35 @@ export const FIXTURE_PRIVY_JWKS_DATA_URI =
 /** OQ-1: Privy tokens may use bare or URL-form issuers — register both. */
 export const PRIVY_JWT_ISSUERS = ["privy.io", "https://privy.io"] as const;
 
+/** Privy's live JWKS for one app. Serves every current signing key. */
+export function privyJwksUrl(appId: string): string {
+  return `https://auth.privy.io/api/v1/apps/${encodeURIComponent(appId)}/jwks.json`;
+}
+
+/** Compares PEMs by their base64 body, so whitespace and line endings cannot mask a match. */
+function pemBody(pem: string): string {
+  return pem.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
+}
+
+/**
+ * True when the configured key is the fixture key from this repository.
+ *
+ * The automatic substitution below is already behind `assertFixturePathAllowed`,
+ * but that guard cannot see a fixture key that somebody pasted into the
+ * deployment by hand — and one was: production ran with this exact key as its
+ * authentication boundary, which rejected every real Privy token while
+ * accepting anything signed by the fixture's private half.
+ */
+export function isFixtureVerificationKey(verificationKey: string): boolean {
+  return pemBody(verificationKey) === pemBody(FIXTURE_PRIVY_VERIFICATION_KEY);
+}
+
 /**
  * Builds a base64 `data:` URI JWKS from a Privy app verification key (PEM).
- * Privy publishes no hosted JWKS endpoint (AD-5, research R-2, R-3).
+ *
+ * Only reached when a PEM is configured as an explicit pin — the default source
+ * is Privy's hosted JWKS (see the note at the top of this file). A pin covers
+ * exactly one signing key, so it goes stale the moment Privy rotates.
  */
 export function buildJwksDataUri(
   verificationKeyPem: string,
@@ -64,10 +107,18 @@ export function buildJwksDataUri(
 }
 
 /**
- * @throws FixtureModeNotPermittedError when either credential is absent and the
- *   runtime is anything other than an explicitly opted-in local/test runtime.
- *   On a deployment this fails the auth-config evaluation, which is the point:
- *   a deployment with no Privy verification key must not come up at all.
+ * Builds the Convex `customJwt` providers for a Privy app.
+ *
+ * Source of the verification material, in order:
+ *   1. an explicitly configured PEM, when it is not the repo's fixture key;
+ *   2. Privy's hosted JWKS for the configured app id — the default;
+ *   3. the fixture JWKS, reachable only on a permitted fixture runtime.
+ *
+ * @throws FixtureModeNotPermittedError when no app id is configured, or when
+ *   the configured verification key is the fixture key, on anything other than
+ *   an explicitly opted-in local/test runtime. On a deployment this fails the
+ *   auth-config evaluation, which is the point: a deployment must not come up
+ *   trusting a key whose twin is published in this repository.
  */
 export function buildPrivyAuthProviders(options?: {
   appId?: string;
@@ -75,14 +126,22 @@ export function buildPrivyAuthProviders(options?: {
 }): PrivyCustomJwtProvider[] {
   const configuredAppId = options?.appId?.trim();
   const configuredKey = options?.verificationKey?.trim();
+  const configuredKeyIsFixture = configuredKey
+    ? isFixtureVerificationKey(configuredKey)
+    : false;
 
-  if (!configuredAppId || !configuredKey) {
+  if (!configuredAppId || configuredKeyIsFixture) {
     assertFixturePathAllowed("privy.authProviders");
   }
 
   const appId = configuredAppId || FIXTURE_PRIVY_APP_ID;
-  const verificationKey = configuredKey || FIXTURE_PRIVY_VERIFICATION_KEY;
-  const jwks = buildJwksDataUri(verificationKey);
+
+  const jwks =
+    !configuredAppId || configuredKeyIsFixture
+      ? FIXTURE_PRIVY_JWKS_DATA_URI
+      : configuredKey
+        ? buildJwksDataUri(configuredKey)
+        : privyJwksUrl(appId);
 
   return PRIVY_JWT_ISSUERS.map((issuer) => ({
     type: "customJwt" as const,

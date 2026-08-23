@@ -120,6 +120,11 @@ const GUARD_EXEMPT: Record<string, string> = {
   // decides nothing; buildPrivyAuthProviders in the same file does the asserting.
   "lib/privy/authProviders.ts::buildJwksDataUri":
     "pure encoding of a key the caller supplied; the provider builder asserts",
+  // Names the fixture key in order to REFUSE it. Guarding this predicate would
+  // invert its purpose: it is the detector that lets buildPrivyAuthProviders
+  // assert, and it returns a boolean rather than any fixture value.
+  "lib/privy/authProviders.ts::isFixtureVerificationKey":
+    "predicate that detects the fixture key so the provider builder can reject it",
 };
 
 type ExportedFn = { name: string; body: string };

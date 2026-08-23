@@ -38,27 +38,94 @@ const miniAppName = process.env.TELEGRAM_MINIAPP_NAME?.trim() || "app";
 const miniAppUrl =
   process.env.MINI_APP_URL?.trim() || "https://mytab-liart.vercel.app";
 
-function readConvexSiteUrl(deployment) {
-  const envLocal = resolve(process.cwd(), ".env.local");
+/**
+ * The Convex `.site` host for the deployment this run is actually writing to.
+ *
+ * Derived from the SAME credential `convex env set` resolves — the deploy key —
+ * so the webhook and the secrets it is signed with cannot land on different
+ * deployments. They just did: this function used to read
+ * `NEXT_PUBLIC_CONVEX_SITE_URL` from `.env.local`, and its fallback branch
+ * matched that line unconditionally after the deployment-specific branch
+ * missed. A prod run therefore set five secrets on the prod deployment and
+ * registered the webhook against the dev one, leaving Telegram posting updates
+ * to a backend holding a different `TELEGRAM_WEBHOOK_SECRET` — a 401 on every
+ * message, with a success message on screen.
+ *
+ * `NEXT_PUBLIC_CONVEX_SITE_URL` is a banned second source of truth for exactly
+ * this reason (CLAUDE.md): the `.site` host is derived from the `.cloud` host
+ * so the two can never drift. Nothing here reads it any more.
+ */
+function readDeploymentName() {
+  /*
+   * Deploy key first, ALWAYS — `convex env set` resolves the deployment from
+   * CONVEX_DEPLOY_KEY and says so out loud ("Ignoring --prod ... and using
+   * deployment from CONVEX_DEPLOY_KEY"). CONVEX_DEPLOYMENT is only a fallback
+   * for when no key is present. Reading them in file order instead let a
+   * `dev:` CONVEX_DEPLOYMENT outrank a `prod:` key, which reintroduces the
+   * exact split this function exists to prevent.
+   */
+  const deployKeys = [process.env.CONVEX_DEPLOY_KEY?.trim()];
+  const deployments = [process.env.CONVEX_DEPLOYMENT?.trim()];
+
   try {
-    const text = readFileSync(envLocal, "utf8");
-    const key =
-      deployment === "dev" ? "peaceful-monitor-218" : "tremendous-partridge-849";
+    const text = readFileSync(resolve(process.cwd(), ".env.local"), "utf8");
     for (const line of text.split("\n")) {
-      if (line.includes("NEXT_PUBLIC_CONVEX_SITE_URL=") && line.includes(key)) {
-        return line.split("=")[1]?.trim();
+      const trimmed = line.trim();
+      if (trimmed.startsWith("CONVEX_DEPLOY_KEY=")) {
+        deployKeys.push(trimmed.slice("CONVEX_DEPLOY_KEY=".length).trim());
+      }
+      if (trimmed.startsWith("CONVEX_DEPLOYMENT=")) {
+        deployments.push(trimmed.slice("CONVEX_DEPLOYMENT=".length).split("#")[0].trim());
       }
     }
-    const siteMatch = text.match(/^NEXT_PUBLIC_CONVEX_SITE_URL=(.+)$/m);
-    if (siteMatch?.[1]) {
-      return siteMatch[1].trim();
-    }
   } catch {
-    // fall through
+    // No .env.local — the env vars alone have to carry it.
   }
-  return deployment === "dev"
-    ? "https://peaceful-monitor-218.convex.site"
-    : "https://tremendous-partridge-849.convex.site";
+
+  const candidates = [...deployKeys, ...deployments];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    // `prod:name|secret...` and `prod:name` both reduce to `name`.
+    const beforeSecret = candidate.split("|")[0].trim();
+    const parts = beforeSecret.split(":");
+    const name = (parts.length > 1 ? parts.slice(1).join(":") : beforeSecret).trim();
+    if (name) {
+      return { name, target: parts.length > 1 ? parts[0].trim() : null };
+    }
+  }
+
+  return null;
+}
+
+function readConvexSiteUrl(deployment) {
+  const resolved = readDeploymentName();
+  if (!resolved) {
+    console.error(
+      "Cannot determine which Convex deployment to point the webhook at.\n" +
+        "Set CONVEX_DEPLOY_KEY (or CONVEX_DEPLOYMENT) before running this.\n" +
+        "Refusing to guess: a wrong guess registers the webhook against a\n" +
+        "deployment that does not hold the secret it is signed with.",
+    );
+    process.exit(1);
+  }
+
+  // Fail closed on a mismatch rather than write secrets and the webhook to two
+  // different places, which is the failure this whole function now exists for.
+  const wantsProd = deployment === "prod";
+  if (resolved.target && wantsProd !== (resolved.target === "prod")) {
+    console.error(
+      `--deployment ${deployment} disagrees with CONVEX_DEPLOY_KEY, which ` +
+        `targets "${resolved.target}:${resolved.name}".\n` +
+        "Refusing to run: `convex env set` would follow the key while the " +
+        "webhook followed the flag.",
+    );
+    process.exit(1);
+  }
+
+  return `https://${resolved.name}.convex.site`;
 }
 
 async function telegramApi(method, body) {

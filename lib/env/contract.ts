@@ -6,8 +6,17 @@
 /** Keys that must only exist in the Vercel (Next.js) runtime. */
 export const VERCEL_ONLY_KEYS = [
   "CONVEX_DEPLOY_KEY",
-  /** AD-5 fallback — only if token bridge is activated */
-  "PRIVY_APP_ID",
+  /**
+   * AD-5 token-bridge fallback — only if the bridge is activated. It is not:
+   * `app/api/auth/convex-token` is a 501 stub, and the client hands Privy's
+   * access token straight to Convex.
+   *
+   * `PRIVY_APP_ID` used to sit here AS WELL AS in `CONVEX_ONLY_KEYS`, which
+   * made `validateEnvPlacement` self-contradictory: it reported a violation
+   * wherever the key was actually set, including the one place that needs it.
+   * `convex/auth.config.ts` reads it to build the customJwt `applicationID`, so
+   * Convex is the live home for it and the duplicate is gone.
+   */
   "PRIVY_APP_SECRET_VERCEL",
   "TOKEN_BRIDGE_SIGNING_KEY",
 ] as const;
@@ -62,6 +71,17 @@ export const ALLOWED_PUBLIC_KEYS = [
   "NEXT_PUBLIC_CONVEX_URL",
   "NEXT_PUBLIC_PRIVY_APP_ID",
   "NEXT_PUBLIC_FEATURE_EXTERNAL_WALLET",
+  /**
+   * The bot handle behind the "Open bot" link (`TabsHomeSurface`). A public
+   * @handle, never a credential — the token that speaks for the bot is
+   * `TELEGRAM_BOT_TOKEN` and that is Convex-only.
+   *
+   * The surface already read this variable while the allowlist did not carry
+   * it, so setting the value the code wants would have failed
+   * `npm run check:env-contract` — a contract that rejects its own supported
+   * configuration.
+   */
+  "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME",
 ] as const;
 
 export type EnvMap = Record<string, string | undefined>;

@@ -77,20 +77,47 @@ describe("Story 1.5 — Privy custom JWT auth config (AC1)", () => {
     delete process.env.VITEST_WORKER_ID;
     (process.env as Record<string, string>).NODE_ENV = "production";
     try {
+      // No app id at all — there is nothing to resolve a JWKS for.
       expect(() => buildPrivyAuthProviders({})).toThrow(FixtureModeNotPermittedError);
-      expect(() =>
-        buildPrivyAuthProviders({ appId: "real-app-id" }),
-      ).toThrow(FixtureModeNotPermittedError);
       expect(() =>
         buildPrivyAuthProviders({ verificationKey: FIXTURE_PRIVY_VERIFICATION_KEY }),
       ).toThrow(FixtureModeNotPermittedError);
-      // Both credentials present — the live path still builds.
-      expect(
+
+      /*
+       * The hole this assertion used to guarantee.
+       *
+       * It previously read "Both credentials present — the live path still
+       * builds" and asserted a length of 2 for a real app id paired with the
+       * FIXTURE verification key. That is not a live path: the verification key
+       * IS the authentication boundary, so it describes a deployment that
+       * rejects every genuine Privy token while trusting anything signed by a
+       * key whose public half sits in this repository. Production ran exactly
+       * that way, and every mutation failed `requireIdentity` with UNAUTHORIZED.
+       *
+       * A pasted fixture key is now refused on a deployment, like an absent one.
+       */
+      expect(() =>
         buildPrivyAuthProviders({
           appId: "real-app-id",
           verificationKey: FIXTURE_PRIVY_VERIFICATION_KEY,
         }),
-      ).toHaveLength(2);
+      ).toThrow(FixtureModeNotPermittedError);
+
+      /*
+       * An app id with no PEM is the normal production shape now: the JWKS is
+       * fetched live from Privy for that app, which covers every signing key
+       * they publish and survives rotation. No fixture is involved, so there is
+       * nothing here to fail closed against.
+       */
+      const hosted = buildPrivyAuthProviders({ appId: "real-app-id" });
+      expect(hosted).toHaveLength(2);
+      for (const provider of hosted) {
+        expect(provider.jwks).toBe(
+          "https://auth.privy.io/api/v1/apps/real-app-id/jwks.json",
+        );
+        expect(provider.applicationID).toBe("real-app-id");
+        expect(provider.algorithm).toBe("ES256");
+      }
     } finally {
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) {

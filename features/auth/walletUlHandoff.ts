@@ -212,6 +212,46 @@ export async function resumeUniversalLinkWallet(input: {
       return "linked";
     }
 
+    /*
+     * Resuming INTO the sign step: re-ask for the signature.
+     *
+     * The connect leg finished in a WebView that no longer exists — Telegram
+     * reopens the Mini App fresh on `startapp=ulcb_*`, so the instance that
+     * opened the signMessage link is gone along with whatever it was awaiting.
+     * This branch used to fall straight through to `waitForUniversalLinkCallback`
+     * and wait 120 seconds for a callback that only arrives if somebody is
+     * looking at a wallet prompt. Nobody was: the prompt was never opened in
+     * this instance. The person sat on "Waiting for your wallet…" until it
+     * timed out, having approved the connect and been asked for nothing since.
+     *
+     * So: if the signature is already recorded, use it. If it is not, open the
+     * wallet again rather than wait for an event that cannot happen.
+     */
+    if (pending.step === "sign" && pending.publicKey && pending.session) {
+      const existing = await readLocalOrConvex(
+        input.challengeId,
+        input.deps.queryCallback,
+        input.deps.consumeCallback,
+      );
+
+      if (existing == null) {
+        const signedMessage = buildWalletLinkMessage({
+          userId: pending.userId,
+          nonce: pending.nonce,
+          expiresAt: pending.expiresAt,
+          publicKey: pending.publicKey,
+        });
+        const sign = beginUniversalLinkSign({
+          pending,
+          session: pending.session,
+          message: signedMessage,
+          appUrl: window.location.origin,
+        });
+        await persistIfPossible(input.deps, input.challengeId);
+        input.deps.openUrl(sign.url);
+      }
+    }
+
     const callback = await waitForUniversalLinkCallback({
       read: () =>
         readLocalOrConvex(input.challengeId, input.deps.queryCallback, input.deps.consumeCallback),
