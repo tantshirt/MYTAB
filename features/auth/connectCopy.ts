@@ -15,6 +15,17 @@ export const CONNECT_COPY = {
   skipHint: "You can browse and claim without a wallet. Pay is when you'll need one.",
   linking: "Waiting for your wallet…",
   failed: "That wallet didn't come back. Try again, or skip and claim.",
+  /**
+   * The failure that happens BEFORE the wallet opens.
+   *
+   * The link challenge is issued first and needs a live Telegram session. When
+   * that lapses, nothing about a wallet has happened yet — so the copy must not
+   * describe one, and must not say "try again", which cannot renew a session.
+   */
+  sessionExpired: "Your Telegram session ran out. Close My Tab and open it again.",
+  /** Named, because "that wallet" is not actionable when three are on screen. */
+  walletNotFound: (label: string) =>
+    `Couldn't open ${label}. Check it's installed on this phone, then try again.`,
   failedCallback: "The wallet opened, but nothing came back. Nothing was linked.",
   resumeFailed: "We opened the wallet, but the link didn't finish. Try again.",
   syncFailed: "The wallet was created, but it isn't on file yet. Try again.",

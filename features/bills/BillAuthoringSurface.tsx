@@ -122,7 +122,7 @@ export function BillAuthoringSurface({
   }>({});
 
   const form = {
-    title: edits.title ?? resolved?.title ?? tabTitle ?? "New tab",
+    title: edits.title ?? resolved?.title ?? tabTitle ?? "",
     merchantName: edits.merchantName ?? resolved?.merchantName ?? "",
     displayCurrency: edits.displayCurrency ?? resolved?.displayCurrency ?? "THB",
     payerUserId: edits.payerUserId ?? resolved?.payerUserId ?? viewerUserId ?? "",
@@ -339,7 +339,7 @@ export function BillAuthoringSurface({
           disabled={setupBlockedReason !== null || creating}
           data-testid="primary-add-items"
         >
-          {creating ? "Starting…" : "Add items"}
+          {creating ? "Starting…" : form.origin === "personal" ? "Start tab" : "Add items"}
         </button>
       ) : (
         <button
@@ -415,6 +415,7 @@ export function BillAuthoringSurface({
             scanAvailable={scanAvailable && form.origin !== "personal"}
             seats={form.origin === "personal" ? form.seats : undefined}
             showCapture={form.origin !== "personal"}
+            variant={form.origin === "personal" ? "quick" : "full"}
             fxFixtureBadge={form.fxFixtureBadge}
             onChange={handleFormChange}
           />

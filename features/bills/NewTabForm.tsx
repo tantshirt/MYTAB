@@ -42,6 +42,27 @@ export type NewTabFormProps = {
   seats?: number;
   /** Capture is S3 on a personal tab — the claim board empty state, not this form. */
   showCapture?: boolean;
+  /**
+   * How much of the form stands between a person and a started tab.
+   *
+   * `"quick"` is the personal door: what it's for, how many people, go. Three
+   * of the five sections were removed from it rather than restyled, because
+   * each one was asking a question the screen could not yet answer honestly:
+   *
+   *   Where       — merchant name is on the receipt. Scanning fills it in, and
+   *                 typing it before the tab exists buys nothing.
+   *   Currency    — offered THB or USDC, which are not the same kind of thing.
+   *                 The bill is denominated in local fiat; which token each
+   *                 person pays with is that person's choice at pay time. The
+   *                 money domain is THB-only today (`lib/domain/fx.ts` is
+   *                 literally USDC_ATOMIC_PER_THB_MINOR), so a chip pair here
+   *                 was one real option and one category error.
+   *   Who paid?   — on a personal tab the member list is exactly the viewer,
+   *                 so this was a single avatar of yourself, pre-selected.
+   *
+   * `"full"` is the group door and is unchanged.
+   */
+  variant?: "quick" | "full";
   onChange: (patch: NewTabFormPatch) => void;
 };
 
@@ -234,8 +255,10 @@ export function NewTabForm({
   fxFixtureBadge,
   seats,
   showCapture = true,
+  variant = "full",
   onChange,
 }: NewTabFormProps) {
+  const quick = variant === "quick";
   const currencies = currencyOptions.map<RadioOption>((currency) => ({
     key: currency,
     label: currency,
@@ -357,38 +380,44 @@ export function NewTabForm({
           value={title}
           onChange={(event) => onChange({ title: event.target.value })}
           className="mytab-input"
+          placeholder="Dinner at Zuma"
+          autoFocus={quick}
           maxLength={120}
         />
       </Section>
 
-      <Section id="tab-merchant-label" heading="Where">
-        <input
-          id="tab-merchant"
-          aria-labelledby="tab-merchant-label"
-          value={merchantName}
-          onChange={(event) => onChange({ merchantName: event.target.value })}
-          className="mytab-input"
-          placeholder="Somtum Der"
-          maxLength={120}
-        />
-      </Section>
+      {quick ? null : (
+        <Section id="tab-merchant-label" heading="Where">
+          <input
+            id="tab-merchant"
+            aria-labelledby="tab-merchant-label"
+            value={merchantName}
+            onChange={(event) => onChange({ merchantName: event.target.value })}
+            className="mytab-input"
+            placeholder="Somtum Der"
+            maxLength={120}
+          />
+        </Section>
+      )}
 
-      <Section
-        id="tab-currency-label"
-        heading="Currency"
-        marginBottom={fxFixtureBadge ? 12 : 28}
-      >
-        <RadioRow
-          name="currency"
-          labelledBy="tab-currency-label"
-          options={currencies}
-          selectedKey={displayCurrency}
-          onSelect={(key) => onChange({ displayCurrency: key })}
-          style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
-        />
-      </Section>
+      {quick ? null : (
+        <Section
+          id="tab-currency-label"
+          heading="Currency"
+          marginBottom={fxFixtureBadge ? 12 : 28}
+        >
+          <RadioRow
+            name="currency"
+            labelledBy="tab-currency-label"
+            options={currencies}
+            selectedKey={displayCurrency}
+            onSelect={(key) => onChange({ displayCurrency: key })}
+            style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
+          />
+        </Section>
+      )}
 
-      {fxFixtureBadge ? (
+      {!quick && fxFixtureBadge ? (
         <p
           className="mytab-type-meta"
           style={{ margin: "0 0 28px", color: MYTAB_COLORS.warning }}
@@ -477,6 +506,7 @@ export function NewTabForm({
         </Section>
       ) : null}
 
+      {quick ? null : (
       <Section id="tab-payer-label" heading="Who paid?" gap={12} marginBottom={34}>
         {payers.length === 0 ? (
           <p className="mytab-type-meta" style={{ margin: 0 }}>
@@ -495,6 +525,7 @@ export function NewTabForm({
           />
         )}
       </Section>
+      )}
 
       {showCapture ? (
         <Section id="tab-capture-label" heading="Add the items" gap={12} marginBottom={0}>

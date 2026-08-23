@@ -5,9 +5,10 @@ import { useCallback, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { NamedWalletProvider } from "@/lib/wallet/providers";
 import { CONNECT_COPY } from "./connectCopy";
+import { connectFailureMessage } from "./connectFailureMessage";
 import type { ConnectSheetStatus } from "./ConnectSheet";
 import { useCreateMyTabWallet } from "./useCreateMyTabWallet";
-import { useLinkExternalWallet, WalletLinkClientError } from "./useLinkExternalWallet";
+import { useLinkExternalWallet } from "./useLinkExternalWallet";
 
 async function waitForLinkedWallet(
   query: () => Promise<{ linked?: boolean } | null>,
@@ -55,9 +56,7 @@ export function useWalletConnectFlow(input?: { onLinked?: () => void }): {
         onLinkedRef.current?.();
       } catch (error) {
         setStatus("failed");
-        setErrorMessage(
-          error instanceof WalletLinkClientError ? error.message : CONNECT_COPY.failed,
-        );
+        setErrorMessage(connectFailureMessage(error, provider));
       }
     },
     [convex, linkNamed],
@@ -78,9 +77,11 @@ export function useWalletConnectFlow(input?: { onLinked?: () => void }): {
       }
       setStatus("idle");
       onLinkedRef.current?.();
-    } catch {
+    } catch (error) {
+      // Same taxonomy as the named path: a lapsed session is not a wallet that
+      // failed. This branch swallowed the error entirely before.
       setStatus("failed");
-      setErrorMessage(CONNECT_COPY.failed);
+      setErrorMessage(connectFailureMessage(error));
     }
   }, [convex, createMyTabWallet]);
 

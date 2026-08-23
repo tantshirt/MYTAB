@@ -465,3 +465,39 @@ describe("P1-20 — the who-has-this sheet", () => {
     expect(html).not.toContain("Assign to");
   });
 });
+
+/*
+ * The board is where a bill gets built, not just claimed.
+ *
+ * Two defects lived here at once. `BillEmptyState` carries "Type an item", but
+ * it renders only while the board has no items — so the first dish removed the
+ * only way to add a second. And on `TabDeepLinkSurface` the handler behind
+ * that button was `useCallback(() => {}, [])`: a visible primary control wired
+ * to an empty function, which §1.4 rates worse than no control at all.
+ */
+describe("the claim board can still take an item once it has one", () => {
+  it("offers the organizer an add action below a populated list", () => {
+    const html = render(board({ onAddManual: () => undefined }));
+    expect(html).toContain("Add another item");
+  });
+
+  it("withholds it from a participant", () => {
+    const html = render(board({ isOrganizer: false, onAddManual: () => undefined }));
+    expect(html).not.toContain("Add another item");
+  });
+
+  it("withholds it once the bill is locked — amounts are final", () => {
+    const html = render(board({ isLocked: true, onAddManual: () => undefined }));
+    expect(html).not.toContain("Add another item");
+  });
+
+  /*
+   * The handler is absent, not a no-op, when the viewer cannot write. An
+   * affordance that is present and dead is the failure this whole guard exists
+   * for, so the button must disappear rather than sit there swallowing taps.
+   */
+  it("renders no add action at all when no handler is passed", () => {
+    const html = render(board({ onAddManual: undefined }));
+    expect(html).not.toContain("Add another item");
+  });
+});
