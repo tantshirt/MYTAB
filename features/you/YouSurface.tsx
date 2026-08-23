@@ -25,6 +25,7 @@ export type YouSurfaceProps = {
   /** Privy `exportWallet()`. Privy renders its own modal; we render nothing over it. */
   onExportWallet?: () => void;
   onConnectExternalWallet?: () => void;
+  onRevokeInvite?: (tokenId: string) => void;
 };
 
 function openSupport(url: string, inTelegram: boolean): void {
@@ -54,6 +55,7 @@ export function YouSurface({
   onRetryViewer,
   onExportWallet,
   onConnectExternalWallet,
+  onRevokeInvite,
 }: YouSurfaceProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -76,10 +78,14 @@ export function YouSurface({
       ? YOU_COPY.provisioning
       : data.wallet.kind === "failed"
         ? YOU_COPY.walletNotReady
-        : undefined);
+        : data.wallet.kind === "none"
+          ? YOU_COPY.noneSub
+          : undefined);
 
   const exportDisabled = !walletReady || blockedReason !== undefined;
-  const manageDisabled = !walletReady || blockedReason !== undefined;
+  const manageDisabled =
+    (data.wallet.kind !== "ready" && data.wallet.kind !== "none") ||
+    blockedReason !== undefined;
 
   let walletRow: ReactNode;
   if (data.wallet.kind === "ready") {
@@ -101,6 +107,15 @@ export function YouSurface({
             <ProvisioningSweep />
           </>
         }
+      />
+    );
+  } else if (data.wallet.kind === "none") {
+    walletRow = (
+      <ListRow
+        label={YOU_COPY.walletRowLabel}
+        sub={YOU_COPY.noneSub}
+        onPress={() => setSheetOpen(true)}
+        trailing={<ChevronGlyph />}
       />
     );
   } else {
@@ -130,7 +145,7 @@ export function YouSurface({
         </NoticeBar>
       ) : null}
 
-      <h1 className="mytab-type-title" style={{ margin: "24px 0 0" }}>
+      <h1 className="mytab-type-title" style={{ margin: "24px 0" }}>
         {YOU_COPY.title}
       </h1>
 
@@ -138,7 +153,7 @@ export function YouSurface({
         <YouSkeleton />
       ) : (
         <>
-          <div style={{ marginTop: "24px" }}>
+          <div>
             {data.viewer ? (
               <IdentityBlock viewer={data.viewer} />
             ) : (
@@ -173,7 +188,7 @@ export function YouSurface({
             disabled={manageDisabled}
             onClick={() => setSheetOpen(true)}
           >
-            {YOU_COPY.manageWallet}
+            {data.wallet.kind === "none" ? YOU_COPY.addWallet : YOU_COPY.manageWallet}
           </button>
           {manageDisabled && walletReasonSub ? (
             <p
@@ -186,6 +201,41 @@ export function YouSurface({
             >
               {walletReasonSub}
             </p>
+          ) : null}
+
+          {data.liveInvites && data.liveInvites.length > 0 ? (
+            <div style={{ marginTop: "28px" }}>
+              <ListCard label={YOU_COPY.liveLinksSection}>
+                {data.liveInvites.map((invite) => (
+                  <ListRow
+                    key={invite.tokenId}
+                    label={invite.tabName}
+                    sub={
+                      invite.seatsRemaining === null
+                        ? undefined
+                        : YOU_COPY.seatsLeft(invite.seatsRemaining)
+                    }
+                    disabled={!onRevokeInvite || !inTelegram || offline}
+                    onPress={
+                      onRevokeInvite && inTelegram && !offline
+                        ? () => onRevokeInvite(invite.tokenId)
+                        : undefined
+                    }
+                    trailing={
+                      <span
+                        style={{
+                          fontSize: MYTAB_TYPOGRAPHY.meta.size,
+                          color: MYTAB_COLORS.owed,
+                          flex: "none",
+                        }}
+                      >
+                        {YOU_COPY.stopLink}
+                      </span>
+                    }
+                  />
+                ))}
+              </ListCard>
+            </div>
           ) : null}
 
           <div style={{ marginTop: "28px" }}>
@@ -235,10 +285,10 @@ export function YouSurface({
         {`${YOU_COPY.buildPrefix}${data.buildLabel}`}
       </p>
 
-      {data.wallet.kind === "ready" ? (
+      {data.wallet.kind === "ready" || data.wallet.kind === "none" ? (
         <ManageWalletSheet
           open={sheetOpen}
-          publicKey={data.wallet.publicKey}
+          publicKey={data.wallet.kind === "ready" ? data.wallet.publicKey : ""}
           onDismiss={() => setSheetOpen(false)}
           onExportWallet={onExportWallet}
           exportDisabled={exportDisabled}

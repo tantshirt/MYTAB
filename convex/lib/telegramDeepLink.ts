@@ -78,6 +78,39 @@ export function buildTelegramDeepLink(opaqueToken: string): string {
   return `https://t.me/${bot}/${miniapp}?startapp=${encodeURIComponent(opaqueToken)}`;
 }
 
+/** Mini App open with no start parameter — Menu button, Start a tab, What I owe. */
+export function buildTelegramMiniAppLink(): string {
+  const bot = getTelegramBotUsername();
+  const miniapp = getTelegramMiniAppName();
+  return `https://t.me/${bot}/${miniapp}`;
+}
+
+/** Telegram's add-to-group URL. The person picks the chat. */
+export function buildTelegramStartGroupUrl(): string {
+  const bot = getTelegramBotUsername();
+  return `https://t.me/${bot}?startgroup=true`;
+}
+
+/**
+ * HTTPS origin of the Mini App, for `web_app` buttons and `setChatMenuButton`.
+ * Absent or non-https is null — callers fall back to a `t.me` URL button.
+ */
+export function getTelegramMiniAppHttpsUrl(): string | null {
+  const raw = process.env.TELEGRAM_MINIAPP_URL?.trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 export function isTelegramPreviewEnvironment(): boolean {
   const deployment = process.env.CONVEX_DEPLOYMENT?.trim() ?? "";
   if (deployment.startsWith("preview:") || deployment.includes("preview")) {

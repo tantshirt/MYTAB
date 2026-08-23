@@ -246,6 +246,16 @@ export function SheetContainer({
       ? "none"
       : `transform ${leaving ? exitMs : PRESENT_MS}ms ${SHEET_CURVE}`;
 
+  // Scrim tracks the finger: a downward drag fades the dim, so release-to-dismiss
+  // is one continuous motion rather than a snap of the overlay at the end.
+  const scrimOpacity = leaving
+    ? 0
+    : !presented
+      ? 0
+      : dragOffset !== null && dragOffset > 0
+        ? Math.max(0, 1 - dragOffset / 280)
+        : 1;
+
   const sheetStyle: CSSProperties = {
     position: "relative",
     width: "100%",
@@ -262,6 +272,7 @@ export function SheetContainer({
     padding: "10px 0 calc(22px + var(--app-pad-bottom, 0px))",
     transform,
     transition: transformTransition,
+    willChange: dragging ? "transform" : undefined,
     touchAction: dismissible ? "pan-y" : undefined,
     outline: "none",
   };
@@ -272,10 +283,11 @@ export function SheetContainer({
     border: "none",
     padding: 0,
     background: SCRIM,
-    opacity: leaving ? 0 : presented ? 1 : 0,
-    transition: reduceMotion
-      ? "none"
-      : `opacity ${leaving ? SCRIM_OUT_MS : SCRIM_IN_MS}ms linear`,
+    opacity: scrimOpacity,
+    transition:
+      reduceMotion || dragging
+        ? "none"
+        : `opacity ${leaving ? SCRIM_OUT_MS : SCRIM_IN_MS}ms linear`,
   };
 
   return (

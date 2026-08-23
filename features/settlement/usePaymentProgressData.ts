@@ -15,6 +15,9 @@ export type PaymentProgressData = {
    * payment" — but only when it is actually known.
    */
   amountLabel: string | null;
+  billName: string | null;
+  /** What the recipient received, e.g. "8.25 USDC". */
+  recipientReceivesLabel: string | null;
   /** Where "Back to tab" lands. */
   tabHref: string;
 };
@@ -22,18 +25,9 @@ export type PaymentProgressData = {
 /**
  * Single prop-resolution point for Payment Progress.
  *
- * Live read: `api.settlements.getIntent({ intentId })`. The intent is a live
- * subscription — this surface exists as a route precisely so a payment in
- * flight survives a reload (POLISH-SPEC §1.0) — and every step advances only on
- * a server-confirmed transition, never optimistically (AD-11).
- *
- * PARTIALLY BLOCKED: `getIntent` returns `{ intentId, status, failureCode,
- * transactionSignature, expiresAt }` only. The recipient's name, the display
- * amount and the originating tab are all on the `settlementIntents` document
- * but not projected, so `amountLabel` is `null` — the component falls back to
- * its state-driven heading rather than inventing a figure — the recipient is
- * "them", and "Back to tab" lands on Tabs. Widening `getIntent`, or a
- * `settlements.getIntentForProgress`, is what unblocks the §1.9 heading.
+ * Live read: `api.settlements.getIntent({ intentId })`. Confirmation moves the
+ * ledger, not submission (AD-11). The confirmed line is the stored guarantee
+ * (`otherAmountThreshold` / locked output) — what they received, not a route.
  */
 export function usePaymentProgressData(intentId: string): PaymentProgressData {
   const result = useLiveQuery(api.settlements.getIntent, {
@@ -43,10 +37,12 @@ export function usePaymentProgressData(intentId: string): PaymentProgressData {
   return useMemo<PaymentProgressData>(
     () => ({
       status: (result.data?.status ?? "created") as SettlementStatus,
-      recipientName: "them",
+      recipientName: result.data?.recipientName ?? "them",
       failureCode: result.data?.failureCode ?? null,
-      amountLabel: null,
-      tabHref: "/",
+      amountLabel: result.data?.amountLabel ?? null,
+      billName: result.data?.billName ?? null,
+      recipientReceivesLabel: result.data?.recipientReceivesLabel ?? null,
+      tabHref: result.data?.tabHref ?? "/",
     }),
     [result.data],
   );

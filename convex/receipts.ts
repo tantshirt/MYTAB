@@ -1,10 +1,10 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalMutation, mutation, query } from "./_generated/server";
 import {
-  assertFixturePathAllowed,
-  fixturePathAllowed,
-} from "../lib/solana/runtimeGuard";
-import { mutation, query } from "./_generated/server";
-import { runFixtureExtraction } from "./lib/receiptExtraction";
+  assertReceiptScanAvailable,
+  isAiGatewayConfigured,
+} from "./lib/receiptExtraction";
 import { appendActivityEvent, ACTIVITY_EVENT_TYPE } from "./lib/activitySync";
 import { getCurrentUser, requireGroupMember } from "./lib/auth";
 import { assertTabUnlocked } from "./lib/tabAuth";
@@ -14,24 +14,21 @@ import {
   validateItemInput,
 } from "./lib/tabBillSync";
 import { fiatMinorFromInteger } from "../lib/domain/money";
+import { allocationModeForItemQuantity } from "../lib/domain/quantityClaim";
 
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Whether receipt scan can actually run here.
  *
- * There is no production extraction provider: `runFixtureExtraction` is the only
- * implementation, and it is behind `assertFixturePathAllowed`. So scan is
- * available exactly where fixtures are — never on a deployment. This used to
- * read `NEXT_PUBLIC_FEATURE_RECEIPT_SCAN`, which is a Vercel-side variable that
- * is never present in the Convex runtime; the query therefore answered "false"
- * for a reason unrelated to whether scanning works, and would have answered
- * "true" the moment somebody set that variable in Convex — offering a flow that
- * throws.
+ * Server capability: Convex holds `AI_GATEWAY_API_KEY` (D-32). Not
+ * `NEXT_PUBLIC_FEATURE_RECEIPT_SCAN` (that variable is Vercel-only and is
+ * never present in this runtime). Not `fixturePathAllowed` — a missing key
+ * is a hard fail, never permission to invent a receipt (D-11).
  */
 export const isScanEnabled = query({
   args: {},
-  handler: async () => fixturePathAllowed(),
+  handler: async () => isAiGatewayConfigured(),
 });
 
 /** Creates a ticketed import with organizer-bound upload ticket (Story 8.1 AC1). */
@@ -41,9 +38,8 @@ export const createUploadTicket = mutation({
   },
   handler: async (ctx, args) => {
     // Fail at the first step rather than after somebody has photographed a
-    // receipt: extraction is fixture-only, so on a deployment this flow has
-    // nowhere to go.
-    assertFixturePathAllowed("receipts.createUploadTicket");
+    // receipt. Missing key = hard fail; the fixture path is not a fallback.
+    assertReceiptScanAvailable();
 
     const user = await getCurrentUser(ctx);
     if (!user) {
@@ -83,14 +79,15 @@ export const createUploadTicket = mutation({
   },
 });
 
-/** Finalizes upload and schedules extraction (Story 8.1 AC2). */
-export const finalizeUpload = mutation({
+/** One-shot Convex storage URL, bound to a live organizer ticket. */
+export const generateUploadUrl = mutation({
   args: {
     importId: v.id("receiptImports"),
     uploadTicketHash: v.string(),
-    storageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
+    assertReceiptScanAvailable();
+
     const user = await getCurrentUser(ctx);
     if (!user) {
       throw new Error("UNAUTHORIZED");
@@ -115,27 +112,106 @@ export const finalizeUpload = mutation({
       throw new Error("ORGANIZER_REQUIRED");
     }
 
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Finalizes upload and schedules extraction (Story 8.1 AC2, AD-8). */
+export const finalizeUpload = mutation({
+  args: {
+    importId: v.id("receiptImports"),
+    uploadTicketHash: v.string(),
+    storageId: v.optional(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    assertReceiptScanAvailable();
+
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      throw new Error("UNAUTHORIZED");
+    }
+
+    const receiptImport = await ctx.db.get(args.importId);
+    if (!receiptImport) {
+      throw new Error("IMPORT_NOT_FOUND");
+    }
+
+    if (receiptImport.uploadTicketHash !== args.uploadTicketHash) {
+      throw new Error("TICKET_MISMATCH");
+    }
+
+    if (receiptImport.ticketExpiresAt && receiptImport.ticketExpiresAt < Date.now()) {
+      await ctx.db.patch(args.importId, { status: "deleted", updatedAt: Date.now() });
+      throw new Error("TICKET_EXPIRED");
+    }
+
+    const tab = await ctx.db.get(receiptImport.tabId);
+    if (!tab || tab.organizerTelegramUserId !== user.telegramUserId) {
+      throw new Error("ORGANIZER_REQUIRED");
+    }
+
+    if (!args.storageId) {
+      throw new Error("RECEIPT_IMAGE_MISSING");
+    }
+
     await ctx.db.patch(args.importId, {
-      status: "uploaded",
+      status: "extracting",
       storageId: args.storageId,
       updatedAt: Date.now(),
     });
 
-    // Fixture extraction stands in for the model call; on a deployment it must
-    // fail closed rather than write invented line items onto a real bill.
-    assertFixturePathAllowed("receipts.runFixtureExtraction");
-    const result = runFixtureExtraction();
-    await ctx.db.patch(args.importId, {
-      status: "needs_review",
-      extraction: result.parsed,
-      rawExtraction: result.raw,
-      fieldConfidence: result.fieldConfidence,
-      reconciliation: result.parsed.reconciliation,
-      modelMetadata: result.modelMetadata,
-      updatedAt: Date.now(),
+    await ctx.scheduler.runAfter(0, internal.internal.receiptExtraction.extractReceipt, {
+      importId: args.importId,
+      storageId: args.storageId,
     });
 
     return { ok: true };
+  },
+});
+
+/** Records a validated extraction. Client sees needs_review. */
+export const recordExtraction = internalMutation({
+  args: {
+    importId: v.id("receiptImports"),
+    raw: v.any(),
+    parsed: v.any(),
+    fieldConfidence: v.any(),
+    reconciliation: v.any(),
+    modelMetadata: v.any(),
+  },
+  handler: async (ctx, args) => {
+    const receiptImport = await ctx.db.get(args.importId);
+    if (!receiptImport || receiptImport.status === "deleted") {
+      return;
+    }
+    await ctx.db.patch(args.importId, {
+      status: "needs_review",
+      extraction: args.parsed,
+      rawExtraction: args.raw,
+      fieldConfidence: args.fieldConfidence,
+      reconciliation: args.reconciliation,
+      modelMetadata: args.modelMetadata,
+      failureCode: undefined,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const recordExtractionFailure = internalMutation({
+  args: {
+    importId: v.id("receiptImports"),
+    failureCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const receiptImport = await ctx.db.get(args.importId);
+    if (!receiptImport || receiptImport.status === "deleted") {
+      return;
+    }
+    await ctx.db.patch(args.importId, {
+      status: "failed",
+      failureCode: args.failureCode,
+      updatedAt: Date.now(),
+    });
   },
 });
 
@@ -251,6 +327,7 @@ export const confirmReceipt = mutation({
         quantity: validated.quantity,
         unitPriceMinor: validated.unitPriceMinor,
         lineTotalMinor: validated.lineTotalMinor,
+        allocationMode: allocationModeForItemQuantity(validated.quantity),
         sortOrder,
         source: "receipt",
         createdAt: now,

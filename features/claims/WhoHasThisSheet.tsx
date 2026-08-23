@@ -3,12 +3,21 @@
 import { Avatar, type ClaimantIdentity } from "@/components/claim-row";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
-import { formatFiatMinorThb, perHeadDisplayMinor, thbMinorFromInteger } from "@/lib/domain";
+import {
+  formatFiatMinorThb,
+  isQuantityClaimMode,
+  perHeadDisplayMinor,
+  quantityClaimedCaption,
+  thbMinorFromInteger,
+} from "@/lib/domain";
 import { MYTAB_COLORS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 
 export type WhoHasThisSheetProps = {
   itemName: string;
   lineTotalMinor: number;
+  quantity?: number;
+  claimedCount?: number;
+  allocationMode?: string;
   claimants: ClaimantIdentity[];
   /** Everyone on the tab who is not already on this item. */
   assignable: ClaimantIdentity[];
@@ -34,6 +43,9 @@ const baht = (minor: number) => formatFiatMinorThb(thbMinorFromInteger(minor));
 export function WhoHasThisSheet({
   itemName,
   lineTotalMinor,
+  quantity,
+  claimedCount,
+  allocationMode,
   claimants,
   assignable,
   viewerUserId,
@@ -74,11 +86,15 @@ export function WhoHasThisSheet({
           color: claimants.length === 0 ? MYTAB_COLORS.warning : MYTAB_COLORS.inkMuted,
         }}
       >
-        {claimants.length === 0
-          ? "Needs an owner"
-          : claimants.length === 1
-            ? "One person has this"
-            : `Split ${claimants.length} ways · ${baht(perHead)} each`}
+        {isQuantityClaimMode(allocationMode, quantity ?? 1) && quantity && quantity > 1
+          ? claimants.length === 0
+            ? "Needs an owner"
+            : quantityClaimedCaption(claimedCount ?? claimants.length, quantity)
+          : claimants.length === 0
+            ? "Needs an owner"
+            : claimants.length === 1
+              ? "One person has this"
+              : `Split ${claimants.length} ways · ${baht(perHead)} each`}
       </p>
 
       {claimants.length > 0 ? (

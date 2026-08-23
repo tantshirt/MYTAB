@@ -42,6 +42,8 @@ function PaymentProgressSurface({ intentId }: { intentId: string }) {
         amountA11yLabel={
           intent.amountLabel ? formatAmountLabelForA11y(intent.amountLabel) : undefined
         }
+        billName={intent.billName}
+        recipientReceivesLabel={intent.recipientReceivesLabel}
         intentId={intentId}
         onTryAgain={handleTryAgain}
         onBackToTab={handleBackToTab}

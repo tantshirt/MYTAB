@@ -9,6 +9,7 @@ import { SETTLEMENT_STATUS, type SettlementStatus } from "@/convex/lib/settlemen
 import {
   DEFAULT_FAILURE_CAUSE,
   describeSettlementFailure,
+  HELD_PAYMENT_MESSAGE,
 } from "@/lib/domain/paymentState";
 
 export { DEFAULT_FAILURE_CAUSE, describeSettlementFailure };
@@ -68,7 +69,7 @@ const FAILURE_STEP: Record<string, SettlementStepKey> = {
 };
 
 const IN_FLIGHT_FOOTNOTE = "You can close this — we'll update the tab either way.";
-const UNKNOWN_FOOTNOTE = "Still checking — don't pay again.";
+const UNKNOWN_FOOTNOTE = HELD_PAYMENT_MESSAGE;
 const FAILED_FOOTNOTE = "Nothing left your wallet. Your share is unchanged.";
 
 function stepLabels(recipientName: string): Record<SettlementStepKey, string> {

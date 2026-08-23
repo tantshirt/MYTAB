@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ActivityFeed } from "@/features/balances/ActivityFeed";
 import { FIXTURE_ACTIVITY } from "@/tests/fixtures/balances";
 import { ACTIVITY_EVENT_TYPE } from "@/lib/domain/activityTypes";
+import { MYTAB_ELEVATION } from "@/lib/theme/tokens";
 
 describe("Story 7.3 — Activity feed", () => {
   it("AC5 — empty state copy", () => {
@@ -44,6 +45,11 @@ describe("POLISH-SPEC §1.12 — Activity", () => {
     const html = renderToStaticMarkup(<ActivityFeed events={FIXTURE_ACTIVITY} />);
     expect(html).toContain("mytab-type-micro-label");
     expect(html).toContain("Today");
+  });
+
+  it("sits in a surface card — hairline plus the faint lift, not a naked list", () => {
+    const html = renderToStaticMarkup(<ActivityFeed events={FIXTURE_ACTIVITY} />);
+    expect(html).toContain(MYTAB_ELEVATION.cardShadow);
   });
 
   it("reads amounts as money, not digits", () => {

@@ -19,6 +19,7 @@ export type NewTabFormPatch = {
   displayCurrency?: string;
   payerUserId?: string;
   captureMethod?: CaptureMethod;
+  seats?: number;
 };
 
 export type NewTabFormProps = {
@@ -37,6 +38,10 @@ export type NewTabFormProps = {
    */
   scanAvailable?: boolean;
   fxFixtureBadge?: string;
+  /** INVITE-FLOW §4 — shown only on a personal tab. Default 2, min 2, max 20. */
+  seats?: number;
+  /** Capture is S3 on a personal tab — the claim board empty state, not this form. */
+  showCapture?: boolean;
   onChange: (patch: NewTabFormPatch) => void;
 };
 
@@ -227,6 +232,8 @@ export function NewTabForm({
   captureMethod,
   scanAvailable = false,
   fxFixtureBadge,
+  seats,
+  showCapture = true,
   onChange,
 }: NewTabFormProps) {
   const currencies = currencyOptions.map<RadioOption>((currency) => ({
@@ -391,6 +398,85 @@ export function NewTabForm({
         </p>
       ) : null}
 
+      {seats !== undefined ? (
+        <Section id="tab-seats-label" heading="How many people" gap={12} marginBottom={28}>
+          <div
+            role="group"
+            aria-labelledby="tab-seats-label"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="mytab-focus"
+              aria-label="Fewer people"
+              disabled={seats <= 2}
+              onClick={() => onChange({ seats: Math.max(2, seats - 1) })}
+              style={{
+                ...BARE_BUTTON,
+                width: 44,
+                height: 44,
+                minWidth: 44,
+                minHeight: 44,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: MYTAB_RADIUS.full,
+                border: `1px solid ${MYTAB_COLORS.border}`,
+                background: MYTAB_COLORS.surface,
+                fontSize: 22,
+                fontWeight: 500,
+              }}
+            >
+              −
+            </button>
+            <span
+              className="mytab-tabular"
+              aria-live="polite"
+              style={{
+                minWidth: "2.5ch",
+                textAlign: "center",
+                fontSize: 24,
+                fontWeight: 600,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {seats}
+            </span>
+            <button
+              type="button"
+              className="mytab-focus"
+              aria-label="More people"
+              disabled={seats >= 20}
+              onClick={() => onChange({ seats: Math.min(20, seats + 1) })}
+              style={{
+                ...BARE_BUTTON,
+                width: 44,
+                height: 44,
+                minWidth: 44,
+                minHeight: 44,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: MYTAB_RADIUS.full,
+                border: `1px solid ${MYTAB_COLORS.border}`,
+                background: MYTAB_COLORS.surface,
+                fontSize: 22,
+                fontWeight: 500,
+              }}
+            >
+              +
+            </button>
+          </div>
+          <p className="mytab-type-meta" style={{ margin: "8px 0 0" }}>
+            Including you.
+          </p>
+        </Section>
+      ) : null}
+
       <Section id="tab-payer-label" heading="Who paid?" gap={12} marginBottom={34}>
         {payers.length === 0 ? (
           <p className="mytab-type-meta" style={{ margin: 0 }}>
@@ -410,16 +496,18 @@ export function NewTabForm({
         )}
       </Section>
 
-      <Section id="tab-capture-label" heading="Add the items" gap={12} marginBottom={0}>
-        <RadioRow
-          name="capture"
-          labelledBy="tab-capture-label"
-          options={captureOptions}
-          selectedKey={captureMethod}
-          onSelect={(key) => onChange({ captureMethod: key as CaptureMethod })}
-          style={{ display: "flex", gap: 12, alignItems: "stretch" }}
-        />
-      </Section>
+      {showCapture ? (
+        <Section id="tab-capture-label" heading="Add the items" gap={12} marginBottom={0}>
+          <RadioRow
+            name="capture"
+            labelledBy="tab-capture-label"
+            options={captureOptions}
+            selectedKey={captureMethod}
+            onSelect={(key) => onChange({ captureMethod: key as CaptureMethod })}
+            style={{ display: "flex", gap: 12, alignItems: "stretch" }}
+          />
+        </Section>
+      ) : null}
     </div>
   );
 }

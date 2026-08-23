@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import {
   organizerAssignItemCore,
   setItemAllocationModeCore,
+  setOwnClaimQuantityCore,
   toggleOwnClaimCore,
 } from "./lib/claimSync";
 import { buildClaimBoardView, organizerDisplayName } from "./lib/claimBoardQuery";
@@ -34,6 +35,36 @@ export const toggleOwnClaim = mutation({
         itemId: args.itemId,
         userId: user._id,
         clientRevision: args.clientRevision,
+        now,
+      });
+      return { ...result, stale: false as const };
+    } catch (error) {
+      if (error instanceof RevisionSyncError) {
+        return { stale: true as const, revision: tabRevision(tab) };
+      }
+      throw error;
+    }
+  },
+});
+
+/** Sets the viewer's integer claimed count on a quantity-mode item (D-23, D-29). */
+export const setOwnClaimQuantity = mutation({
+  args: {
+    tabId: v.id("tabs"),
+    itemId: v.id("items"),
+    clientRevision: v.number(),
+    quantity: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { tab, user } = await requireTabParticipant(ctx, args.tabId);
+    const now = Date.now();
+    try {
+      const result = await setOwnClaimQuantityCore(ctx, {
+        tabId: args.tabId,
+        itemId: args.itemId,
+        userId: user._id,
+        clientRevision: args.clientRevision,
+        quantity: args.quantity,
         now,
       });
       return { ...result, stale: false as const };

@@ -9,6 +9,7 @@ import { SurfaceErrorBoundary } from "@/components/primitives/error-boundary";
 import { showSkeleton, type LoadState } from "@/components/primitives/load-state";
 import { ACTIVITY_EVENT_TYPE, type ActivityEventType } from "@/lib/domain/activityTypes";
 import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
+import { SURFACE_CARD_STYLE } from "@/components/primitives/list-card";
 import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
 import { ActivitySkeleton, OfflineBar } from "./LoadingStates";
 
@@ -278,9 +279,7 @@ function RowCard({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        background: MYTAB_COLORS.surface,
-        border: `1px solid ${MYTAB_COLORS.border}`,
-        borderRadius: MYTAB_RADIUS.md,
+        ...SURFACE_CARD_STYLE,
         padding: "0 16px",
       }}
     >

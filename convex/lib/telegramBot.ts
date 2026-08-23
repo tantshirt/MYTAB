@@ -37,6 +37,7 @@ export async function publishTabStatusEvent(
     tabId: Id<"tabs">;
     event: TelegramStatusEvent;
     now?: number;
+    initialToken?: string;
   },
 ): Promise<{ published: boolean; reason?: string }> {
   if (!isPostingEvent(input.event)) {
@@ -47,6 +48,7 @@ export async function publishTabStatusEvent(
     tabId: input.tabId,
     event: input.event,
     now: input.now,
+    ...(input.initialToken === undefined ? {} : { initialToken: input.initialToken }),
   });
 
   if (!recorded.recorded) {
@@ -77,5 +79,6 @@ export async function publishTabOpenedCard(
     tabId: input.tabId,
     event: "tab_opened",
     now: input.now,
+    initialToken: input.opaqueToken,
   });
 }

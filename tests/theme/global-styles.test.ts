@@ -77,6 +77,13 @@ describe("POLISH-SPEC §6.3 — control classes", () => {
     expect(MYTAB_GLOBAL_CSS).toContain(".mytab-link-button:active:not(:disabled)");
   });
 
+  it("primary press inverts the inset edge rather than lifting", () => {
+    expect(rule(".mytab-button-primary:active:not(:disabled)")).toContain(
+      `box-shadow: ${MYTAB_ELEVATION.buttonPressed}`,
+    );
+    expect(MYTAB_GLOBAL_CSS).toContain("@media (prefers-reduced-motion: reduce)");
+  });
+
   it("disabled uses the paper/ink-muted pairing, not border/ink-muted", () => {
     const disabled = rule(
       ".mytab-button-primary:disabled,\n  .mytab-button-secondary:disabled," +
@@ -129,6 +136,9 @@ describe("POLISH-SPEC §6.3 — the custom properties .mytab-card depends on", (
     expect(MYTAB_GLOBAL_CSS).toContain(`--radius-md: ${MYTAB_RADIUS.md}`);
     expect(MYTAB_GLOBAL_CSS).toContain(
       `--mytab-elevation-card: ${MYTAB_ELEVATION.cardShadow}`,
+    );
+    expect(MYTAB_GLOBAL_CSS).toContain(
+      `--mytab-elevation-button-pressed: ${MYTAB_ELEVATION.buttonPressed}`,
     );
   });
 

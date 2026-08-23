@@ -29,9 +29,9 @@ export function ActivitySurface({
   inTelegram = true,
 }: ActivitySurfaceProps) {
   return (
-    <main style={{ paddingTop: "8px", paddingBottom: "24px" }}>
+    <main style={{ paddingBottom: "32px" }}>
       <OutsideTelegramBar visible={!inTelegram} />
-      <h1 className="mytab-type-title" style={{ margin: "16px 0 12px" }}>
+      <h1 className="mytab-type-title" style={{ margin: "24px 0 16px" }}>
         Activity
       </h1>
       <ActivityFeed

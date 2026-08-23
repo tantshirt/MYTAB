@@ -5,7 +5,7 @@ import {
   renderNotAMemberMessage,
   renderRateLimitedMessage,
 } from "../../lib/telegram/messages";
-import { mintSessionToken } from "./sessionTokenOps";
+import { ensureOrganizerParticipant, mintSessionToken, persistLiveInviteToken } from "./sessionTokenOps";
 import { publishTabOpenedCard } from "./telegramBot";
 import {
   MEMBERSHIP_FAILURE,
@@ -233,11 +233,19 @@ export async function startTabForGroup(
     organizerTelegramUserId: input.organizerTelegramUserId,
     name: tabName,
     status: "draft",
+    origin: "chat",
+    seatPolicy: { kind: "chat" },
     defaultCurrency: "THB",
     recipientAsset: "USDC",
     revision: 0,
     createdAt: now,
     updatedAt: now,
+  });
+
+  await ensureOrganizerParticipant(ctx, {
+    tabId,
+    organizerTelegramUserId: input.organizerTelegramUserId,
+    now,
   });
 
   const { token } = await mintSessionToken(ctx, {
@@ -247,6 +255,7 @@ export async function startTabForGroup(
     groupId: input.groupId,
     now,
   });
+  await persistLiveInviteToken(ctx, tabId, token);
 
   await publishTabOpenedCard(ctx, {
     tabId,

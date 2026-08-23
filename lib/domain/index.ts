@@ -155,6 +155,7 @@ export {
   describeSettlementFailure,
   formatPaymentFailureMessage,
   getPaymentStatePresentation,
+  HELD_PAYMENT_MESSAGE,
   mapSettlementStatusToDisplay,
   type PaymentDisplayState,
   type PaymentStatePresentation,
@@ -181,6 +182,21 @@ export {
   type ParticipantBreakdown,
   type PersistedShare,
 } from "./allocation";
+
+export {
+  allocateQuantityKOfN,
+  allocationModeForItemQuantity,
+  assertQuantityClaimWrite,
+  claimedQuantitySum,
+  claimUnitCount,
+  isQuantityClaimMode,
+  quantityAfterStep,
+  quantityClaimedCaption,
+  quantityShortfall,
+  quantityStepperState,
+  resolveItemAllocationMode,
+  type QuantityClaimInput,
+} from "./quantityClaim";
 
 export {
   STALE_REVISION,

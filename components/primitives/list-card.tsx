@@ -1,7 +1,22 @@
 "use client";
 
-import { Children, type ReactNode } from "react";
+import { Children, type CSSProperties, type ReactNode } from "react";
 import { MYTAB_COLORS, MYTAB_ELEVATION, MYTAB_RADIUS } from "@/lib/theme/tokens";
+
+/**
+ * The one card treatment in the product (DESIGN.md: surface + hairline + faint
+ * lift). Shared so Home, Activity and You cannot drift into a second elevation.
+ *
+ * `overflow: clip`, never `hidden` — `hidden` makes the card a scroll container
+ * and would un-pin any sticky descendant (D-14).
+ */
+export const SURFACE_CARD_STYLE: CSSProperties = {
+  background: MYTAB_COLORS.surface,
+  border: `1px solid ${MYTAB_COLORS.border}`,
+  borderRadius: MYTAB_RADIUS.md,
+  boxShadow: MYTAB_ELEVATION.cardShadow,
+  overflow: "clip",
+};
 
 export type ListCardProps = {
   /** Micro-label above the card — "WALLET", "ABOUT". Sits outside the card, on paper. */
@@ -23,15 +38,7 @@ export function ListCard({ label, children }: ListCardProps) {
           {label}
         </p>
       ) : null}
-      <div
-        style={{
-          background: MYTAB_COLORS.surface,
-          border: `1px solid ${MYTAB_COLORS.border}`,
-          borderRadius: MYTAB_RADIUS.md,
-          boxShadow: MYTAB_ELEVATION.cardShadow,
-          overflow: "hidden",
-        }}
-      >
+      <div style={SURFACE_CARD_STYLE}>
         {rows.map((row, index) => (
           <div
             key={index}

@@ -5,7 +5,7 @@ import { ChevronGlyph } from "@/components/primitives/glyphs";
 import { ListCard } from "@/components/primitives/list-card";
 import { ListRow } from "@/components/primitives/list-row";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
-import { ExternalWalletConnect, isExternalWalletEnabled } from "@/features/auth/ExternalWalletConnect";
+import { ExternalWalletConnect } from "@/features/auth/ExternalWalletConnect";
 import { MYTAB_COLORS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 import { YOU_COPY } from "./copy";
 import { WalletKeyRow } from "./WalletKeyRow";
@@ -38,14 +38,14 @@ export function ManageWalletSheet({
   exportDisabledReason,
   onConnectExternalWallet,
 }: ManageWalletSheetProps) {
-  const [showConnect, setShowConnect] = useState(false);
+  const [showConnect, setShowConnect] = useState(!publicKey);
 
   // Re-opening the sheet starts from the list, never mid-flow.
   useEffect(() => {
     if (!open) {
-      setShowConnect(false);
+      setShowConnect(!publicKey);
     }
-  }, [open]);
+  }, [open, publicKey]);
 
   if (!open) {
     return null;
@@ -56,34 +56,36 @@ export function ManageWalletSheet({
       <p className="mytab-type-micro-label" style={{ margin: 0 }}>
         {YOU_COPY.sheet.microLabel}
       </p>
-      <p
-        className="mytab-tabular"
-        style={{
-          margin: "8px 0 16px",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: MYTAB_TYPOGRAPHY.meta.size,
-          lineHeight: 1.5,
-          color: MYTAB_COLORS.inkMuted,
-          wordBreak: "break-all",
-        }}
-      >
-        {publicKey}
-      </p>
+      {publicKey ? (
+        <p
+          className="mytab-tabular"
+          style={{
+            margin: "8px 0 16px",
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: MYTAB_TYPOGRAPHY.meta.size,
+            lineHeight: 1.5,
+            color: MYTAB_COLORS.inkMuted,
+            wordBreak: "break-all",
+          }}
+        >
+          {publicKey}
+        </p>
+      ) : null}
 
-      <ListCard>
-        <WalletKeyRow
-          label={YOU_COPY.sheet.copyKey}
-          publicKey={publicKey}
-          ariaLabel={YOU_COPY.sheet.copyKeyAriaLabel}
-        />
-        <ListRow
-          label={YOU_COPY.sheet.exportLabel}
-          sub={exportDisabled ? exportDisabledReason : YOU_COPY.sheet.exportSub}
-          disabled={exportDisabled}
-          onPress={onExportWallet}
-          trailing={<ChevronGlyph />}
-        />
-        {isExternalWalletEnabled() ? (
+      {publicKey ? (
+        <ListCard>
+          <WalletKeyRow
+            label={YOU_COPY.sheet.copyKey}
+            publicKey={publicKey}
+            ariaLabel={YOU_COPY.sheet.copyKeyAriaLabel}
+          />
+          <ListRow
+            label={YOU_COPY.sheet.exportLabel}
+            sub={exportDisabled ? exportDisabledReason : YOU_COPY.sheet.exportSub}
+            disabled={exportDisabled}
+            onPress={onExportWallet}
+            trailing={<ChevronGlyph />}
+          />
           <ListRow
             label={YOU_COPY.sheet.connectOther}
             onPress={() => {
@@ -92,8 +94,8 @@ export function ManageWalletSheet({
             }}
             trailing={<ChevronGlyph />}
           />
-        ) : null}
-      </ListCard>
+        </ListCard>
+      ) : null}
 
       {showConnect ? (
         <div style={{ marginTop: "16px" }}>

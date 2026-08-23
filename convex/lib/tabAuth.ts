@@ -8,6 +8,7 @@ import {
   requireGroupMember,
   requireTelegramContext,
 } from "./auth";
+import { isPersonalOrigin } from "./tabOrigin";
 
 export const NOT_TAB_PARTICIPANT = "NOT_TAB_PARTICIPANT";
 export const NOT_BILL_ORGANIZER = "NOT_BILL_ORGANIZER";
@@ -33,7 +34,12 @@ export async function requireTabParticipant(
     throw new AuthError(NOT_TAB_PARTICIPANT);
   }
 
-  await requireGroupMember(ctx, tab.groupId);
+  // Personal-origin tabs have no chat roster. The invite door writes the same
+  // `tabParticipants` row; that row is the authorization (D-06). Chat-origin
+  // still requires live group membership.
+  if (!isPersonalOrigin(tab)) {
+    await requireGroupMember(ctx, tab.groupId);
+  }
 
   const participant = await ctx.db
     .query("tabParticipants")
@@ -63,7 +69,9 @@ export async function requireBillOrganizer(
     throw new AuthError(TAB_NOT_FOUND);
   }
 
-  await requireGroupMember(ctx, tab.groupId);
+  if (!isPersonalOrigin(tab)) {
+    await requireGroupMember(ctx, tab.groupId);
+  }
 
   if (tab.organizerTelegramUserId !== user.telegramUserId) {
     throw new AuthError(NOT_BILL_ORGANIZER);

@@ -77,6 +77,13 @@ describe("POLISH-SPEC §3.2 — the You surface, row by row", () => {
     expect(READY).not.toContain("position:fixed");
   });
 
+  it("lists live invite links with a stop control (U-9)", () => {
+    expect(READY).toContain(YOU_COPY.liveLinksSection);
+    expect(READY).toContain("Sukhumvit Dinner");
+    expect(READY).toContain(YOU_COPY.stopLink);
+    expect(READY).toContain(YOU_COPY.seatsLeft(3));
+  });
+
   it("does the trust work in the About card", () => {
     expect(READY).toContain(YOU_COPY.aboutSection);
     expect(READY).toContain(YOU_COPY.splitsLabel);
@@ -87,6 +94,10 @@ describe("POLISH-SPEC §3.2 — the You surface, row by row", () => {
   it("closes with the holds-no-keys note and a build line", () => {
     expect(READY).toContain(YOU_COPY.footerNote);
     expect(READY).toContain("My Tab · build 2026.08.22");
+  });
+
+  it("does not carry Jupiter attribution — that footer is the picker only (U-1)", () => {
+    expect(READY).not.toContain("Powered by Jupiter");
   });
 
   it("offers no Disconnect, Sign out or Delete account", () => {
@@ -128,10 +139,16 @@ describe("POLISH-SPEC §3.4 — states", () => {
   it("wallet provisioning is not an error and carries no warning colour", () => {
     const html = render(<YouSurface data={FIXTURE_YOU_PROVISIONING} />);
     expect(html).toContain(YOU_COPY.provisioning);
-    expect(html.toLowerCase()).not.toContain(MYTAB_COLORS.owed.toLowerCase());
-    expect(html.toLowerCase()).not.toContain(MYTAB_COLORS.warning.toLowerCase());
-    // Export and Manage wallet are disabled, with the reason stated.
-    expect(html.match(/disabled=""/g) ?? []).toHaveLength(2);
+    const wallet = html.slice(
+      html.indexOf('aria-label="wallet"'),
+      html.indexOf('aria-label="live links"') === -1
+        ? html.indexOf('aria-label="about"')
+        : html.indexOf('aria-label="live links"'),
+    );
+    expect(wallet.toLowerCase()).not.toContain(MYTAB_COLORS.owed.toLowerCase());
+    expect(wallet.toLowerCase()).not.toContain(MYTAB_COLORS.warning.toLowerCase());
+    // Export, Manage wallet, and the live-links revoke row are disabled.
+    expect(html.match(/disabled=""/g) ?? []).toHaveLength(3);
   });
 
   it("a failed wallet setup states the fix and offers no retry button", () => {
@@ -146,7 +163,7 @@ describe("POLISH-SPEC §3.4 — states", () => {
     expect(html).toContain(YOU_COPY.offline);
     expect(html.match(new RegExp(YOU_COPY.needsConnection, "g")) ?? []).toHaveLength(2);
     expect(html).toContain("7xKX…9mPq");
-    expect(html.match(/disabled=""/g) ?? []).toHaveLength(2);
+    expect(html.match(/disabled=""/g) ?? []).toHaveLength(3);
   });
 
   it("outside Telegram keeps reads and repeats the sentence on the disabled row", () => {
@@ -196,11 +213,11 @@ describe("POLISH-SPEC §3.2 — Manage wallet sheet", () => {
     expect(sheet).toContain("word-break:break-all");
   });
 
-  it("carries copy and export, and hides the external-wallet row behind its flag", () => {
+  it("carries copy, export, and a named-wallet connect row (D-21)", () => {
     expect(sheet).toContain(YOU_COPY.sheet.copyKey);
     expect(sheet).toContain(YOU_COPY.sheet.exportLabel);
     expect(sheet).toContain(YOU_COPY.sheet.exportSub);
-    expect(sheet).not.toContain(YOU_COPY.sheet.connectOther);
+    expect(sheet).toContain(YOU_COPY.sheet.connectOther);
   });
 
   it("is closed until asked for", () => {

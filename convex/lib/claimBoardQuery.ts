@@ -1,13 +1,72 @@
 import type { GenericQueryCtx } from "convex/server";
 import type { DataModel, Id } from "../_generated/dataModel";
 import {
+  claimedQuantitySum,
+  claimUnitCount,
+  quantityShortfall,
+  resolveItemAllocationMode,
+} from "../../lib/domain/quantityClaim";
+import {
   computeTabBreakdowns,
   countUnassignedItems,
   loadItemClaimRows,
 } from "./allocationSync";
 import { isOrganizer, requireTabParticipant, tabRevision } from "./tabAuth";
+import { seatsRemaining, tabOrigin } from "./tabOrigin";
 
 type QueryCtx = GenericQueryCtx<DataModel>;
+
+export type ClaimItemProjection = {
+  _id: string;
+  name: string;
+  lineTotalMinor: number;
+  quantity: number;
+  allocationMode: ReturnType<typeof resolveItemAllocationMode>;
+  claimantIds: string[];
+  claimantCount: number;
+  claimedCount: number;
+  shortfall: number;
+  viewerOwns: boolean;
+  viewerClaimedQuantity: number;
+  unassigned: boolean;
+};
+
+/** Projects one item for the claim board — quantity, claimed counts, shortfall (D-29). */
+export function projectClaimItemView(args: {
+  itemId: string;
+  name: string;
+  lineTotalMinor: number;
+  quantity: number;
+  allocationMode?: string;
+  claims: ReadonlyArray<{ userId: string; quantity?: number }>;
+  viewerUserId: string;
+}): ClaimItemProjection {
+  const allocationMode = resolveItemAllocationMode(args.allocationMode, args.quantity);
+  const claimantIds = args.claims.map((claim) => claim.userId);
+  const claimedCount =
+    allocationMode === "quantity" ? claimedQuantitySum(args.claims) : claimantIds.length;
+  const shortfall =
+    allocationMode === "quantity"
+      ? quantityShortfall(args.quantity, claimedCount)
+      : claimantIds.length === 0
+        ? 1
+        : 0;
+  const own = args.claims.find((claim) => claim.userId === args.viewerUserId);
+  return {
+    _id: args.itemId,
+    name: args.name,
+    lineTotalMinor: args.lineTotalMinor,
+    quantity: args.quantity,
+    allocationMode,
+    claimantIds,
+    claimantCount: claimantIds.length,
+    claimedCount,
+    shortfall,
+    viewerOwns: Boolean(own),
+    viewerClaimedQuantity: own ? claimUnitCount(own) : 0,
+    unassigned: shortfall > 0,
+  };
+}
 
 export async function buildClaimBoardView(ctx: QueryCtx, tabId: Id<"tabs">) {
   const { tab, user } = await requireTabParticipant(ctx, tabId);
@@ -54,17 +113,18 @@ export async function buildClaimBoardView(ctx: QueryCtx, tabId: Id<"tabs">) {
         .query("allocations")
         .withIndex("by_item_id", (q) => q.eq("itemId", item._id))
         .collect();
-      const claimantIds = claims.map((claim) => claim.userId);
-      return {
-        _id: item._id,
+      return projectClaimItemView({
+        itemId: item._id,
         name: item.name,
         lineTotalMinor: item.lineTotalMinor,
-        allocationMode: item.allocationMode ?? "equal",
-        claimantIds,
-        claimantCount: claimantIds.length,
-        viewerOwns: claimantIds.includes(user._id),
-        unassigned: claimantIds.length === 0,
-      };
+        quantity: item.quantity,
+        allocationMode: item.allocationMode,
+        claims: claims.map((claim) => ({
+          userId: claim.userId,
+          quantity: claim.quantity ?? undefined,
+        })),
+        viewerUserId: user._id,
+      });
     }),
   );
 
@@ -76,6 +136,8 @@ export async function buildClaimBoardView(ctx: QueryCtx, tabId: Id<"tabs">) {
       revision: tabRevision(tab),
       lockedAt: tab.lockedAt ?? null,
       organizerTelegramUserId: tab.organizerTelegramUserId,
+      origin: tabOrigin(tab),
+      seatsRemaining: seatsRemaining(tab, participants.length),
     },
     viewerUserId: user._id,
     isOrganizer: isOrganizer(tab, user),

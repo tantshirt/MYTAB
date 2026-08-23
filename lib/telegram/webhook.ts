@@ -28,14 +28,18 @@ export type TelegramChatMemberStatus =
   | "kicked"
   | "unknown";
 
+export type TelegramChatType = "private" | "group" | "supergroup";
+
 export type NormalizedTelegramUpdate =
   | {
       kind: "message";
       updateId: number;
       chatId: string;
+      chatType: TelegramChatType;
       fromId: string;
       messageId: number;
       command: string | null;
+      commandArg: string | null;
       chatTitle?: string;
       fromDisplayName: string;
       fromUsername?: string;
@@ -120,12 +124,22 @@ function isGroupChat(chat: TelegramWebhookChat): boolean {
   return chat.type === "group" || chat.type === "supergroup";
 }
 
-function parseCommand(text: string | undefined): string | null {
+function parseCommand(text: string | undefined): {
+  command: string;
+  arg: string | null;
+} | null {
   if (!text) {
     return null;
   }
-  const match = text.trim().match(/^\/([a-zA-Z0-9_]+)(?:@\w+)?(?:\s|$)/);
-  return match?.[1]?.toLowerCase() ?? null;
+  const match = text.trim().match(/^\/([a-zA-Z0-9_]+)(?:@\w+)?(?:\s+(.+))?$/);
+  if (!match?.[1]) {
+    return null;
+  }
+  const arg = match[2]?.trim();
+  return {
+    command: match[1].toLowerCase(),
+    arg: arg && arg.length > 0 ? arg : null,
+  };
 }
 
 function mapMembershipStatus(
@@ -164,7 +178,8 @@ function normalizeMessageUpdate(
   if (!chat || !from || from.is_bot) {
     return null;
   }
-  if (!isGroupChat(chat)) {
+  const isPrivate = chat.type === "private";
+  if (!isGroupChat(chat) && !isPrivate) {
     return null;
   }
 
@@ -173,13 +188,16 @@ function normalizeMessageUpdate(
     return null;
   }
 
+  const parsed = parseCommand(text);
   return {
     kind: "message",
     updateId,
     chatId: String(chat.id),
+    chatType: isPrivate ? "private" : (chat.type as "group" | "supergroup"),
     fromId: String(from.id),
     messageId: message.message_id,
-    command: parseCommand(text),
+    command: parsed?.command ?? null,
+    commandArg: parsed?.arg ?? null,
     chatTitle: chat.title,
     fromDisplayName: buildDisplayName(from),
     fromUsername: from.username,

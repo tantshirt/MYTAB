@@ -10,7 +10,18 @@ import {
   sumShareAmounts,
   verifyLockInvariant,
 } from "@/lib/domain/allocation";
+import { DomainError, DomainErrorCode } from "@/lib/domain/errors";
 import { thbMinorFromInteger } from "@/lib/domain/parse";
+import {
+  allocateQuantityKOfN,
+  allocationModeForItemQuantity,
+  assertQuantityClaimWrite,
+  claimedQuantitySum,
+  quantityAfterStep,
+  quantityClaimedCaption,
+  quantityShortfall,
+  quantityStepperState,
+} from "@/lib/domain/quantityClaim";
 import {
   assertRevisionMatch,
   nextRevision,
@@ -189,5 +200,125 @@ describe("allocateLargestRemainder — weight edge cases", () => {
     ]);
     expect(sumShareAmounts(shares)).toBe(1000);
     expect(shares.find((row) => row.participantId === "a")?.amountMinor).toBe(600);
+  });
+});
+
+describe("D-29 — integer k-of-n claiming", () => {
+  it("refuses a write that would exceed n", () => {
+    expect(() =>
+      assertQuantityClaimWrite({ itemQuantity: 3, nextQuantity: 2, othersClaimed: 2 }),
+    ).toThrow(DomainError);
+    expect(() =>
+      assertQuantityClaimWrite({ itemQuantity: 3, nextQuantity: 2, othersClaimed: 2 }),
+    ).toThrow(expect.objectContaining({ code: DomainErrorCode.OUT_OF_BOUNDS }));
+  });
+
+  it("refuses a fractional quantity", () => {
+    expect(() =>
+      assertQuantityClaimWrite({ itemQuantity: 3, nextQuantity: 1.5, othersClaimed: 0 }),
+    ).toThrow(expect.objectContaining({ code: DomainErrorCode.NON_INTEGER_NUMBER }));
+    expect(() => quantityAfterStep({
+      itemQuantity: 3,
+      viewerQuantity: 1,
+      othersClaimed: 0,
+      delta: 0.5,
+    })).toThrow(expect.objectContaining({ code: DomainErrorCode.NON_INTEGER_NUMBER }));
+  });
+
+  it("accepts a write that fills n exactly and a release to zero", () => {
+    expect(() =>
+      assertQuantityClaimWrite({ itemQuantity: 3, nextQuantity: 1, othersClaimed: 2 }),
+    ).not.toThrow();
+    expect(() =>
+      assertQuantityClaimWrite({ itemQuantity: 3, nextQuantity: 0, othersClaimed: 3 }),
+    ).not.toThrow();
+  });
+
+  it("shows shortfall when claimed counts sum below n", () => {
+    const claims = [
+      { participantId: "a", quantity: 1 },
+      { participantId: "b", quantity: 1 },
+    ];
+    const claimed = claimedQuantitySum(claims);
+    expect(claimed).toBe(2);
+    expect(quantityShortfall(3, claimed)).toBe(1);
+    expect(quantityClaimedCaption(claimed, 3)).toBe("2 of 3 claimed");
+    expect(quantityClaimedCaption(1, 3)).toBe("1 of 3 claimed");
+  });
+
+  it("has no shortfall when counts sum to n", () => {
+    expect(quantityShortfall(3, 3)).toBe(0);
+    expect(quantityShortfall(3, 4)).toBe(0);
+  });
+
+  it("allocates k/n of the line while units remain unclaimed", () => {
+    const shares = allocateQuantityKOfN(thbMinorFromInteger(9000), 3, [
+      { participantId: "a", weight: 1, quantity: 1 },
+    ]);
+    expect(shares).toHaveLength(1);
+    expect(shares[0]?.amountMinor).toBe(3000);
+    expect(shares[0]?.roundingMinor).toBe(0);
+  });
+
+  it("keeps remainder at satang level only — never a fractional unit", () => {
+    const shares = allocateQuantityKOfN(thbMinorFromInteger(10000), 3, [
+      { participantId: "a", weight: 1, quantity: 1 },
+      { participantId: "b", weight: 1, quantity: 1 },
+      { participantId: "c", weight: 1, quantity: 1 },
+    ]);
+    expect(sumShareAmounts(shares)).toBe(10000);
+    expect(shares.map((share) => share.amountMinor).sort((a, b) => b - a)).toEqual([
+      3334, 3333, 3333,
+    ]);
+    expect(shares.every((share) => Number.isInteger(share.amountMinor))).toBe(true);
+    const roundingTotal = shares.reduce((sum, share) => sum + share.roundingMinor, 0);
+    expect(roundingTotal).toBe(1);
+  });
+
+  it("weights two-and-one of three beers without leftover units", () => {
+    const shares = allocateQuantityKOfN(thbMinorFromInteger(9000), 3, [
+      { participantId: "a", weight: 2, quantity: 2 },
+      { participantId: "b", weight: 1, quantity: 1 },
+    ]);
+    expect(shares.find((row) => row.participantId === "a")?.amountMinor).toBe(6000);
+    expect(shares.find((row) => row.participantId === "b")?.amountMinor).toBe(3000);
+    expect(shares.every((share) => share.roundingMinor === 0)).toBe(true);
+  });
+
+  it("refuses allocateQuantityKOfN when claims already overflow n", () => {
+    expect(() =>
+      allocateQuantityKOfN(thbMinorFromInteger(9000), 3, [
+        { participantId: "a", weight: 2, quantity: 2 },
+        { participantId: "b", weight: 2, quantity: 2 },
+      ]),
+    ).toThrow(expect.objectContaining({ code: DomainErrorCode.OUT_OF_BOUNDS }));
+  });
+
+  it("steps by integers only — plus and minus", () => {
+    expect(
+      quantityAfterStep({ itemQuantity: 3, viewerQuantity: 0, othersClaimed: 0, delta: 1 }),
+    ).toBe(1);
+    expect(
+      quantityAfterStep({ itemQuantity: 3, viewerQuantity: 1, othersClaimed: 0, delta: 1 }),
+    ).toBe(2);
+    expect(
+      quantityAfterStep({ itemQuantity: 3, viewerQuantity: 2, othersClaimed: 1, delta: 1 }),
+    ).toBeNull();
+    expect(
+      quantityAfterStep({ itemQuantity: 3, viewerQuantity: 1, othersClaimed: 0, delta: -1 }),
+    ).toBe(0);
+    expect(
+      quantityAfterStep({ itemQuantity: 3, viewerQuantity: 0, othersClaimed: 0, delta: -1 }),
+    ).toBeNull();
+
+    const full = quantityStepperState({ itemQuantity: 3, viewerQuantity: 2, othersClaimed: 1 });
+    expect(full.canIncrement).toBe(false);
+    expect(full.canDecrement).toBe(true);
+    expect(full.nextDecrement).toBe(1);
+  });
+
+  it("marks receipt lines with n > 1 as quantity mode", () => {
+    expect(allocationModeForItemQuantity(3)).toBe("quantity");
+    expect(allocationModeForItemQuantity(1)).toBe("equal");
   });
 });

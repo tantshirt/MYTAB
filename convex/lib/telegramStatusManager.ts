@@ -52,9 +52,10 @@ import {
   type TabStatusFacts,
   type TelegramStatusEvent,
 } from "../../lib/telegram/messages";
+import { houseTabCardUrl } from "../../lib/telegram/tabCard";
 import { loadItemClaimRows } from "./allocationSync";
 import { mintSessionToken } from "./sessionTokenOps";
-import { buildTelegramDeepLink } from "./telegramDeepLink";
+import { buildTelegramDeepLink, getTelegramMiniAppHttpsUrl } from "./telegramDeepLink";
 
 /**
  * How long one worker owns the card. Longer than the worst-case delivery
@@ -81,6 +82,10 @@ export type StatusDeliveryWork = {
   buttonUrl: string;
   targetVersion: number;
   attempt: number;
+  /** Telegram file_id for the house still, reused across tabs (U-8). */
+  photoFileId?: string;
+  /** HTTPS URL of the house still — first upload only, when no file_id yet. */
+  photoUrl?: string;
 };
 
 export type ClaimStatusDeliveryResult =
@@ -135,8 +140,7 @@ export async function deriveTabStatusFacts(
   return {
     tabName: tab.name,
     event,
-    // The organizer counts even before anyone has opened the link.
-    peopleCount: Math.max(1, participants.length),
+    peopleCount: participants.length,
     billTotalMinor: tab.billTotalMinor === undefined ? null : Number(tab.billTotalMinor),
     claimedItemCount,
     totalItemCount: itemRows.length,
@@ -217,6 +221,7 @@ export async function recordTabStatusEvent(
       settledObligationCount: facts.settledShareCount,
       totalObligationCount: facts.totalShareCount,
       lastEditedAt: now,
+      ...(input.initialToken === undefined ? {} : { deepLinkToken: input.initialToken }),
     });
 
     return { recorded: true, statusMessageId, eventVersion: 1 };
@@ -305,15 +310,20 @@ export async function claimStatusDelivery(
     return { claimed: false, reason: "NO_STATUS_MESSAGE" };
   }
 
-  // A tab-scoped session token, minted per delivery. The button always lands
-  // on the Claim Board for this tab, already authenticated and scoped (FR-N3).
-  const { token } = await mintSessionToken(ctx, {
-    tokenType: "tab_session",
-    subjectKind: "tab",
-    subjectId: tabId,
-    groupId: tab.groupId,
-    now,
-  });
+  // Reuse the token minted at tab creation. A fresh mint on every edit is how
+  // the Open tab button silently lost the token it was handed (INVITE-FLOW B8).
+  let token = row.deepLinkToken;
+  if (!token) {
+    const minted = await mintSessionToken(ctx, {
+      tokenType: "tab_session",
+      subjectKind: "tab",
+      subjectId: tabId,
+      groupId: tab.groupId,
+      now,
+    });
+    token = minted.token;
+    await ctx.db.patch(row._id, { deepLinkToken: token });
+  }
 
   return {
     claimed: true,
@@ -335,8 +345,38 @@ export async function claimStatusDelivery(
       buttonUrl: buildTelegramDeepLink(token),
       targetVersion: row.eventVersion,
       attempt: attempt + 1,
+      ...(await tabCardPhotoWork(ctx, row.photoFileId)),
     },
   };
+}
+
+async function resolveReusedHousePhotoFileId(
+  ctx: QueryCtx | MutationCtx,
+  ownFileId: string | undefined,
+): Promise<string | undefined> {
+  if (ownFileId) {
+    return ownFileId;
+  }
+  // Indexed collect so the fake db (and OCC) see a withIndex read. The house
+  // still is one file_id reused across tabs (U-8); the first row that stored
+  // it is enough.
+  const others = await ctx.db
+    .query("telegramStatusMessages")
+    .withIndex("by_tab_id")
+    .collect();
+  return others.find((other) => other.photoFileId)?.photoFileId;
+}
+
+async function tabCardPhotoWork(
+  ctx: QueryCtx | MutationCtx,
+  ownFileId: string | undefined,
+): Promise<{ photoFileId?: string; photoUrl?: string }> {
+  const photoFileId = await resolveReusedHousePhotoFileId(ctx, ownFileId);
+  if (photoFileId) {
+    return { photoFileId };
+  }
+  const photoUrl = houseTabCardUrl(getTelegramMiniAppHttpsUrl());
+  return photoUrl ? { photoUrl } : {};
 }
 
 export type ReserveReplacementResult =
@@ -401,6 +441,7 @@ export async function commitStatusDelivery(
     claimId: string;
     messageId: number;
     deliveredVersion: number;
+    photoFileId?: string;
     now?: number;
   },
 ): Promise<CommitStatusDeliveryResult> {
@@ -430,6 +471,7 @@ export async function commitStatusDelivery(
     nextAttemptAt: undefined,
     lastError: undefined,
     lastEditedAt: now,
+    ...(input.photoFileId ? { photoFileId: input.photoFileId } : {}),
   });
 
   return { committed: true, staleVersion: row.eventVersion > input.deliveredVersion };

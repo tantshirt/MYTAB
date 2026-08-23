@@ -178,6 +178,7 @@ function substitute(segment) {
 const VARIANTS = [
   { path: `/tabs/${PARAM}?settle=ob_sweep`, label: "payment sheet" },
   { path: `/tabs/new?group=g_sweep`, label: "new tab (from group)" },
+  { path: `/tabs/new`, label: "new tab (personal)" },
   { path: `/tips/new?to=maya&group=g_sweep`, label: "tip composer (recipient)" },
 ];
 
@@ -267,13 +268,12 @@ function fixtureEnv() {
  * the population that check 3 measures for truncation.
  *
  * A route missing from this map is measured but not required to be populated:
- * `/tabs/new` opens on the setup step, which is a form and legitimately has no
- * amount column until items are added.
+ * `/tabs/new` (personal, no `?group=`) opens on the setup step — a form with a
+ * seat stepper and no amount column until items exist.
  */
 const POPULATED_MIN = {
   "/": 10,
   "/activity": 5,
-  "/tabs/new": 6,
   "/tips/new": 4,
   [`/groups/${PARAM}`]: 6,
   [`/pay/${PARAM}`]: 1,
@@ -289,6 +289,7 @@ const POPULATED_MIN = {
    * honestly zero rather than a number invented to look thorough.
    */
   "/you": 0,
+  "/wallet/callback": 0,
 };
 
 /*

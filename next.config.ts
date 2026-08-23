@@ -58,6 +58,7 @@ const SWEEP_SEAM_ALIASES: Record<string, string> = {
   "@/features/claims/useClaimBoardData": "tests/sweep/useClaimBoardData.ts",
   "@/features/groups/useGroupData": "tests/sweep/useGroupData.ts",
   "@/features/receipts/useReceiptData": "tests/sweep/useReceiptData.ts",
+  "@/features/receipts/useReceiptScanEnabled": "tests/sweep/useReceiptScanEnabled.ts",
   "@/features/settlement/usePaymentProgressData": "tests/sweep/usePaymentProgressData.ts",
   "@/features/settlement/useSettleSheetData": "tests/sweep/useSettleSheetData.ts",
   "@/features/tabs/useTabData": "tests/sweep/useTabData.ts",

@@ -7,10 +7,22 @@ import { useLiveQuery } from "@/features/convex/useConvexData";
 import type { ParsedReceipt } from "@/lib/domain/receiptParse";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 
+export type ReceiptImportStatus =
+  | "ticketed"
+  | "uploaded"
+  | "extracting"
+  | "needs_review"
+  | "confirmed"
+  | "failed"
+  | "rejected"
+  | "deleted";
+
 export type ReceiptData = {
   /** The import this surface is reviewing, once one exists. */
   importId: string | null;
   parsed: ParsedReceipt;
+  status: ReceiptImportStatus | null;
+  failureCode?: string;
   /** Right of the merchant in the header strip. Absent when the import has no date. */
   capturedAtLabel?: string;
 };
@@ -73,6 +85,8 @@ export function useReceiptData(
     return {
       importId: view?._id ?? sessionImportId,
       parsed: parsed ?? EMPTY_RECEIPT,
+      status: (view?.status as ReceiptImportStatus | undefined) ?? null,
+      failureCode: view?.failureCode,
       capturedAtLabel: capturedAtLabelFrom(view?.createdAt),
     };
   }, [session.data, latest.data, sessionImportId]);

@@ -13,14 +13,12 @@ describe("lib/privy/config", () => {
     }
   });
 
-  it("configures Telegram-only login with embedded Solana wallet auto-create", () => {
+  it("configures Telegram identity with opt-in embedded wallet and external connectors", () => {
     const config = createPrivyConfig();
 
     expect(config.loginMethods).toEqual(["telegram"]);
     expect(config.appearance?.walletChainType).toBe("solana-only");
-    expect(config.embeddedWallets?.solana?.createOnLogin).toBe(
-      "users-without-wallets",
-    );
-    expect(config.externalWallets).toBeUndefined();
+    expect(config.embeddedWallets?.solana?.createOnLogin).toBe("off");
+    expect(config.externalWallets?.solana?.connectors).toBeDefined();
   });
 });

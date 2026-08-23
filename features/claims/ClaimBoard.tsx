@@ -6,6 +6,7 @@ import { PresenceStack } from "@/components/presence-stack";
 import { StickyFooter } from "@/components/sticky-claim-footer";
 import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { BillEmptyState } from "@/features/bills/BillEmptyState";
+import { InvitePanel } from "@/features/invite/InvitePanel";
 import { WhoHasThisSheet } from "./WhoHasThisSheet";
 import { useHaptics } from "@/features/telegram/useHaptics";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
@@ -27,10 +28,14 @@ export type ClaimBoardItem = {
   name: string;
   /** Receipt quantity, when the receipt carried one. */
   quantity?: number;
+  allocationMode?: "full" | "equal" | "quantity" | "percentage" | "fixed";
   lineTotalMinor: number;
   claimantIds: string[];
   viewerOwns: boolean;
   unassigned: boolean;
+  claimedCount?: number;
+  shortfall?: number;
+  viewerClaimedQuantity?: number;
 };
 
 export type ClaimBoardProps = {
@@ -57,6 +62,8 @@ export type ClaimBoardProps = {
   removedClaimedItem?: boolean;
   presenceUserIds?: string[];
   onToggleClaim?: (itemId: string) => void;
+  /** Integer k-of-n stepper (D-23, D-29). */
+  onSetClaimQuantity?: (itemId: string, quantity: number) => void;
   /** Organizer override — hand an item to someone else (FR-C4). */
   onAssignItem?: (itemId: string, userId: string) => void;
   onOpenBillReview?: () => void;
@@ -64,6 +71,12 @@ export type ClaimBoardProps = {
   onSettleUp?: () => void;
   onAddManual?: () => void;
   onScanReceipt?: () => void;
+  /** Convex tab id — invite sheet only. Absent outside a live tab. */
+  tabId?: string;
+  /** INVITE-FLOW §1.5 — null on a chat-bounded tab. */
+  seatsRemaining?: number | null;
+  /** Opens the invite sheet (share + QR + revoke). */
+  onInvite?: () => void;
 };
 
 const PRESENCE_MAX = 3;
@@ -166,7 +179,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
 
   const itemsTotalMinor = props.items.reduce((sum, item) => sum + item.lineTotalMinor, 0);
   const assignedMinor = props.items.reduce(
-    (sum, item) => (item.claimantIds.length > 0 ? sum + item.lineTotalMinor : sum),
+    (sum, item) => (!item.unassigned ? sum + item.lineTotalMinor : sum),
     0,
   );
 
@@ -183,6 +196,14 @@ export function ClaimBoard(props: ClaimBoardProps) {
       // Optimistic, on the tap. A buzz on the server acknowledgement reads as a bug (§2.8).
       haptics.claimToggled();
       props.onToggleClaim?.(itemId);
+    },
+    [haptics, props],
+  );
+
+  const handleSetClaimQuantity = useCallback(
+    (itemId: string, quantity: number) => {
+      haptics.claimToggled();
+      props.onSetClaimQuantity?.(itemId, quantity);
     },
     [haptics, props],
   );
@@ -310,6 +331,14 @@ export function ClaimBoard(props: ClaimBoardProps) {
           padding: `0 ${MYTAB_LAYOUT.gutter} ${SCROLL_CLEARANCE_PX}px`,
         }}
       >
+        {props.isOrganizer && props.onInvite ? (
+          <InvitePanel
+            alone={props.participants.length <= 1}
+            seatsRemaining={props.seatsRemaining ?? null}
+            onInvite={props.onInvite}
+          />
+        ) : null}
+
         {props.items.length === 0 ? (
           <BillEmptyState
             isOrganizer={props.isOrganizer}
@@ -347,7 +376,16 @@ export function ClaimBoard(props: ClaimBoardProps) {
                   reducedMotion={reducedMotion}
                   tints={tints}
                   isLast={index === props.items.length - 1}
+                  claimedCount={item.claimedCount}
+                  shortfall={item.shortfall}
+                  viewerClaimedQuantity={item.viewerClaimedQuantity}
+                  allocationMode={item.allocationMode}
                   onToggleClaim={() => handleToggleClaim(item.id)}
+                  onSetClaimQuantity={
+                    props.onSetClaimQuantity
+                      ? (quantity) => handleSetClaimQuantity(item.id, quantity)
+                      : undefined
+                  }
                   onOpenClaimants={() => setOpenItemId(item.id)}
                 />
               ))}
@@ -452,6 +490,9 @@ export function ClaimBoard(props: ClaimBoardProps) {
         <WhoHasThisSheet
           itemName={openItem.name}
           lineTotalMinor={openItem.lineTotalMinor}
+          quantity={openItem.quantity}
+          claimedCount={openItem.claimedCount}
+          allocationMode={openItem.allocationMode}
           claimants={claimantsFor(openItem)}
           assignable={props.participants.filter(
             (one) => !openItem.claimantIds.includes(one.userId),

@@ -4,7 +4,14 @@ import { CANONICAL_ADJUSTMENT_ORDER } from "../lib/domain/bill";
 import { computeBillBreakdown } from "../lib/domain/bill";
 import { fiatMinorFromInteger } from "../lib/domain/money";
 import { formatFiatMinorThb } from "../lib/domain/format";
-import { getCurrentUser, requireGroupMember } from "./lib/auth";
+import { AuthError, getCurrentUser, requireGroupMember, UNAUTHORIZED } from "./lib/auth";
+import { isPersonalOrigin } from "./lib/tabOrigin";
+import { NOT_TAB_PARTICIPANT } from "./lib/tabAuth";
+import { createPersonalTabForUser, requirePersonalTabCreator } from "./lib/personalTab";
+import { buildTelegramDeepLink } from "./lib/telegramDeepLink";
+import {
+  RuntimeGuardError,
+} from "../lib/solana/runtimeGuard";
 import { resolveFxSnapshotIdForTab, usdcAtomicFromSnapshot } from "./lib/fxSnapshotSync";
 import {
   assertDistinctPayerRecipient,
@@ -61,15 +68,34 @@ export const getTab = query({
       return null;
     }
 
-    await requireGroupMember(ctx, tab.groupId);
+    if (isPersonalOrigin(tab)) {
+      const viewer = await getCurrentUser(ctx);
+      if (!viewer) {
+        throw new AuthError(UNAUTHORIZED);
+      }
+      const self = await ctx.db
+        .query("tabParticipants")
+        .withIndex("by_tab_and_user", (q) =>
+          q.eq("tabId", args.tabId).eq("userId", viewer._id),
+        )
+        .unique();
+      if (!self) {
+        throw new AuthError(NOT_TAB_PARTICIPANT);
+      }
+    } else {
+      await requireGroupMember(ctx, tab.groupId);
+    }
 
     const participants = await ctx.db
       .query("tabParticipants")
       .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
       .collect();
 
+    const { liveInviteToken: _hidden, ...publicTab } = tab;
+    void _hidden;
+
     return {
-      ...tab,
+      ...publicTab,
       participantCount: participants.length,
     };
   },
@@ -86,7 +112,23 @@ export const getTabAuthoring = query({
       return null;
     }
 
-    await requireGroupMember(ctx, tab.groupId);
+    if (isPersonalOrigin(tab)) {
+      const viewer = await getCurrentUser(ctx);
+      if (!viewer) {
+        throw new AuthError(UNAUTHORIZED);
+      }
+      const self = await ctx.db
+        .query("tabParticipants")
+        .withIndex("by_tab_and_user", (q) =>
+          q.eq("tabId", args.tabId).eq("userId", viewer._id),
+        )
+        .unique();
+      if (!self) {
+        throw new AuthError(NOT_TAB_PARTICIPANT);
+      }
+    } else {
+      await requireGroupMember(ctx, tab.groupId);
+    }
     const viewer = await getCurrentUser(ctx);
 
     const items = await ctx.db
@@ -124,9 +166,11 @@ export const getTabAuthoring = query({
       .unique();
 
     const fxSnapshot = tab.fxSnapshotId ? await ctx.db.get(tab.fxSnapshotId) : null;
+    const { liveInviteToken: _hiddenInvite, ...publicTab } = tab;
+    void _hiddenInvite;
 
     return {
-      tab,
+      tab: publicTab,
       items: sortedItems,
       adjustments: sortedAdjustments,
       breakdown,
@@ -282,5 +326,46 @@ export const beginItemEntry = mutation({
     });
 
     return { tabId: args.tabId, status: "open" as const };
+  },
+});
+
+/**
+ * Mini App New Tab with no group (INVITE-FLOW §4). Personal origin, organizer
+ * on the roster, one invite token. The deep link is built here so the client
+ * never has to know the bot username.
+ */
+export const createPersonalTab = mutation({
+  args: {
+    name: v.string(),
+    seats: v.number(),
+    merchantName: v.optional(v.string()),
+    displayCurrency: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await requirePersonalTabCreator(ctx);
+    const created = await createPersonalTabForUser(ctx, {
+      user,
+      name: args.name,
+      seats: args.seats,
+      merchantName: args.merchantName,
+      displayCurrency: args.displayCurrency,
+    });
+
+    let deepLinkUrl: string | null = null;
+    try {
+      deepLinkUrl = buildTelegramDeepLink(created.token);
+    } catch (error) {
+      if (!(error instanceof RuntimeGuardError)) {
+        throw error;
+      }
+    }
+
+    return {
+      tabId: created.tabId,
+      token: created.token,
+      expiresAt: created.expiresAt,
+      seats: created.seats,
+      deepLinkUrl,
+    };
   },
 });

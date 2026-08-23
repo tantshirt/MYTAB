@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties } from "react";
+import { VisuallyHidden } from "@/components/primitives/visually-hidden";
 import { Avatar, type ClaimantIdentity } from "./Avatar";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
-import { formatFiatMinorThb, perHeadDisplayMinor, thbMinorFromInteger } from "@/lib/domain";
+import {
+  formatFiatMinorThb,
+  isQuantityClaimMode,
+  perHeadDisplayMinor,
+  quantityClaimedCaption,
+  quantityStepperState,
+  thbMinorFromInteger,
+} from "@/lib/domain";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 
 const AVATAR_SIZE = 22;
@@ -32,6 +40,12 @@ export type ClaimRowProps = {
   tints?: ReadonlyMap<string, string>;
   isLast?: boolean;
   onToggleClaim?: () => void;
+  /** Integer stepper for quantity-mode items (D-23, D-29). */
+  claimedCount?: number;
+  shortfall?: number;
+  viewerClaimedQuantity?: number;
+  allocationMode?: string;
+  onSetClaimQuantity?: (quantity: number) => void;
   /** Tap the avatar stack → the who-has-this sheet (EXPERIENCE, `claim-row`). */
   onOpenClaimants?: () => void;
 };
@@ -49,7 +63,17 @@ export function claimRowCaption(
   claimants: ClaimantIdentity[],
   lineTotalMinor: number,
   viewerUserId: string,
+  quantityClaim?: { itemQuantity: number; claimedCount: number },
 ): { text: string; tone: "muted" | "warning" } {
+  if (quantityClaim && quantityClaim.itemQuantity > 1) {
+    if (quantityClaim.claimedCount === 0) {
+      return { text: "Needs an owner", tone: "warning" };
+    }
+    return {
+      text: quantityClaimedCaption(quantityClaim.claimedCount, quantityClaim.itemQuantity),
+      tone: quantityClaim.claimedCount < quantityClaim.itemQuantity ? "warning" : "muted",
+    };
+  }
   if (claimants.length === 0) {
     return { text: "Needs an owner", tone: "warning" };
   }
@@ -84,6 +108,7 @@ export function claimRowAriaLabel(args: {
   lineTotalMinor: number;
   claimants: ClaimantIdentity[];
   viewerUserId: string;
+  claimedCount?: number;
 }): string {
   const qty = args.quantity && args.quantity > 1 ? `${args.quantity} × ` : "";
   const parts = [`${qty}${args.name}`, formatThbMinorForA11y(thbMinorFromInteger(args.lineTotalMinor))];
@@ -101,7 +126,10 @@ export function claimRowAriaLabel(args: {
     parts.push(`claimed by ${spokenList(others.map((one) => one.displayName))}`);
   }
 
-  if (args.claimants.length > 1) {
+  if (args.quantity && args.quantity > 1) {
+    const claimed = args.claimedCount ?? args.claimants.length;
+    parts.push(quantityClaimedCaption(claimed, args.quantity));
+  } else if (args.claimants.length > 1) {
     const each = perHeadDisplayMinor(thbMinorFromInteger(args.lineTotalMinor), args.claimants.length);
     parts.push(`split ${args.claimants.length} ways, ${formatThbMinorForA11y(each)} each`);
   }
@@ -154,6 +182,10 @@ export function ClaimRow({
   tints,
   isLast = false,
   onToggleClaim,
+  claimedCount,
+  viewerClaimedQuantity = 0,
+  allocationMode,
+  onSetClaimQuantity,
   onOpenClaimants,
 }: ClaimRowProps) {
   // Arrival is a mount, keyed by user id — but the row's own first paint is not an
@@ -163,10 +195,28 @@ export function ClaimRow({
     settledOnce.current = true;
   });
 
-  const unassigned = claimants.length === 0;
-  const caption = claimRowCaption(claimants, lineTotalMinor, viewerUserId);
+  const quantityMode = isQuantityClaimMode(allocationMode, quantity ?? 1);
+  const resolvedClaimed = claimedCount ?? claimants.length;
+  const unassigned = quantityMode ? resolvedClaimed === 0 : claimants.length === 0;
+  const caption = claimRowCaption(
+    claimants,
+    lineTotalMinor,
+    viewerUserId,
+    quantityMode && quantity
+      ? { itemQuantity: quantity, claimedCount: resolvedClaimed }
+      : undefined,
+  );
   const tag = claimRowStateTag(claimants, viewerOwns, locked);
   const background = viewerOwns ? MYTAB_COLORS.primarySoft : MYTAB_COLORS.surface;
+  const othersClaimed = Math.max(0, resolvedClaimed - viewerClaimedQuantity);
+  const stepper = quantityMode && quantity
+    ? quantityStepperState({
+        itemQuantity: quantity,
+        viewerQuantity: viewerClaimedQuantity,
+        othersClaimed,
+      })
+    : null;
+  const showStepper = Boolean(stepper && !locked);
 
   const stackLabel = unassigned
     ? "Assign this to someone"
@@ -187,13 +237,20 @@ export function ClaimRow({
         background,
       }}
     >
-      {locked ? null : (
+      {locked || showStepper ? null : (
         <button
           type="button"
           className="mytab-focus"
           onClick={onToggleClaim}
           aria-pressed={viewerOwns}
-          aria-label={claimRowAriaLabel({ name, quantity, lineTotalMinor, claimants, viewerUserId })}
+          aria-label={claimRowAriaLabel({
+            name,
+            quantity,
+            lineTotalMinor,
+            claimants,
+            viewerUserId,
+            claimedCount: resolvedClaimed,
+          })}
           data-claim-target={itemId}
           data-testid={`claim-row-${itemId}`}
           style={{
@@ -261,8 +318,9 @@ export function ClaimRow({
                 // 44px tall via padding, without moving the 22px bubbles off the baseline.
                 // Biased downward into the row's own 13px bottom padding so the band
                 // never eats into the item name above — that tap must always claim.
-                margin: "-8px -8px -14px -8px",
-                padding: "8px 8px 14px 8px",
+                // Quantity steppers sit below this row, so don't pull into them.
+                margin: showStepper ? "-8px -8px 0" : "-8px -8px -14px -8px",
+                padding: showStepper ? 8 : "8px 8px 14px 8px",
                 border: "none",
                 background: "transparent",
                 cursor: "pointer",
@@ -295,6 +353,20 @@ export function ClaimRow({
             </>
           )}
         </div>
+        {showStepper && stepper ? (
+          <QuantityStepper
+            itemId={itemId}
+            name={name}
+            quantity={quantity ?? 1}
+            claimedCount={resolvedClaimed}
+            viewerQuantity={viewerClaimedQuantity}
+            canIncrement={stepper.canIncrement}
+            canDecrement={stepper.canDecrement}
+            nextIncrement={stepper.nextIncrement}
+            nextDecrement={stepper.nextDecrement}
+            onSetClaimQuantity={onSetClaimQuantity}
+          />
+        ) : null}
       </div>
 
       <div
@@ -337,6 +409,108 @@ export function ClaimRow({
     </li>
   );
 }
+
+function QuantityStepper({
+  itemId,
+  name,
+  quantity,
+  claimedCount,
+  viewerQuantity,
+  canIncrement,
+  canDecrement,
+  nextIncrement,
+  nextDecrement,
+  onSetClaimQuantity,
+}: {
+  itemId: string;
+  name: string;
+  quantity: number;
+  claimedCount: number;
+  viewerQuantity: number;
+  canIncrement: boolean;
+  canDecrement: boolean;
+  nextIncrement: number | null;
+  nextDecrement: number | null;
+  onSetClaimQuantity?: (quantity: number) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={quantityClaimedCaption(claimedCount, quantity)}
+      data-claim-target={itemId}
+      data-testid={`claim-row-stepper-${itemId}`}
+      style={{
+        position: "relative",
+        zIndex: 3,
+        display: "flex",
+        alignItems: "center",
+        marginTop: 8,
+        pointerEvents: "auto",
+      }}
+    >
+      <button
+        type="button"
+        className="mytab-focus"
+        disabled={!canDecrement || !onSetClaimQuantity}
+        onClick={() => {
+          if (nextDecrement === null) return;
+          onSetClaimQuantity?.(nextDecrement);
+        }}
+        aria-label={`Remove one of ${name}`}
+        data-testid={`claim-row-decrement-${itemId}`}
+        style={stepperButtonStyle}
+      >
+        −
+      </button>
+      <span
+        className="mytab-tabular"
+        aria-hidden
+        data-testid={`claim-row-viewer-qty-${itemId}`}
+        style={{
+          minWidth: 28,
+          textAlign: "center",
+          fontSize: MYTAB_TYPOGRAPHY.label.size,
+          fontWeight: 600,
+        }}
+      >
+        {viewerQuantity}
+      </span>
+      <VisuallyHidden>{quantityClaimedCaption(claimedCount, quantity)}</VisuallyHidden>
+      <button
+        type="button"
+        className="mytab-focus"
+        disabled={!canIncrement || !onSetClaimQuantity}
+        onClick={() => {
+          if (nextIncrement === null) return;
+          onSetClaimQuantity?.(nextIncrement);
+        }}
+        aria-label={`Claim one more of ${name}`}
+        data-testid={`claim-row-increment-${itemId}`}
+        style={stepperButtonStyle}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+const stepperButtonStyle: CSSProperties = {
+  flex: "none",
+  width: 44,
+  height: 44,
+  minWidth: 44,
+  minHeight: 44,
+  padding: 0,
+  border: `1px solid ${MYTAB_COLORS.border}`,
+  borderRadius: MYTAB_RADIUS.sm,
+  background: MYTAB_COLORS.surface,
+  color: MYTAB_COLORS.ink,
+  fontSize: 22,
+  fontWeight: 500,
+  lineHeight: 1,
+  cursor: "pointer",
+  touchAction: "manipulation",
+};
 
 function Caption({
   caption,

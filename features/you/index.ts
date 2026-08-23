@@ -8,5 +8,5 @@ export { ProvisioningSweep } from "./ProvisioningSweep";
 export { elideWalletKey, useCopyKey } from "./useCopyKey";
 export { YOU_COPY } from "./copy";
 export { BUILD_LABEL, SUPPORT_URL } from "./appChrome";
-export type { YouSurfaceData, YouViewer, YouWallet } from "./types";
+export type { YouSurfaceData, YouViewer, YouWallet, LiveInvite } from "./types";
 export { YouSurfaceContainer } from "./YouSurfaceContainer";

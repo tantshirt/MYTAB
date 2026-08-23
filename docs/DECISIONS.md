@@ -6,6 +6,8 @@ Where a document in `_bmad-output/planning-artifacts/`, `README.md`, `PRODUCT.md
 
 Each entry states what the binding documents said, what is true now, *why it changed*, and what that forces. The "why" is the point. A bare statement of current state loses an argument with a confident, well-written, out-of-date specification — the evidence does not.
 
+D-21 through D-31 were decided in the 2026-08-22 planning session and first written in `docs/FLOWS.md`. D-32 and the U-9 surface were decided on 2026-08-22 during the remaining-phases execution plan. They are recorded here so a later agent cannot re-litigate them from a planning artifact.
+
 **Two standing caveats, true of everything below.**
 
 1. **Nothing in this repository has touched a live cluster.** Every integration is unit-tested with injected transports. The gates are real; what is behind them is unproven. `docs/MAINNET-CUTOVER.md` is the checklist that changes that.
@@ -63,11 +65,10 @@ Current branch at time of writing: `feat/devnet-hardening`, HEAD `a663882`. The 
 **Why it changed:** two things. First, the single-token restriction was never a technical constraint, only a scope reduction, and it produced a bad product answer — a payer holding one non-allowlisted token would be told to go and acquire a different one (see D-05). Second, `destinationWallet` removes the mechanism that would have made routing risky: with the output landing on the recipient's own account, My Tab never holds the funds between the swap and the payment, and there is no second transaction that can fail after the first one succeeded.
 
 **Consequences:**
-- The mechanism does not get a screen. `DESIGN.md` and `EXPERIENCE.md` remain the authority on this and are **unamended**: no route diagram, no price-impact warning, no slippage slider, no token logos as navigation, no "swap" in copy. Mechanism lives behind the single collapsed disclosure row on the payment sheet, exactly as `EXPERIENCE.md` specifies.
-- The banned-copy list is unchanged and applies with full force to this path: never *swap*, *route*, *execute*, *approve*, *broadcast*, *slippage*. Say **price protection**.
-- The one figure a payer is shown is the guaranteed minimum the recipient receives — "Maya receives at least 8.25 USDC" — which is `otherAmountThreshold` (D-08), not an estimate.
+- The mechanism does not get a *swap* screen. `DESIGN.md` and `EXPERIENCE.md` remain the authority on the anti-patterns: no route diagram, no price-impact warning, no slippage slider, no "swap" in copy. **D-22 amends the "does not get a screen" sentence** — a token picker with balances, a live quote and a plainly stated price-protection figure is now a first-class surface. The banned-copy list is unchanged and applies with full force: never *swap*, *route*, *execute*, *approve*, *broadcast*, *slippage*. Say **price protection**.
+- The one figure a payer is shown as a *guarantee* is the minimum the recipient receives — "Maya receives at least 8.25 USDC" — which is `otherAmountThreshold` (D-08), not an estimate. `outAmount` may appear only if labelled as an estimate, or not at all.
 
-**Status:** binding · supersedes brief §6.1 / PRD §"DFlow proof" as a scope statement. Does **not** amend `DESIGN.md` or `EXPERIENCE.md`; it strengthens their anti-swap-UI position.
+**Status:** binding · supersedes brief §6.1 / PRD §"DFlow proof" as a scope statement. Strengthens the anti-swap-UI position. The "no screen" clause is amended by **D-22**.
 
 ---
 
@@ -186,7 +187,7 @@ There was also a structural finding. `lib/telegram/webhook.ts` dropped every pri
 - **Cluster pins in `cluster.ts` outrank the registry absolutely**, and decimals are proven against the mint account (`lib/tokens/mintAccount.ts`) rather than trusted from a list.
 - `JUPITER_MAX_MINTS_PER_REQUEST = 100` caps a batch. A long wallet silently truncated at the API would surface much later as "unknown token" on a payment sheet; the cap plus `fetchJupiterTokensChunked` is the only thing standing between that and the payer.
 - The cache lives in Convex, keyed `(cluster, source: "jupiter")`, filled by an `ensureTokenMetadata` **action**; `getTokenMetadata` is a **query that performs no network call** (`convex/tokens.ts`).
-- **Attribution is contractual.** Jupiter's SDK & API License Agreement requires attribution wherever the data is surfaced, and forbids re-serving Jupiter content as our own API — which is why `getTokenMetadata` is authenticated and mint-scoped rather than a public token-list endpoint. `JUPITER_ATTRIBUTION = "Powered by Jupiter"` exists in `lib/tokens/jupiter.ts` and is returned by `convex/tokens.ts`. **See Unresolved U-1: that string contains "powered by", which is on the banned-copy list, and it is not currently rendered anywhere.**
+- **Attribution is contractual.** Jupiter's SDK & API License Agreement requires attribution wherever the data is surfaced, and forbids re-serving Jupiter content as our own API — which is why `getTokenMetadata` is authenticated and mint-scoped rather than a public token-list endpoint. `JUPITER_ATTRIBUTION = "Powered by Jupiter"` exists in `lib/tokens/jupiter.ts` and is returned by `convex/tokens.ts`. **U-1 is resolved (2026-08-22):** the string ships as a footer on the D-22 picker — an approved exception to the banned-copy list for a contractual string, not a licence to use "powered by" anywhere else. Token logos ship on that picker. See D-22.
 
 **Status:** binding · new dependency, no prior artifact to supersede. Interacts with `DESIGN.md` §Components (`token-chip`: *"No token logos"*) — see Unresolved U-1.
 
@@ -400,12 +401,226 @@ Also fixed in the same window, and worth knowing about: a hardcoded 32 THB/USD l
 
 ---
 
+## D-21 · External wallets are the primary door
+
+**Originally:** PRD **FR-A1** — *"Privy is the canonical authentication provider; Telegram seamless login is enabled so the Mini App authenticates with zero clicks inside Telegram."* PRD **FR-W1** — *"One Privy embedded Solana wallet is created or restored on first successful login."* `lib/privy/config.ts` L32 — *"No external wallet connectors in P0 (FR-A1, FR-W1)."* `createOnLogin: "users-without-wallets"` provisions an embedded wallet the first time someone opens the Mini App. `PRODUCT.md` principle 6 and `EXPERIENCE.md` §Foundation: there is no login screen, no "connect wallet", and no wallet-selection step inside Telegram. The user arrives already authenticated with a wallet that already exists.
+
+**Now:** **Connect Phantom / Solflare / Backpack first.** A Privy embedded wallet is created only for a payer who has none, or who chooses "Use a My Tab wallet." Telegram login still authenticates *identity*. It no longer silently provisions a wallet.
+
+**Why it changed:** FR-W1 bought zero-click settlement for the Andre persona — someone who *"has never owned a crypto wallet, and does not intend to start now"* (`PRODUCT.md` §Users). That persona is revised (D-26). Creating an embedded wallet for someone who already holds Phantom is the wallet-app anti-pattern in reverse: a second wallet they did not ask for, funded from nowhere, that they will not use. The product settles on Solana mainnet through DFlow. The people who arrive already have wallets. Embedded remains the fallback so someone without one is not blocked (D-27).
+
+**Consequences:**
+- `wallets.privyWalletId` is required today (`convex/schema.ts` L28). An external wallet has no Privy wallet id. The field becomes optional, or the row becomes a discriminated shape — `{ kind: "embedded", privyWalletId }` versus `{ kind: "external", provider }`. `isEmbedded` already exists at L30; the table was built expecting this.
+- **`linkExternalWallet` requires a signed challenge verified in Convex. It never accepts a wallet address as a request argument.** `syncEmbeddedWallet` is safe only because Privy vouches server-side; an external address has no voucher. Accepting one is the exact pattern that shipped hole H7 (D-18): *two request arguments agreeing with each other is not an authorization check.* An unproven link would let anyone name someone else's address as their own.
+- A second, client-signed path enters the transaction validation gate. It faces the **identical** rule set. The gate is never weakened to let the external path pass — the path is constrained to what the gate already accepts. Every change to the gate so far has tightened it; keep that record.
+- Sponsored fees survive (D-04). The sponsor is `account[0]` and pays the fee regardless. An external wallet signs as a second signer. Nobody sees a network fee either way.
+- `createPrivyConfig` must admit external connectors. `createOnLogin` fires only when the person chooses the My Tab wallet, not on every first launch.
+- FR-A1's identity half — Telegram seamless login, Privy as the identity provider — holds. FR-W1's "one embedded wallet on first login" does not.
+
+**Status:** binding · supersedes FR-W1 and the "no external wallet connectors" sentence in `lib/privy/config.ts`. Scopes FR-A1 to identity, not wallet provisioning. Forces D-25's connect gate. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-22 · DFlow gets a screen
+
+**Originally:** D-03 — *"The mechanism does not get a screen. `DESIGN.md` and `EXPERIENCE.md` remain the authority on this and are unamended: no route diagram, no price-impact warning, no slippage slider, no token logos as navigation, no 'swap' in copy. Mechanism lives behind the single collapsed disclosure row on the payment sheet."* `DESIGN.md` §Components, `token-chip`: **"No token logos."** Jupiter attribution (`JUPITER_ATTRIBUTION = "Powered by Jupiter"`) was contractual and unrendered — Unresolved U-1.
+
+**Now:** **DFlow gets a screen.** A token picker with balances, a live quote, and price protection stated plainly. Logos, an `isVerified === true` badge, and `Powered by Jupiter` as a picker footer. The one *guaranteed* figure remains "Maya receives at least 8.25 USDC" — `otherAmountThreshold` (D-08), never `outAmount`.
+
+**Why it changed:** D-03's "no screen" was written when DFlow was a proof point for one token. D-05 opened any token the payer holds, and D-09 made "what is this token" a live question with Jupiter metadata. Without a picker a payer cannot choose among holdings, cannot see a balance, and cannot see the guarantee. The original fear was a swap UI — a route diagram, a slippage slider, the word *swap*. The screen is not that. It is the payment sheet grown into a chooser. The banned-copy list applies at full force: say **price protection**, never *swap*, *route*, *execute*, *slippage*.
+
+**Consequences:**
+- Token logos ship on the picker. `DESIGN.md` §Components `token-chip` *"No token logos"* is superseded for this surface.
+- `Powered by Jupiter` ships as a footer on the picker — an **approved exception** to the banned-copy list for a contractual string, not a licence to use "powered by" anywhere else. U-1 is resolved.
+- The quote shown as a guarantee is `otherAmountThreshold` only. `outAmount` is an estimate in DFlow's own documentation; if it appears at all it is labelled as one.
+- Post-payment detail may show what actually routed. That is a receipt, not a route diagram.
+- The rest of D-03's anti-swap-UI position is unamended: no slippage slider, no price-impact warning, no route diagram, no banned words.
+
+**Status:** binding · amends D-03's "the mechanism does not get a screen" sentence. Supersedes `DESIGN.md` §Components `token-chip` "No token logos" on the picker. Resolves U-1. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-23 · Quantity-aware claiming — *k*-of-*n*
+
+**Originally:** `PRODUCT.md` principle 4 — *"Claiming is additive, never exclusive. Two people tapping the same dish get 'Split 2 ways', not a conflict dialog."* `EXPERIENCE.md` §The Claim Board: a tap toggles the viewer's own claim on the whole line; a second person joining produces an equal split. Receipt parse already stores an integer `quantity` on the line (`lib/domain/receiptParse.ts`, `lib/domain/bill.ts` `assertItemQuantity`), and `lib/domain/allocation.ts` already has a `quantity` mode. The board does not expose it. A qty-3 line is claimed as one atomic row.
+
+**Now:** **An item with quantity *n* can be claimed *k*-of-*n*.** Equal split among claimers remains the default for a shared *unit*. Principle 4 is extended, not replaced: two people tapping the same beer still share that beer; they do not automatically split the whole round.
+
+**Why it changed:** *"We ordered three beers, I had two"* is a real dinner and the current board cannot say it. Equal-splitting a qty-3 line among two people produces one-and-a-half beers each, which is not what happened. The allocation math already knows how to weight by integer quantity. The gap is the surface, not the arithmetic.
+
+**Consequences:**
+- Allocation math stays in `lib/domain/` as pure functions with unit tests. It never imports Convex and never performs I/O.
+- D-29 refines this: counts are integer only.
+- The remainder surface stays at zero — that is the point of integer *k*-of-*n*, not a hope.
+
+**Status:** binding · extends `PRODUCT.md` principle 4 and `EXPERIENCE.md` §The Claim Board. Does not replace additive claiming. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-24 · QR is a third admission door, through the same seat check
+
+**Originally:** `INVITE-FLOW.md` §1.5 — two doors write identical `tabParticipants` rows: `origin: "chat"` bounded by the Telegram chat, `origin: "personal"` bounded by a seat count. No third carrier. The invite is a link the organizer sends through Telegram's share sheet (D-10).
+
+**Now:** **A QR code is a third admission door.** It carries the same `tab_session` token and faces the same seat check as the link. Same token, different carrier — no second admission path.
+
+**Why it changed:** the person sitting across the table should not need a forwarded message. A QR is the invite door pointed at a camera. A second admission path would be a second authorization path, and that is how holes get shipped (D-18).
+
+**Consequences:**
+- One token type, one roster write, one refusal matrix. `LINK_NOT_FOUND` / `LINK_EXPIRED` / `LINK_REVOKED` / `TAB_FULL` / `NOT_GROUP_MEMBER` apply identically whether the token arrived in a URL or in a QR payload.
+- `INVITE-FLOW.md` §1.5 must absorb the QR as a carrier, not as a new door with its own rules.
+- The invite door itself is still unbuilt (D-06 implementation status). QR cannot ship before the door it rides on.
+
+**Status:** binding · new. Does not supersede D-06; it adds a carrier to the invite door D-06 already specified. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-25 · Launch is an explicit connect gate
+
+**Originally:** `PRODUCT.md` principle 6 — *"Authentication is invisible, and so is admission. No login screen, no 'connect wallet', no wallet selection inside Telegram — and no onboarding chore before a first tab."* `EXPERIENCE.md` §Foundation, same words, citing FR-A1 / FR-W1. Launch (`Authenticating`) is the wordmark, an indeterminate indicator, and "Getting your tab ready…" — no buttons, no login affordance, no elapsed timer.
+
+**Now:** **Launch is an explicit connect gate.** The app loads. A first-timer sees the first-run screen (photograph, one sentence — D-13), then chooses: connect your own wallet, or use a My Tab wallet. A returning person whose wallet is already linked passes straight through. Declining is allowed (D-27).
+
+**Why it changed:** D-21 requires a choice that principle 6 forbade showing. Invisible auth still applies to *Telegram identity* — `initData` verifies, Privy resolves, there is no login form. The new screen is wallet *provenance*, not identity. Showing it to a returning person would be the onboarding chore principle 6 was right to ban.
+
+**Consequences:**
+- First-run and the connect screen carry no figure, so they sit inside D-13's photographic rule.
+- The load is honest work: verify `initData`, resolve identity, read the roster, read balances. It is not a delay inserted to feel substantial, and it must never become one.
+- A returning person sees no prompt and no screen. Anything else is a regression of principle 6's still-binding half.
+
+**Status:** binding · supersedes `PRODUCT.md` principle 6 and `EXPERIENCE.md` §Foundation's "no connect wallet / no wallet selection" sentences. Does **not** supersede invisible Telegram identity, and does not supersede "Start a tab always works, from anywhere." Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-26 · The audience is crypto-native
+
+**Originally:** `PRODUCT.md` §Users — *"**Andre**, 28 — in the group, has never owned a crypto wallet, and does not intend to start now. He is the participant: taps a link, taps his dishes, taps pay."* `EXPERIENCE.md` Flow 2 is titled *"Andre joins and claims (same table, 8% battery, no idea what Solana is)"* and climaxes on *"Andre has never once been asked to install, connect, fund, or understand anything."* `PRODUCT.md` §The job — *"settle a shared bill without an argument and without anyone installing anything."*
+
+**Now:** **The audience is crypto-native.** People arriving here know what a wallet is. Privy is the fallback for someone who has none, not the default for someone who has never held one.
+
+**Why it changed:** the product settles on Solana mainnet through DFlow, in whatever token the payer holds (D-05). The Andre who has never held a wallet and will not start is who justified invisible embedded-only auth (FR-A1 / FR-W1) and made every connect surface a defect. That person is not who arrives at a Telegram Mini App that pays in tokens. Designing for them produced a product that creates a wallet for someone who already has one (the D-21 defect) and hides the token choice that D-05 opened (the D-22 defect).
+
+**Consequences:**
+- The Andre persona in `PRODUCT.md` §Users is revised. He still claims at the table with 8% battery; he is no longer someone who has never heard of a wallet.
+- *"Without anyone installing anything"* still holds for claiming (D-27). It does not hold for settlement in an external wallet the person already installed.
+- This does not make the product a wallet app. The anti-references in `PRODUCT.md` — balance-first home, token list as navigation, portfolio chrome — still bind. D-22's picker lives on the payment sheet, not on Tabs.
+
+**Status:** binding · revises `PRODUCT.md` §Users (Andre) and `EXPERIENCE.md` Flow 2's premise. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-27 · A wallet is not required to participate
+
+**Originally:** FR-W1 created an embedded wallet on first login, so everyone who reached the board already had one. `EXPERIENCE.md` §Foundation assumed *"the user arrives already authenticated with a wallet that already exists."* A wallet-less participant was not a representable state.
+
+**Now:** **Browse the bill, claim your items, be part of the tab with no wallet at all.** The gate is at payment, not at the board. D-25's connect screen is a prompt, not a wall.
+
+**Why it changed:** forcing a wallet to claim recreates the four-step onboarding D-06 deleted, just with a different door. The board is a social document — several hands marking one shared tab. Money is a later act. A person who skipped connect, or whose wallet app failed to return, must still be able to say "the green curry is mine."
+
+**Consequences:**
+- Pay is where a wallet is required. A wallet-less participant reaching `/pay/:intentId` is sent to connect, not shown a broken sheet.
+- The recipient still needs a wallet before lock — `RECIPIENT_WALLET_REQUIRED` already exists and is unchanged. Someone has to be able to receive.
+- The skip path in `docs/FLOWS.md` Map B is load-bearing, not a convenience. Removing it re-litigates this entry.
+
+**Status:** binding · qualifies D-25. Does not weaken D-21: the primary door is still an external wallet, when the person is ready to pay. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-28 · Wallet support: wallet-standard first, three named
+
+**Originally:** no external wallets. `lib/privy/config.ts` L32 forbade connectors in P0. Nothing in the tree speaks wallet-standard, Mobile Wallet Adapter, or a named Phantom / Solflare / Backpack integration.
+
+**Now:** **Wallet-standard first, three named.** Phantom, Solflare and Backpack are first-class. Anything else that speaks the standard is admitted.
+
+**Why it changed:** naming three is product; speaking the standard is the admission rule, so a fourth wallet is not a feature request. The three are first-class because they are what the audience (D-26) actually holds, and because on iOS the practical path may be per-wallet universal links rather than a generic standard — Mobile Wallet Adapter is Android-oriented. If that holds, the three named wallets are load-bearing on iOS, not a convenience layer. **That is unverified. Verify it before trusting the Phase 2 estimate in `docs/FLOWS.md`.**
+
+**Consequences:**
+- Do not build a curated allowlist that rejects an unknown standard wallet.
+- Do not treat "wallet-standard" as a solved iOS problem until it has been checked on a real device.
+- Linking still requires the D-21 signed challenge. Detecting a wallet is not proving ownership of it.
+
+**Status:** binding · new, forced by D-21. Open question on iOS remains open — do not resolve it silently. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-29 · *k*-of-*n* is integer only
+
+**Originally:** `lib/domain/allocation.ts` already has `percentage` and `fixed` modes, and a `quantity` mode that takes an integer weight. The claim board exposes none of them. A shared line is equal-split (weight 1 per claimant) and largest-remainder hands leftover satang to the first participant in a stable sort.
+
+**Now:** **Counts either sum to *n* or the board shows the shortfall.** No fractional shares, ever. That is what keeps the remainder surface at zero.
+
+**Why it changed:** fractional shares — "I had one and a half beers" — reintroduce the remainder problem the equal-split + largest-remainder design already solved at the satang level, and they do it in units a dinner table does not speak. Integer *k*-of-*n* maps onto the existing `quantity` mode. Percentage and fixed remain available to the allocator for tax, service, discount and tip. They are not a claim-board control.
+
+**Consequences:**
+- The board shows "1 of 3 claimed", never "50%" and never 1.5.
+- If claimed counts sum to less than *n*, the shortfall is visible and lock still refuses `UNASSIGNED_ITEMS`.
+- If they would sum to more than *n*, the write is refused. Two people cannot each take 2 of 3.
+- Math stays in `lib/domain/`. No Convex import, no I/O, unit tests for every shortfall and overflow.
+
+**Status:** binding · refines D-23. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-30 · `unknown` intents get both halves
+
+**Originally:** `docs/MAINNET-CUTOVER.md` §7, copied into Unresolved U-5 — *"No operator surface for a finalized-but-mismatched transaction. If a transaction finalizes successfully but fails one of the eight confirmation checks, the intent stays `unknown` and polling stops — correct, because `failed` would tell the payer nothing happened while their money is gone. It needs a reconciliation-incident table and an alert. **This is the one gap I would close before real money.**"* Intent states are `submitted · unknown · confirmed · failed · expired` (`convex/schema.ts` L158–162). Confirmation moves the ledger, not submission (AD-11).
+
+**Now:** **`unknown` intents get both halves:** a payer-facing held state, and an operator resolution surface. Implemented 2026-08-23. The display layer maps `unknown` → `held` (never `submitted`, never `failed`); Payment Progress and Payment Sheet keep the last figure at 40% opacity. `reconciliationIncidents` is written when polling stops on a finalized-but-mismatched observation. Operators read the list through `internal.reconciliation.listIncidentsInternal` or `GET /reconciliation` on the Convex `.site` host with `OPERATOR_RECONCILIATION_SECRET`. The public query always 403s. It does not block a demo. It blocks a cutover until the secret is set.
+
+**Why it changed:** `failed` is a lie when the money moved. Silence is the other lie — polling stops and the payer stares at a spinner that will never resolve. A payer-only message without an operator path strands the money. An operator-only path leaves the person who paid with no words. Both halves, or the gap is not closed.
+
+**Consequences:**
+- A payer whose intent is `unknown` sees a held state that keeps the last known figure at 40% opacity (the stale-figure rule). It never becomes a dash, it is never blanked, and it is never labelled `failed`.
+- An operator surface — a reconciliation-incident table and an alert — is required before real funds move. `docs/MAINNET-CUTOVER.md` §7's "one gap" sentence is the work item this entry governs.
+- Partial payment remains a separate U-5 item. This entry does not make a confirmed chain payment mean anything other than a full clear.
+
+**Status:** binding · decides and implements U-5's unknown-intent half. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`); landed 2026-08-23.
+
+---
+
+## D-31 · Generated imagery is a photo header on the tab status card
+
+**Originally:** D-13 — a photograph is permitted on Launch and first run, and nowhere else, because those are the two screens with no money on them. The five Telegram posting events (`lib/telegram/messages.ts` L20–35) render as **one status card edited in place**. Inline keyboard buttons are typed `{ text: string; url: string }` (`lib/telegram/api.ts` L217) — text and emoji, nothing else. That is the Bot API's shape, not a repo limitation. The Menu button takes no custom icon either.
+
+**Now:** **Generated imagery lives in three places, and buttons get none.** (1) A photo header on the tab status card, sent with `sendPhoto` and a caption. (2) The bot's avatar. (3) Launch and first run in the Mini App, already permitted by D-13. One image per tab, chosen at `tab_opened`, because the card is edited in place through `bill_ready`, `payment_confirmed` and `bill_completed`.
+
+**Why it changed:** no amount of image generation puts a picture on a Telegram button. The obvious place — the **Open tab** button, the Menu button — cannot carry one. A photo header is the remaining chat surface that can. Re-generating per card state would mean deleting and re-posting, which breaks the one-card-per-dinner property that keeps a group chat clean.
+
+**Consequences:**
+- The delivery path switches from `editMessageText` to `editMessageCaption` (`convex/internal/telegramDelivery.ts` L184, L192). The caption cap drops from 4096 characters to 1024. Every card renderer must fit.
+- The generation key is a **server secret** in Convex env. Never `NEXT_PUBLIC_`, never a committed file. Ask the owner for it; do not go looking in the transcript or the tree.
+- D-13's Mini App rule is unchanged: no photograph on any Mini App surface carrying an amount. A chat card is outside that rule. The same reasoning still applies — keep the image atmospheric, never let it sit behind a number.
+- **What the image depicts is decided (U-8):** one house style, repeated. A 35mm-feeling still of a sociable table, generated once via Kie Nano Banana 2, not from tab name or merchant.
+
+**Status:** binding · new. Does not amend D-13's Mini App photography rule. Recorded from the 2026-08-22 planning session (`docs/FLOWS.md`).
+
+---
+
+## D-32 · Receipt extraction goes through Vercel AI Gateway
+
+**Originally:** AD-18 / OQ-3 — the `receiptExtraction` adapter calls the **OpenAI Responses API** with image input and a strict schema from a Convex Node action; `OPENAI_API_KEY` is Convex-only. The vision-capable model ID is pinned after the Thai/English fixture evaluation. [convex/internal/receiptExtraction.ts](../convex/internal/receiptExtraction.ts) is still a placeholder; [convex/lib/receiptExtraction.ts](../convex/lib/receiptExtraction.ts) is fixture-only.
+
+**Now:** extraction still runs in a Convex Node action with image in, strict JSON out, organizer confirm, and every amount re-parsed to integer minor units in `lib/domain/receiptParse.ts`. The HTTP target is **Vercel AI Gateway** (`https://ai-gateway.vercel.sh/v1`), OpenAI Responses-compatible, not `api.openai.com` directly. The secret is `AI_GATEWAY_API_KEY` in Convex env only. The first-candidate model is `google/gemini-2.0-flash`; if Thai/English restaurant fixtures fail, fall back to `openai/gpt-4o-mini`. The model ID is pinned only after that fixture rerun.
+
+**Why it changed:** a raw OpenAI key locks the product to one vendor's list price and one model family. The gateway charges **no markup** on tokens, speaks the same Responses API AD-18 already specified, and lets the cheapest vision model that passes the fixtures win. Self-hosting PaddleOCR or Donut would be a second backend (AD-2): Python/GPU, always-on cost, and — for Paddle — text boxes rather than line items. CORD's field *shape* (`name`, integer `quantity`, `unitPriceRaw`, optional `merchant`) is borrowed; the models are not vendored.
+
+**Consequences:**
+- Convex calls `https://ai-gateway.vercel.sh/v1` with `fetch`. Do not add an `openai` or `ai` SDK unless `fetch` is shown to be insufficient.
+- `AI_GATEWAY_API_KEY` is Convex-only (AD-19). Never `NEXT_PUBLIC_`. Never duplicated onto Vercel "because the gateway is a Vercel product" — extraction is a Convex action (AD-1).
+- `ai-gateway.vercel.sh` is on the preview egress block list next to `api.openai.com`. Preview never burns credits on a real scan.
+- Missing key is a hard fail, never permission to run `runFixtureExtraction` on a deployment (D-11).
+- Copy stays **Scan receipt**. Never AI, magic, or sparkle.
+- A provider or model change still requires an architecture decision plus a Thai/English fixture rerun (AD-18, unchanged).
+
+**Status:** binding · amends AD-18 and OQ-3 on the *transport and billing path only*. Advisory-input, integer re-parse, organizer confirm, and Convex-only secret placement are unchanged. Recorded 2026-08-22.
+
+---
+
 ## Unresolved
 
 Listed rather than invented. Do not resolve one of these silently.
 
-**U-1 · Jupiter attribution vs. the banned-copy list and the token-logo ban.**
-Jupiter's licence requires attribution wherever its data is surfaced. The constant is `JUPITER_ATTRIBUTION = "Powered by Jupiter"` (`lib/tokens/jupiter.ts`), returned by `convex/tokens.ts`. **"powered by" is on the banned-copy list** in `DESIGN.md`, `EXPERIENCE.md` and `PRODUCT.md`. Separately, `DESIGN.md` §Components specifies `token-chip` with **"No token logos"** while the metadata the owner asked for includes logo URLs. Today the collision is latent — the attribution string is not rendered on any surface and no logo is displayed — but it becomes real the moment the token selector ships. Needs an owner decision: an approved exception to the banned word for a contractual string, alternative wording that satisfies the licence, or a surface where the attribution lives outside the product voice.
+**U-1 · Jupiter attribution vs. the banned-copy list and the token-logo ban. · resolved 2026-08-22**
+Token logos ship on the D-22 picker. `Powered by Jupiter` ships as a footer on that picker — an approved exception to the banned-copy list for a contractual string, not a licence to use "powered by" anywhere else. See D-22. The collision is no longer latent; do not re-open it by adding logos or the string to a second surface.
 
 **U-2 · Amendment 2b — is bot-administrator status actually required for `getChatMember`?**
 `INVITE-FLOW.md` §9.1 proposes demoting administrator status to *recommended* on the strength of the Bot API documenting `getChatMember` as available to any member bot, with admin rights needed only for `chat_member` push updates. **This has not been tested against a real production supergroup**, and hidden-member and privacy configurations are the risk. Until it is, group-origin tabs keep the administrator requirement. Nothing depends on the outcome.
@@ -417,10 +632,19 @@ Jupiter's licence requires attribution wherever its data is surfaced. The consta
 See D-20. Four import sites, two packages, and the component system it was chosen to provide is not being used. No decision has been made either way and none should be made incidentally.
 
 **U-5 · The known gaps at cutover are still gaps.**
-`docs/MAINNET-CUTOVER.md` §7 lists them and remains accurate. The one flagged there as *"the one gap I would close before real money"* — no operator surface for a transaction that finalizes but fails one of the eight confirmation checks, leaving the intent `unknown` with polling stopped — is still open. So are: partial payment not being representable; `obligations.displayAmountThbMinor` being THB-named while holding any currency; `obligationLedgerEvents.obligationId` typed `v.string()` so nothing at the schema level prevents a dangling reference; `USDC_DECIMALS = 6` defined in two places; and the Thai bank-holiday table expiring 2027-01-01.
+`docs/MAINNET-CUTOVER.md` §7 lists them and remains accurate as a *work* list. D-30's unknown-intent half is implemented (payer-facing held state + `reconciliationIncidents`). Still open as work, and still undecided as design: partial payment is not representable; `obligations.displayAmountThbMinor` is THB-named while holding any currency; `obligationLedgerEvents.obligationId` is typed `v.string()` so nothing at the schema level prevents a dangling reference; `USDC_DECIMALS = 6` is defined in two places; and the Thai bank-holiday table expires 2027-01-01. Set `OPERATOR_RECONCILIATION_SECRET` in Convex env before real funds move.
 
-**U-6 · `INVITE-FLOW.md` §9.11 items B2, B3, B5, B7, B8, B9 remain open.**
-B1 and B4 are closed (D-18 H7, H9) and B6 is deleted (D-11). The rest — the fixture webhook secret, the fixture bot username, the fixture branch in `TabDeepLinkSurface`, the organizer not being inserted into their own tab's roster, `publishTabOpenedCard` ignoring all three of its parameters, and `revokeToken`/`consumeToken` having zero callers — are mainnet blockers on the ingress path and are not yet done.
+**U-6 · `INVITE-FLOW.md` §9.11 items B2, B3, B7, B8, B9 remain open.**
+B1 and B4 are closed (D-18 H7, H9). B5 is closed: `TabDeepLinkSurface` no longer has a fixture branch. B6 is deleted (D-11). B7 is closed: organizer is inserted into `tabParticipants` at creation on both doors. B8 is closed: `publishTabOpenedCard` reuses `deepLinkToken`. B9 is closed: `revokeToken` has callers on the invite sheet and You (U-9); `consumeToken` remains for single-use action tokens. Remaining: the fixture webhook secret and the fixture bot username.
 
 **U-7 · Nothing has run against a live cluster.**
 Repeated because it is the single most load-bearing caveat in this file. Every claim above about DFlow behaviour comes from live probes of the quote API; every claim about settlement comes from unit tests with injected transports. `docs/MAINNET-CUTOVER.md` §5 and §6 are the sequences that would change that, and neither has been executed.
+
+**U-8 · What the tab-card image depicts. · resolved 2026-08-23**
+**One house style, repeated.** Not derived from tab name or merchant. A 35mm-feeling film still of a sociable table — alive, warm, a little grain, people and food in the same frame — matching the launch pair (`public/launch/`). No neon, no glass, no gradient, no money, no type on the image. Generated once via Kie.ai `nano-banana-2` (4:3 at 2K). Delivery uses `sendPhoto` / `editMessageCaption`; Telegram `file_id` is reused. `KIE_API_KEY` is Convex-only. Runtime Convex does not call Kie on every dinner.
+
+**U-9 · Where an organizer revokes a leaked link. · resolved 2026-08-22**
+Revoke from the **invite sheet** (next to Share + QR) **and** from a live-links list under **You**. Organizer-on-roster only; a stranger still gets 403, not 404-with-detail. `revokeToken` is the one mutation; do not invent a second revoke API. `consumeToken` stays for single-use action tokens.
+
+**U-10 · Wallet-standard on iOS. · documented 2026-08-22; device unproven**
+Solana Mobile's own docs state MWA is **unsupported on all iOS surfaces** (app and browser) because iOS suspends backgrounded apps and kills the local-socket session MWA needs. Safari Web Extensions can expose wallet-standard *inside Safari*; a Telegram Mini App is a WebView, so those extensions do not apply. **Consequence for Phase 2:** wallet-standard first where it exists (desktop, Android Chrome); on iOS, Phantom / Solflare / Backpack **universal links are load-bearing**, not a convenience layer (D-28). Do not invent a fourth named wallet. Return-to-Telegram after a universal-link sign has **not** been proven on a physical iPhone — that remaining check is still required before calling the iOS path done.

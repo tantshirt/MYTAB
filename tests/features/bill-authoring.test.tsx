@@ -90,6 +90,44 @@ describe("Story 4.1 — New Tab surface", () => {
     // Never shown disabled — absent (§1.4).
     expect(html).not.toContain("Scan receipt");
   });
+
+  it("INVITE-FLOW §4 — a personal tab asks how many people, not how to capture", () => {
+    const html = renderToStaticMarkup(
+      <NewTabForm
+        title="Dinner"
+        merchantName=""
+        displayCurrency="THB"
+        payerUserId="users:andre"
+        members={[FIXTURE_BILL_AUTHORING.members[0]!]}
+        captureMethod="manual"
+        seats={4}
+        showCapture={false}
+        onChange={() => undefined}
+      />,
+    );
+    expect(html).toContain("How many people");
+    expect(html).toContain("aria-label=\"Fewer people\"");
+    expect(html).toContain("aria-label=\"More people\"");
+    expect(html).not.toContain("Add the items");
+    expect(html).not.toContain("Scan receipt");
+  });
+
+  it("§1.4 — shows Scan receipt when the Convex capability is wired", () => {
+    const html = renderToStaticMarkup(
+      <NewTabForm
+        title="Dinner"
+        merchantName=""
+        displayCurrency="THB"
+        payerUserId="users:andre"
+        members={FIXTURE_BILL_AUTHORING.members}
+        captureMethod="scan"
+        scanAvailable
+        onChange={() => undefined}
+      />,
+    );
+    expect(html).toContain("Scan receipt");
+    expect(html).not.toMatch(/\b(AI|magic|sparkle)\b/);
+  });
 });
 
 describe("Story 4.2 — item list and empty states", () => {

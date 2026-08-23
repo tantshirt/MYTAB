@@ -12,9 +12,12 @@ export function isExternalWalletEnabled(): boolean {
   return value === "1" || value === "true" || value === "yes";
 }
 
+/**
+ * Retired. Receipt scan is a Convex capability (`api.receipts.isScanEnabled`)
+ * when `AI_GATEWAY_API_KEY` is set — never a NEXT_PUBLIC_ flag (D-32).
+ */
 export function isReceiptScanEnabled(): boolean {
-  const value = process.env.NEXT_PUBLIC_FEATURE_RECEIPT_SCAN?.trim().toLowerCase();
-  return value === "1" || value === "true" || value === "yes";
+  return false;
 }
 
 // `isDemoModeEnabled()` / NEXT_PUBLIC_DEMO_MODE are gone. Their only purpose was

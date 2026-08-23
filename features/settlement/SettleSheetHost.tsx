@@ -1,9 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { ObligationPaymentSheet } from "./ObligationPaymentSheet";
+import { usePayObligation } from "./usePayObligation";
 import { useSettleSheetData } from "@/features/settlement/useSettleSheetData";
+import { useLiveMutation } from "@/features/convex/useConvexData";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import { ErrorState } from "@/components/primitives/error-state";
 import { STATE_COPY } from "@/components/primitives/state-copy";
@@ -31,14 +35,23 @@ export const NO_QUOTE_MESSAGE = "Couldn't get a price right now.";
 function SettleSheet({ obligationId }: { obligationId: string }) {
   const router = useRouter();
   const pathname = usePathname();
-  const data = useSettleSheetData(obligationId);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const data = useSettleSheetData(obligationId, refreshNonce);
+  const createIntent = useLiveMutation(api.settlements.createObligationIntent);
+  const { pay } = usePayObligation();
 
-  const [selectedTokenId, setSelectedTokenId] = useState(data.tokens[0]?.id ?? "");
+  const [selectedTokenId, setSelectedTokenId] = useState("");
   const [roundUpEnabled, setRoundUpEnabled] = useState(false);
   // Once Pay is tapped the sheet is committed: scrim tap, swipe-down and Escape all
   // come off together, and it transitions forward to Payment Progress (EXPERIENCE,
   // `payment-sheet`). It is never dismissible backward again.
   const [committed, setCommitted] = useState(false);
+
+  useEffect(() => {
+    if (!selectedTokenId && data.tokens[0]) {
+      setSelectedTokenId(data.tokens[0].id);
+    }
+  }, [data.tokens, selectedTokenId]);
 
   const dismiss = useCallback(() => {
     // Dismissal removes the key rather than pushing a new entry, so Telegram's
@@ -46,11 +59,49 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
     router.replace(pathname);
   }, [router, pathname]);
 
+  const refresh = useCallback(() => {
+    setRefreshNonce((value) => value + 1);
+  }, []);
+
+  const handleSelectToken = useCallback(
+    (tokenId: string) => {
+      setSelectedTokenId(tokenId);
+      if (!createIntent) {
+        return;
+      }
+      void createIntent({
+        obligationId: obligationId as Id<"obligations">,
+        inputMint: tokenId,
+        idempotencyKey: crypto.randomUUID(),
+      })
+        .then(() => {
+          refresh();
+        })
+        .catch(() => {
+          refresh();
+        });
+    },
+    [createIntent, obligationId, refresh],
+  );
+
   const handlePay = useCallback(() => {
+    if (!data.intentId) {
+      return;
+    }
     setCommitted(true);
-    // Past this point the payment is in flight, so it becomes a route (§1.0).
-    router.replace(`/pay/${data.intentId}`);
-  }, [router, data.intentId]);
+    void pay({
+      intentId: data.intentId,
+      walletKind: data.walletKind,
+      walletProvider: data.walletProvider,
+      preparedTxBase64: data.preparedTxBase64,
+    }).then((result) => {
+      if (!result.ok) {
+        setCommitted(false);
+        return;
+      }
+      router.replace(`/pay/${data.intentId}`);
+    });
+  }, [data, pay, router]);
 
   /*
    * Every figure on this sheet is money — a spend, a floor, a rate, a balance.
@@ -63,7 +114,7 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
       <SheetContainer label="Payment sheet" dismissible onDismiss={dismiss}>
         <ErrorState
           headline={NO_QUOTE_MESSAGE}
-          actions={[{ label: STATE_COPY.retry, onPress: () => router.refresh() }]}
+          actions={[{ label: STATE_COPY.retry, onPress: refresh }]}
         />
       </SheetContainer>
     );
@@ -79,7 +130,7 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
         destinationAsset={data.destinationAsset}
         tokens={data.tokens}
         selectedTokenId={selectedTokenId}
-        onSelectToken={setSelectedTokenId}
+        onSelectToken={handleSelectToken}
         spendLabel={data.spendLabel}
         minimumReceiveAmount={data.minimumReceiveAmount}
         maximumSpend={data.maximumSpend}
@@ -92,9 +143,10 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
         quoteExpired={data.quoteExpired}
         quoteResolving={data.quoteResolving}
         staleRevision={data.staleRevision}
+        held={data.held}
         onPay={handlePay}
-        onRefreshQuote={() => router.refresh()}
-        onRefreshBill={() => router.refresh()}
+        onRefreshQuote={refresh}
+        onRefreshBill={refresh}
       />
     </SheetContainer>
   );

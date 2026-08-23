@@ -7,7 +7,8 @@ import {
   unassignedPhrase,
   type ClaimBoardProps,
 } from "@/features/claims/ClaimBoard";
-import { claimRowAriaLabel, claimRowStateTag } from "@/components/claim-row";
+import { ClaimRow, claimRowAriaLabel, claimRowCaption, claimRowStateTag } from "@/components/claim-row";
+import { quantityAfterStep, quantityClaimedCaption } from "@/lib/domain";
 import { FIXTURE_BILL_REVIEW, FIXTURE_CLAIM_BOARD } from "@/tests/fixtures/claims";
 import { WhoHasThisSheet } from "@/features/claims/WhoHasThisSheet";
 import { formatFiatMinorThb, perHeadDisplayMinor, thbMinorFromInteger } from "@/lib/domain";
@@ -185,6 +186,113 @@ describe("P1-20 — locked removes the affordance, it does not grey it", () => {
   });
 });
 
+describe("D-29 — quantity caption and stepper", () => {
+  const viewer = "user_maya";
+
+  it("captions quantity-mode as '1 of 3 claimed', never a split or a percent", () => {
+    expect(quantityClaimedCaption(1, 3)).toBe("1 of 3 claimed");
+    expect(
+      claimRowCaption(
+        [{ userId: viewer, displayName: "Maya" }],
+        9000,
+        viewer,
+        { itemQuantity: 3, claimedCount: 1 },
+      ),
+    ).toEqual({ text: "1 of 3 claimed", tone: "warning" });
+    expect(
+      claimRowCaption(
+        [{ userId: viewer, displayName: "Maya" }, { userId: "user_andre", displayName: "Andre" }],
+        9000,
+        viewer,
+        { itemQuantity: 3, claimedCount: 3 },
+      ).text,
+    ).toBe("3 of 3 claimed");
+    expect(
+      claimRowCaption(
+        [{ userId: viewer, displayName: "Maya" }, { userId: "user_andre", displayName: "Andre" }],
+        9000,
+        viewer,
+        { itemQuantity: 3, claimedCount: 1 },
+      ).text,
+    ).not.toMatch(/Split|%|50%/);
+  });
+
+  it("keeps equal-split copy for a qty-1 shared dish", () => {
+    expect(
+      claimRowCaption(
+        [{ userId: viewer, displayName: "Maya" }, { userId: "user_andre", displayName: "Andre" }],
+        18000,
+        viewer,
+      ).text,
+    ).toContain("Split 2 ways");
+  });
+
+  it("announces claimed counts instead of a split on a qty-3 line", () => {
+    expect(
+      claimRowAriaLabel({
+        name: "Singha",
+        quantity: 3,
+        lineTotalMinor: 9000,
+        claimants: [{ userId: viewer, displayName: "Maya" }],
+        viewerUserId: viewer,
+        claimedCount: 1,
+      }),
+    ).toContain("1 of 3 claimed");
+    expect(
+      claimRowAriaLabel({
+        name: "Singha",
+        quantity: 3,
+        lineTotalMinor: 9000,
+        claimants: [{ userId: viewer, displayName: "Maya" }],
+        viewerUserId: viewer,
+        claimedCount: 1,
+      }),
+    ).not.toMatch(/split|50%/i);
+  });
+
+  it("steps claimed counts by integers and refuses overflow", () => {
+    expect(quantityAfterStep({ itemQuantity: 3, viewerQuantity: 0, othersClaimed: 0, delta: 1 })).toBe(1);
+    expect(quantityAfterStep({ itemQuantity: 3, viewerQuantity: 1, othersClaimed: 0, delta: 1 })).toBe(2);
+    expect(quantityAfterStep({ itemQuantity: 3, viewerQuantity: 2, othersClaimed: 0, delta: -1 })).toBe(1);
+    expect(quantityAfterStep({ itemQuantity: 3, viewerQuantity: 2, othersClaimed: 1, delta: 1 })).toBeNull();
+  });
+
+  it("renders 44px increment and decrement targets on a quantity-mode row", () => {
+    const html = renderToStaticMarkup(
+      <ClaimRow
+        itemId="item_singha"
+        name="Singha"
+        quantity={3}
+        allocationMode="quantity"
+        lineTotalMinor={9000}
+        claimants={[{ userId: viewer, displayName: "Maya" }]}
+        viewerUserId={viewer}
+        viewerOwns
+        locked={false}
+        isOrganizer={false}
+        claimedCount={1}
+        shortfall={2}
+        viewerClaimedQuantity={1}
+        onSetClaimQuantity={() => undefined}
+      />,
+    );
+    expect(html).toContain("1 of 3 claimed");
+    expect(html).not.toContain("Split");
+    expect(html).not.toContain("50%");
+    expect(html).toContain('data-testid="claim-row-increment-item_singha"');
+    expect(html).toContain('data-testid="claim-row-decrement-item_singha"');
+    expect(html).toMatch(/min-width:\s*44px/);
+    expect(html).toMatch(/min-height:\s*44px/);
+    expect(html).not.toContain('data-testid="claim-row-item_singha"');
+  });
+
+  it("renders the qty-3 fixture row as a stepper, not a binary tap", () => {
+    const html = render(board());
+    expect(html).toContain("2 of 2 claimed");
+    expect(html).toContain('data-testid="claim-row-stepper-item_pad_thai"');
+  });
+});
+
 describe("P1-20 — the row announces the other claimants", () => {
   const viewer = "user_andre";
   const noi = { userId: "user_noi", displayName: "Noi" };
@@ -235,6 +343,25 @@ describe("P1-20 — the row announces the other claimants", () => {
   });
 });
 
+describe("INVITE-FLOW S4 — invite panel on the board", () => {
+  it("asks the organizer to send the link when they are alone", () => {
+    const html = render(
+      board({
+        participants: [FIXTURE_CLAIM_BOARD.participants[0]!],
+        onInvite: () => undefined,
+      }),
+    );
+    expect(html).toContain("Nobody else is here yet");
+    expect(html).toContain("Send the link");
+  });
+
+  it("shrinks to + Add someone once anyone else is on the roster", () => {
+    const html = render(board({ onInvite: () => undefined }));
+    expect(html).toContain("+ Add someone");
+    expect(html).not.toContain("Nobody else is here yet");
+  });
+});
+
 describe("P1-20 — empty items", () => {
   it("asks the organizer for the bill with both capture actions", () => {
     const html = render(
@@ -249,7 +376,7 @@ describe("P1-20 — empty items", () => {
     );
     expect(html).toContain("Add what you ordered.");
     expect(html).toContain("Type an item");
-    expect(html).toContain("Scan a receipt");
+    expect(html).toContain("Scan receipt");
   });
 
   it("tells a participant to stay put", () => {

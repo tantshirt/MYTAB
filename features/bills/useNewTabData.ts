@@ -6,6 +6,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useLiveQuery, telegramUserIdFrom } from "@/features/convex/useConvexData";
 import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider";
 import { FX_FIXTURE_BADGE } from "@/features/bills/fxBadge";
+import { SEAT_DEFAULT } from "@/convex/lib/tabOrigin";
 import type { BillAuthoringData } from "./types";
 
 /**
@@ -14,22 +15,10 @@ import type { BillAuthoringData } from "./types";
  * Live reads:
  *   `api.tabs.getGroupDefaults({ groupId })`     — display currency, recipient asset
  *   `api.tabs.listTabMemberOptions({ groupId })` — payer/recipient candidates
+ *   `api.users.viewerIdentity`                   — the organizer, when there is no group
  *
- * The viewer is matched by `telegramUserId`, not by `useViewer()`:
- * `api.users.viewer` returns the Privy DID, and nothing on the backend maps that
- * to a Convex `users` id for the client. `listTabMemberOptions` carries the
- * Telegram id, which Telegram's launch params also carry.
- *
- * BLOCKED: `tabId`. `api.tabs.saveTabSetup` patches an **existing** tab and
- * there is no `tabs.createDraft` — drafts are created by the bot
- * (`convex/lib/tabCommandSync.ts`), not from the Mini App. So this surface
- * still authors against a local id and cannot persist, which is also why
- * `onScanReceipt` stays unpassed.
- *
- * With no group and no client the member list is empty, and §4.2's "Nobody in
- * this group has opened My Tab yet. Ask someone to tap the link." is what the
- * form renders. A payer chip for someone who has never opened the app would be
- * a lie the organizer could act on.
+ * With no group the form is the invite door (D-06): one member (you), a seat
+ * stepper, and `createPersonalTab` persists the draft.
  */
 export function useNewTabData(groupId: string | null): BillAuthoringData {
   const { initDataUnsafe } = useTelegramRuntime();
@@ -44,18 +33,39 @@ export function useNewTabData(groupId: string | null): BillAuthoringData {
     api.tabs.listTabMemberOptions,
     id ? { groupId: id } : "skip",
   );
+  const identity = useLiveQuery(api.users.viewerIdentity, groupId ? "skip" : {});
 
   return useMemo<BillAuthoringData>(() => {
     const tabId = groupId ? `tabs:new:${groupId}` : "tabs:new";
+    const origin = groupId ? ("chat" as const) : ("personal" as const);
 
-    const members = (memberOptions.data ?? []).map((member) => ({
+    const membersFromGroup = (memberOptions.data ?? []).map((member) => ({
       userId: member.userId,
       displayName: member.displayName,
       telegramUserId: member.telegramUserId,
       walletReady: member.walletReady,
     }));
+
+    const viewerMember =
+      identity.data?.userId && identity.data.telegramUserId
+        ? {
+            userId: identity.data.userId,
+            displayName: identity.data.displayName ?? "You",
+            telegramUserId: identity.data.telegramUserId,
+            walletReady: false,
+          }
+        : null;
+
+    const members = groupId
+      ? membersFromGroup
+      : viewerMember
+        ? [viewerMember]
+        : [];
+
     const organizer =
-      members.find((member) => member.telegramUserId === viewerTelegramUserId) ?? null;
+      members.find((member) => member.telegramUserId === viewerTelegramUserId) ??
+      viewerMember ??
+      null;
 
     return {
       tabId,
@@ -72,6 +82,8 @@ export function useNewTabData(groupId: string | null): BillAuthoringData {
       adjustments: [],
       totalDisplay: "฿0.00",
       fxFixtureBadge: FX_FIXTURE_BADGE,
+      origin,
+      seats: origin === "personal" ? SEAT_DEFAULT : undefined,
     };
-  }, [defaults.data, memberOptions.data, viewerTelegramUserId, groupId]);
+  }, [defaults.data, memberOptions.data, identity.data, viewerTelegramUserId, groupId]);
 }

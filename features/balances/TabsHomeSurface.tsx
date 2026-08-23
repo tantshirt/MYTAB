@@ -6,6 +6,7 @@ import { AmountPair } from "@/components/primitives/amount-pair";
 import { EmptyState } from "@/components/primitives/empty-state";
 import { ErrorState } from "@/components/primitives/error-state";
 import { SurfaceErrorBoundary } from "@/components/primitives/error-boundary";
+import { ListCard } from "@/components/primitives/list-card";
 import { showSkeleton, type LoadState } from "@/components/primitives/load-state";
 import { STATE_COPY } from "@/components/primitives/state-copy";
 import { BalanceHero } from "./BalanceHero";
@@ -15,7 +16,8 @@ import { AllSquareWatcher } from "./AllSquareWatcher";
 import { BalanceLinkRow } from "./PaymentStateBadge";
 import { TabsHomeSkeleton, OfflineBar, OutsideTelegramBar } from "./LoadingStates";
 import { StartTabAction } from "./StartTabAction";
-import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_ELEVATION } from "@/lib/theme/tokens";
+import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_SPACING } from "@/lib/theme/tokens";
+import { monogram } from "./monogram";
 import { formatFiatMinorThb } from "@/lib/domain/format";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import type { BalanceHeroState } from "@/lib/domain/balance";
@@ -78,22 +80,18 @@ export type TabsHomeSurfaceProps = LoadState & {
  */
 const BOT_HANDLE = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "").trim();
 
-const ACTION_BASE = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "8px",
-  minHeight: "48px",
-  borderRadius: MYTAB_RADIUS.sm,
-  fontWeight: 600,
-  fontSize: "15px",
-} as const;
+/** Artboard pairs a 48px *pair* with a 52px *single* (POLISH-SPEC §1.2). */
+const PAIR_ACTION_STYLE = { minHeight: "48px" } as const;
 
 /**
  * The two quick actions, and the two reasons they can be unavailable.
  *
  * `blockedReason` is never allowed to be silent: §4.5 requires every disabled
  * control to repeat the sentence on its own sub-line.
+ *
+ * These use the shared button classes so they pick up pressure, disabled
+ * paper/ink-muted, and the inset edge — the previous inline skins had none of
+ * those, and disabled was a 50% fade over Tab Blue.
  */
 function PrimaryActions({
   groups,
@@ -109,7 +107,7 @@ function PrimaryActions({
    */
   if (groups.length === 0) {
     return (
-      <div style={{ marginTop: "24px" }}>
+      <div style={{ marginTop: MYTAB_SPACING["6"] }}>
         <p className="mytab-type-body" style={{ margin: 0, color: MYTAB_COLORS.inkMuted }}>
           {STATE_COPY.noGroupContext}
         </p>
@@ -121,16 +119,8 @@ function PrimaryActions({
         {BOT_HANDLE ? (
           <a
             href={`https://t.me/${BOT_HANDLE}`}
-            style={{
-              ...ACTION_BASE,
-              display: "inline-flex",
-              marginTop: "12px",
-              padding: "0 20px",
-              background: MYTAB_COLORS.primary,
-              color: "#fff",
-              textDecoration: "none",
-              boxShadow: MYTAB_ELEVATION.buttonInset,
-            }}
+            className="mytab-button-primary"
+            style={{ ...PAIR_ACTION_STYLE, marginTop: MYTAB_SPACING["3"] }}
           >
             {TABS_HOME_COPY.openBot}
           </a>
@@ -145,30 +135,15 @@ function PrimaryActions({
     <div style={{ marginTop: "28px" }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         {disabled ? (
-          <span
-            aria-disabled="true"
-            style={{
-              ...ACTION_BASE,
-              background: MYTAB_COLORS.primary,
-              color: "#fff",
-              border: "none",
-              opacity: 0.5,
-            }}
-          >
+          <span className="mytab-button-primary" aria-disabled="true" style={PAIR_ACTION_STYLE}>
             <PlusIcon size={18} aria-hidden="true" />
             {TABS_HOME_COPY.startTab}
           </span>
         ) : (
           <StartTabAction
             groups={groups}
-            style={{
-              ...ACTION_BASE,
-              background: MYTAB_COLORS.primary,
-              color: "#fff",
-              border: "none",
-              boxShadow: MYTAB_ELEVATION.buttonInset,
-              cursor: "pointer",
-            }}
+            className="mytab-button-primary"
+            style={PAIR_ACTION_STYLE}
           >
             <PlusIcon size={18} aria-hidden="true" />
             {TABS_HOME_COPY.startTab}
@@ -176,30 +151,12 @@ function PrimaryActions({
         )}
 
         {disabled ? (
-          <span
-            aria-disabled="true"
-            style={{
-              ...ACTION_BASE,
-              background: MYTAB_COLORS.surface,
-              color: MYTAB_COLORS.ink,
-              border: `1px solid ${MYTAB_COLORS.border}`,
-              opacity: 0.5,
-            }}
-          >
+          <span className="mytab-button-secondary" aria-disabled="true" style={PAIR_ACTION_STYLE}>
             <TipIcon size={18} aria-hidden="true" style={{ color: MYTAB_COLORS.tip }} />
             {TABS_HOME_COPY.sendTip}
           </span>
         ) : (
-          <Link
-            href="/tips/new"
-            style={{
-              ...ACTION_BASE,
-              background: MYTAB_COLORS.surface,
-              color: MYTAB_COLORS.ink,
-              textDecoration: "none",
-              border: `1px solid ${MYTAB_COLORS.border}`,
-            }}
-          >
+          <Link href="/tips/new" className="mytab-button-secondary" style={PAIR_ACTION_STYLE}>
             <TipIcon size={18} aria-hidden="true" style={{ color: MYTAB_COLORS.tip }} />
             {TABS_HOME_COPY.sendTip}
           </Link>
@@ -215,6 +172,51 @@ function PrimaryActions({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function GroupRow({
+  group,
+}: {
+  group: { id: string; name: string; memberCount: number };
+}) {
+  return (
+    <Link
+      href={`/groups/${group.id}`}
+      className="mytab-row"
+      style={{
+        padding: "12px 16px",
+        minHeight: "56px",
+        alignItems: "center",
+        gridTemplateColumns: "40px minmax(0, 1fr) auto",
+        textDecoration: "none",
+        color: MYTAB_COLORS.ink,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: MYTAB_RADIUS.full,
+          background: MYTAB_COLORS.primarySoft,
+          color: MYTAB_COLORS.primary,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "15px",
+          fontWeight: 600,
+        }}
+      >
+        {monogram(group.name)}
+      </span>
+      <span className="mytab-row__label mytab-name" style={{ fontWeight: 600 }}>
+        {group.name}
+      </span>
+      <span className="mytab-type-meta mytab-row__amount">
+        {group.memberCount} {group.memberCount === 1 ? "member" : "members"}
+      </span>
+    </Link>
   );
 }
 
@@ -270,7 +272,7 @@ export function TabsHomeSurface({
   const noGroups = groups.length === 0;
 
   return (
-    <div style={{ paddingTop: "8px", paddingBottom: "24px" }}>
+    <div style={{ paddingBottom: MYTAB_SPACING["7"] }}>
       <OfflineBar visible={offline} />
       <OutsideTelegramBar visible={!inTelegram} />
 
@@ -284,6 +286,7 @@ export function TabsHomeSurface({
       ) : null}
 
       <SurfaceErrorBoundary headline={TABS_HOME_COPY.error} retryLabel={TABS_HOME_COPY.retry}>
+        <div style={{ paddingTop: MYTAB_SPACING["6"] }}>
         <AllSquareWatcher
           tabs={openTabs.map((tab) => ({
             tabId: tab.tabId,
@@ -317,54 +320,36 @@ export function TabsHomeSurface({
         </section>
 
         {balanceComponents.length > 0 ? (
-          <section style={{ marginTop: "32px" }}>
-            <SectionLabel>Your balances</SectionLabel>
-            {balanceComponents.map((component) => (
-              <BalanceLinkRow
-                key={`${component.tabId}-${component.billId}`}
-                label={component.label}
-                amount={formatFiatMinorThb(component.amountMinor)}
-                amountA11yLabel={formatThbMinorForA11y(component.amountMinor)}
-                tabId={component.tabId}
-                billId={component.billId}
-              />
-            ))}
-          </section>
+          <div style={{ marginTop: "32px" }}>
+            <ListCard label="Your balances">
+              {balanceComponents.map((component) => (
+                <BalanceLinkRow
+                  key={`${component.tabId}-${component.billId}`}
+                  label={component.label}
+                  amount={formatFiatMinorThb(component.amountMinor)}
+                  amountA11yLabel={formatThbMinorForA11y(component.amountMinor)}
+                  tabId={component.tabId}
+                  billId={component.billId}
+                />
+              ))}
+            </ListCard>
+          </div>
         ) : null}
 
         <section style={{ marginTop: "32px" }}>
-          <SectionLabel>Groups</SectionLabel>
           {noGroups ? (
-            <p className="mytab-type-meta" style={{ margin: 0 }}>
-              No groups yet.
-            </p>
+            <>
+              <SectionLabel>Groups</SectionLabel>
+              <p className="mytab-type-meta" style={{ margin: 0 }}>
+                No groups yet.
+              </p>
+            </>
           ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "8px" }}>
+            <ListCard label="Groups">
               {groups.map((group) => (
-                <li key={group.id}>
-                  <Link
-                    href={`/groups/${group.id}`}
-                    className="mytab-type-body mytab-row"
-                    style={{
-                      padding: "12px 0",
-                      minHeight: "44px",
-                      alignItems: "center",
-                      textDecoration: "none",
-                      color: MYTAB_COLORS.ink,
-                      borderBottom: `1px solid ${MYTAB_COLORS.border}`,
-                    }}
-                  >
-                    {/* `mytab-row__label` carries `min-width: 0`: a long group
-                        name ellipses instead of pushing the member count out
-                        past AppShell's `overflow-x: hidden` (§2.3). */}
-                    <span className="mytab-row__label">{group.name}</span>
-                    <span className="mytab-type-meta mytab-row__amount">
-                      {group.memberCount} {group.memberCount === 1 ? "member" : "members"}
-                    </span>
-                  </Link>
-                </li>
+                <GroupRow key={group.id} group={group} />
               ))}
-            </ul>
+            </ListCard>
           )}
         </section>
 
@@ -376,19 +361,24 @@ export function TabsHomeSurface({
             <p className="mytab-type-meta" style={{ margin: "0 0 12px" }}>
               {DEBT_COMPRESSION_DISCLAIMER}
             </p>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "8px" }}>
+            <ListCard>
               {compressedTransfers.map((transfer, index) => (
-                <li key={index}>
-                  <AmountPair
-                    label={`${memberNames[transfer.fromUserId] ?? transfer.fromUserId} → ${
-                      memberNames[transfer.toUserId] ?? transfer.toUserId
-                    }`}
-                    amount={formatFiatMinorThb(transfer.amountMinor)}
-                    amountA11yLabel={formatThbMinorForA11y(transfer.amountMinor)}
-                  />
-                </li>
+                <div
+                  key={index}
+                  style={{ padding: "16px", minHeight: 56, display: "flex", alignItems: "center" }}
+                >
+                  <div style={{ width: "100%", minWidth: 0 }}>
+                    <AmountPair
+                      label={`${memberNames[transfer.fromUserId] ?? transfer.fromUserId} → ${
+                        memberNames[transfer.toUserId] ?? transfer.toUserId
+                      }`}
+                      amount={formatFiatMinorThb(transfer.amountMinor)}
+                      amountA11yLabel={formatThbMinorForA11y(transfer.amountMinor)}
+                    />
+                  </div>
+                </div>
               ))}
-            </ul>
+            </ListCard>
           </section>
         ) : null}
 
@@ -399,6 +389,7 @@ export function TabsHomeSurface({
             <ActivityFeed events={recentActivity.slice(0, 5)} grouped={false} />
           </section>
         ) : null}
+        </div>
       </SurfaceErrorBoundary>
     </div>
   );

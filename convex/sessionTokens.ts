@@ -17,6 +17,7 @@ import { action, internalMutation, internalQuery, mutation } from "./_generated/
 import { internal } from "./_generated/api";
 import {
   INVITE_MINT_FAILURE,
+  TOKEN_REVOKE_FAILURE,
   admitToTabSession,
   consumeActionToken,
   decideInviteMint,
@@ -24,7 +25,7 @@ import {
   mintTabInviteToken,
   readChatMembershipProof,
   resolveSessionTokenByValue,
-  revokeSessionToken,
+  revokeTabInviteForOrganizer,
   type InviteMintResult,
   type TabAdmissionResult,
 } from "./lib/sessionTokenOps";
@@ -264,21 +265,24 @@ export const mintInvite = internalMutation({
 // The other two token classes.
 // ---------------------------------------------------------------------------
 
-/** Revokes a session token immediately (Story 1.9 AC4). */
+/**
+ * U-9 — organizer-on-roster only. The tab, the organizer, and the roster row
+ * all come off stored records (D-16 H7). A stranger and a missing token are
+ * the same 403-equivalent refusal, so this is not an oracle.
+ */
 export const revokeToken = mutation({
   args: {
     tokenId: v.id("sessionTokens"),
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-
-    const record = await ctx.db.get(args.tokenId);
-    if (!record) {
-      throw new Error("TOKEN_NOT_FOUND");
+    const result = await revokeTabInviteForOrganizer(ctx, {
+      tokenId: args.tokenId,
+      user,
+    });
+    if (!result.ok) {
+      throw new AuthError(TOKEN_REVOKE_FAILURE.UNAUTHORIZED);
     }
-
-    await requireProvenGroupMember(ctx, record.groupId, user);
-    await revokeSessionToken(ctx, args.tokenId);
     return { ok: true as const };
   },
 });

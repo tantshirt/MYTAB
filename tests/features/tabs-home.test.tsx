@@ -11,6 +11,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { TabsHomeSurface } from "@/features/balances/TabsHomeSurface";
+import { monogram } from "@/features/balances/monogram";
+import { MYTAB_ELEVATION } from "@/lib/theme/tokens";
 import {
   FIXTURE_ACTIVITY,
   FIXTURE_BALANCE_HERO,
@@ -133,6 +135,38 @@ describe("POLISH-SPEC §2.2, §2.9 — skeletons are first-paint only", () => {
     );
     expect(html).not.toContain('aria-busy="true"');
     expect(html).toContain("Sukhumvit Dinner");
+  });
+});
+
+describe("Phase 5 — Home containers and button classes", () => {
+  const baseProps = {
+    balanceHero: FIXTURE_BALANCE_HERO,
+    openTabs: FIXTURE_OPEN_TABS,
+    groups: [{ id: "g1", name: "Sukhumvit Dinner", memberCount: 5 }],
+    recentActivity: FIXTURE_ACTIVITY,
+    inTelegram: true,
+  };
+
+  it("puts groups in a surface card with a monogram, not a floating hairline", () => {
+    const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
+    expect(html).toContain(MYTAB_ELEVATION.cardShadow);
+    expect(html).toContain(`>${monogram("Sukhumvit Dinner")}<`);
+    expect(html).toContain("5 members");
+    // The old row painted its own border-bottom on paper.
+    expect(html).not.toMatch(/Sukhumvit Dinner<\/span><span[^>]*border-bottom/);
+  });
+
+  it("uses the shared button classes so the pair gets pressure and disabled paper", () => {
+    const ready = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
+    expect(ready).toContain("mytab-button-primary");
+    expect(ready).toContain("mytab-button-secondary");
+
+    const locked = renderToStaticMarkup(
+      <TabsHomeSurface {...baseProps} inTelegram={false} />,
+    );
+    expect(locked).toContain('aria-disabled="true"');
+    expect(locked).toContain("mytab-button-primary");
+    expect(locked).not.toContain("opacity:0.5");
   });
 });
 

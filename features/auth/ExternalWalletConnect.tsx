@@ -1,24 +1,29 @@
 "use client";
 
-import { isExternalWalletEnabled } from "@/lib/features/flags";
+import { useState } from "react";
+import { isConvexAuthFixtureMode } from "@/lib/privy/config";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
+import { NAMED_WALLET_LABELS, NAMED_WALLET_PROVIDERS } from "@/lib/wallet/providers";
+import { CONNECT_COPY } from "./connectCopy";
+import { useLinkExternalWallet, WalletLinkClientError } from "./useLinkExternalWallet";
 
 export type ExternalWalletConnectProps = {
   onConnect?: () => void;
+  onLinked?: () => void;
 };
 
-/**
- * P1 stub for wallet-standard external Solana connection (Story 1.10).
- * Hidden unless NEXT_PUBLIC_FEATURE_EXTERNAL_WALLET is enabled — embedded wallet remains default.
- */
-export function ExternalWalletConnect({ onConnect }: ExternalWalletConnectProps) {
-  if (!isExternalWalletEnabled()) {
-    return null;
-  }
-
+function ConnectButtons({
+  busy,
+  error,
+  onPick,
+}: {
+  busy: boolean;
+  error?: string;
+  onPick: (provider: (typeof NAMED_WALLET_PROVIDERS)[number]) => void;
+}) {
   return (
     <section
-      aria-label="Connect external wallet"
+      aria-label={CONNECT_COPY.sheetLabel}
       style={{
         padding: "16px",
         background: MYTAB_COLORS.surface,
@@ -34,7 +39,7 @@ export function ExternalWalletConnect({ onConnect }: ExternalWalletConnectProps)
           color: MYTAB_COLORS.ink,
         }}
       >
-        Use your own wallet
+        {CONNECT_COPY.title}
       </h2>
       <p
         style={{
@@ -43,37 +48,89 @@ export function ExternalWalletConnect({ onConnect }: ExternalWalletConnectProps)
           color: MYTAB_COLORS.inkMuted,
         }}
       >
-        Connect a Solana wallet you already own to receive tips and settlements there instead of
-        the embedded wallet.
+        {CONNECT_COPY.body}
       </p>
-      <button
-        type="button"
-        onClick={onConnect}
-        style={{
-          width: "100%",
-          minHeight: "44px",
-          borderRadius: MYTAB_RADIUS.sm,
-          border: `1px solid ${MYTAB_COLORS.primary}`,
-          background: MYTAB_COLORS.primarySoft,
-          color: MYTAB_COLORS.primary,
-          fontSize: MYTAB_TYPOGRAPHY.body.size,
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
-      >
-        Connect external wallet
-      </button>
-      <p
-        style={{
-          margin: "12px 0 0",
-          fontSize: MYTAB_TYPOGRAPHY.meta.size,
-          color: MYTAB_COLORS.inkSubtle,
-        }}
-      >
-        Preview only — signature verification and wallet records ship in a later story.
-      </p>
+      {NAMED_WALLET_PROVIDERS.map((provider) => (
+        <button
+          key={provider}
+          type="button"
+          disabled={busy}
+          onClick={() => onPick(provider)}
+          style={{
+            width: "100%",
+            minHeight: "44px",
+            marginBottom: "8px",
+            borderRadius: MYTAB_RADIUS.sm,
+            border: `1px solid ${MYTAB_COLORS.primary}`,
+            background: MYTAB_COLORS.primarySoft,
+            color: MYTAB_COLORS.primary,
+            fontSize: MYTAB_TYPOGRAPHY.body.size,
+            fontWeight: 600,
+            cursor: busy ? "wait" : "pointer",
+          }}
+        >
+          {`Connect ${NAMED_WALLET_LABELS[provider]}`}
+        </button>
+      ))}
+      {error ? (
+        <p
+          role="alert"
+          style={{
+            margin: "8px 0 0",
+            fontSize: MYTAB_TYPOGRAPHY.meta.size,
+            color: MYTAB_COLORS.owed,
+          }}
+        >
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }
 
-export { isExternalWalletEnabled };
+function LiveExternalWalletConnect({ onConnect, onLinked }: ExternalWalletConnectProps) {
+  const { linkNamed } = useLinkExternalWallet();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+
+  return (
+    <ConnectButtons
+      busy={busy}
+      error={error}
+      onPick={(provider) => {
+        onConnect?.();
+        setBusy(true);
+        setError(undefined);
+        void linkNamed(provider)
+          .then(() => {
+            setBusy(false);
+            onLinked?.();
+          })
+          .catch((caught: unknown) => {
+            setBusy(false);
+            setError(
+              caught instanceof WalletLinkClientError ? caught.message : CONNECT_COPY.failed,
+            );
+          });
+      }}
+    />
+  );
+}
+
+/**
+ * Named-wallet connect (D-21, D-28). Replaces the Story 1.10 stub.
+ * Linking is a signed challenge — this surface never accepts an address.
+ */
+export function ExternalWalletConnect(props: ExternalWalletConnectProps) {
+  if (isConvexAuthFixtureMode()) {
+    return (
+      <ConnectButtons
+        busy={false}
+        onPick={() => {
+          props.onConnect?.();
+        }}
+      />
+    );
+  }
+  return <LiveExternalWalletConnect {...props} />;
+}

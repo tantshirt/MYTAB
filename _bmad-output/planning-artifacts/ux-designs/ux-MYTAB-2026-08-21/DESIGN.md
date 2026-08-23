@@ -118,11 +118,14 @@ components:
 > - **D-16** — §Components, `all-square-card`: the wash is **46%**, not 40%, and uses two
 >   tokens this file does not define (`tip-wash-top`, `tip-wash-mid`), because `colors/tip` is
 >   too dark to sit behind 42px ink.
-> - **D-09 / U-1** — §Components, `token-chip` "**No token logos**" is unamended and still
->   binding, but the product now consumes Jupiter token metadata (which includes logos) and
->   carries a contractual attribution string containing a banned word. Unresolved; do not
->   resolve it by adding a logo.
-> - **D-03** — the anti-swap-UI position is **strengthened**, not weakened, by DFlow routing.
+> - **D-09 / D-22** — §Components, `token-chip` "**No token logos**" is superseded on the
+>   D-22 picker. Logos ship there. `Powered by Jupiter` ships as that picker's footer — an
+>   approved exception to the banned-copy list for a contractual string (U-1 resolved). Do
+>   not add logos or the string to a second surface.
+> - **D-03 / D-22** — the anti-swap-UI position is **strengthened**, not weakened. D-22
+>   amends "the mechanism does not get a screen": a token picker, a live quote and a
+>   plainly stated price-protection figure are now a first-class surface. Banned copy still
+>   applies at full force.
 >
 > The canonical demo fixture named below (Sukhumvit Dinner, ฿1,840.00) is a **design
 > reference only**. Per **D-11**, no fixture or demo data ships in application source.

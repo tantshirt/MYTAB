@@ -98,6 +98,7 @@ export const MYTAB_GLOBAL_CSS = `
 
     --mytab-elevation-card: ${MYTAB_ELEVATION.cardShadow};
     --mytab-elevation-button-inset: ${MYTAB_ELEVATION.buttonInset};
+    --mytab-elevation-button-pressed: ${MYTAB_ELEVATION.buttonPressed};
     --mytab-elevation-sheet: ${MYTAB_ELEVATION.sheetShadow};
 
     font-variant-numeric: tabular-nums lining-nums;
@@ -327,7 +328,16 @@ export const MYTAB_GLOBAL_CSS = `
     -webkit-appearance: none;
     appearance: none;
     cursor: pointer;
-    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mytab-button-primary,
+    .mytab-button-secondary {
+      transition: none;
+    }
   }
 
   /* ---------------------------------------------------------------------
@@ -369,6 +379,7 @@ export const MYTAB_GLOBAL_CSS = `
   .mytab-button-primary:active:not(:disabled) {
     background: ${MYTAB_COLORS.primaryDeep};
     border-color: ${MYTAB_COLORS.primaryDeep};
+    box-shadow: ${MYTAB_ELEVATION.buttonPressed};
   }
 
   .mytab-button-secondary {

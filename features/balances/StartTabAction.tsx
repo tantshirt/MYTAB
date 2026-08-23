@@ -4,12 +4,9 @@ import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
+import { monogram } from "./monogram";
 
 export type StartTabGroup = { id: string; name: string; memberCount: number };
-
-function monogram(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "?";
-}
 
 /**
  * "Start a tab" — a bottom sheet, never a route (POLISH-SPEC §1.2).

@@ -112,6 +112,7 @@ convexEnvSet("TELEGRAM_BOT_TOKEN", botToken, deploymentFlag);
 convexEnvSet("TELEGRAM_WEBHOOK_SECRET", webhookSecret, deploymentFlag);
 convexEnvSet("TELEGRAM_BOT_USERNAME", botUsername, deploymentFlag);
 convexEnvSet("TELEGRAM_MINIAPP_NAME", miniAppName, deploymentFlag);
+convexEnvSet("TELEGRAM_MINIAPP_URL", miniAppUrl, deploymentFlag);
 
 console.log("\nRegistering Telegram webhook...");
 const webhook = await telegramApi("setWebhook", {
@@ -122,6 +123,33 @@ const webhook = await telegramApi("setWebhook", {
 });
 
 console.log(`Webhook registered: ${webhook ? "ok" : "ok"}`);
+
+console.log("\nRegistering command menus and Menu button...");
+await telegramApi("setMyCommands", {
+  commands: [
+    { command: "tab", description: "Start a tab" },
+    { command: "balance", description: "Where you stand" },
+    { command: "tip", description: "Send someone a tip" },
+    { command: "help", description: "What My Tab does" },
+  ],
+  scope: { type: "all_private_chats" },
+});
+await telegramApi("setMyCommands", {
+  commands: [
+    { command: "tab", description: "Start a tab for this group" },
+    { command: "balance", description: "Where you stand" },
+    { command: "tip", description: "Send someone a tip" },
+  ],
+  scope: { type: "all_group_chats" },
+});
+await telegramApi("setChatMenuButton", {
+  menu_button: {
+    type: "web_app",
+    text: "Open My Tab",
+    web_app: { url: miniAppUrl },
+  },
+});
+console.log("Commands and Menu button registered.");
 
 const info = await telegramApi("getWebhookInfo", {});
 console.log("\nWebhook info:");

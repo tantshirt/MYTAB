@@ -21,7 +21,9 @@ import { fakeId } from "../helpers/convexFakeDb";
 type WalletDoc = {
   _id: Id<"wallets">;
   userId: Id<"users">;
-  privyWalletId: string;
+  kind: "embedded" | "external";
+  privyWalletId?: string;
+  provider?: "phantom" | "solflare" | "backpack" | "standard";
   solanaAddress: string;
   isEmbedded: boolean;
   isDefaultReceiving: boolean;
@@ -122,6 +124,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
     expect(wallets).toHaveLength(1);
     expect(wallets[0]).toMatchObject({
       userId: fakeId("users:1"),
+      kind: "embedded",
       privyWalletId: "wallet-1",
       solanaAddress: "SolAddr1",
       isEmbedded: true,
@@ -130,6 +133,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
     expect(Object.keys(wallets[0]!)).toEqual([
       "_id",
       "userId",
+      "kind",
       "privyWalletId",
       "solanaAddress",
       "isEmbedded",
@@ -155,7 +159,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
       {
         _id: fakeId("wallets:1"),
         userId: fakeId("users:1"),
-        privyWalletId: "external-1",
+        kind: "external",
+        provider: "phantom",
         solanaAddress: "ExternalAddr",
         isEmbedded: false,
         isDefaultReceiving: true,
@@ -181,6 +186,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
       {
         _id: fakeId("wallets:1"),
         userId: fakeId("users:1"),
+        kind: "embedded",
         privyWalletId: "wallet-1",
         solanaAddress: "OldAddr",
         isEmbedded: true,
@@ -208,6 +214,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
       {
         _id: fakeId("wallets:1"),
         userId: fakeId("users:1"),
+        kind: "embedded",
         privyWalletId: "wallet-1",
         solanaAddress: "Addr1",
         isEmbedded: true,
@@ -218,7 +225,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
       {
         _id: fakeId("wallets:2"),
         userId: fakeId("users:1"),
-        privyWalletId: "wallet-2",
+        kind: "external",
+        provider: "phantom",
         solanaAddress: "Addr2",
         isEmbedded: false,
         isDefaultReceiving: true,
@@ -246,6 +254,7 @@ describe("Story 1.8 — wallet sync helpers", () => {
       {
         _id: fakeId("wallets:1"),
         userId: fakeId("users:1"),
+        kind: "embedded",
         privyWalletId: "wallet-1",
         solanaAddress: "Addr1",
         isEmbedded: true,
@@ -256,7 +265,8 @@ describe("Story 1.8 — wallet sync helpers", () => {
       {
         _id: fakeId("wallets:2"),
         userId: fakeId("users:1"),
-        privyWalletId: "wallet-2",
+        kind: "external",
+        provider: "solflare",
         solanaAddress: "Addr2",
         isEmbedded: false,
         isDefaultReceiving: false,

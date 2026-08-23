@@ -144,7 +144,7 @@ function world(): Record<string, Row[]> {
     obligationLedgerEvents: [],
     settlementIntents: [],
     wallets: [
-      { _id: "wallets:w1", userId: "users:maya", privyWalletId: "pw", solanaAddress: "MayaAddr", isEmbedded: true, isDefaultReceiving: true, createdAt: 1, updatedAt: 1 },
+      { _id: "wallets:w1", userId: "users:maya", kind: "embedded", privyWalletId: "pw", solanaAddress: "MayaAddr", isEmbedded: true, isDefaultReceiving: true, createdAt: 1, updatedAt: 1 },
     ],
     activityEvents: [
       { _id: "activityEvents:a1", groupId: "groups:g1", type: "claim", payload: { summary: "Maya claimed Green Curry" }, createdAt: 100 },

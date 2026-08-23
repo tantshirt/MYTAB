@@ -29,6 +29,14 @@ export const CONVEX_ONLY_KEYS = [
    * does not exist. */
   "TELEGRAM_BOT_USERNAME",
   "TELEGRAM_MINIAPP_NAME",
+  /** HTTPS Mini App origin for web_app buttons and the Menu button. */
+  "TELEGRAM_MINIAPP_URL",
+  /**
+   * Receipt extraction (D-32). Convex Node action only — never NEXT_PUBLIC_,
+   * never duplicated onto Vercel because the gateway is a Vercel product.
+   */
+  "AI_GATEWAY_API_KEY",
+  /** Deprecated — extraction uses AI_GATEWAY_API_KEY. Kept so a leftover cannot land on Vercel. */
   "OPENAI_API_KEY",
   "PRIVY_APP_SECRET",
   "PRIVY_SPONSOR_WALLET_ID",
@@ -37,6 +45,16 @@ export const CONVEX_ONLY_KEYS = [
   "SOLANA_RPC_API_KEY",
   "FX_POLICY",
   "PROVIDER_WEBHOOK_SECRET",
+  /**
+   * Operator list of reconciliation incidents (D-30). Convex HTTP only.
+   * Never NEXT_PUBLIC_. Missing secret fails closed — the list 403s.
+   */
+  "OPERATOR_RECONCILIATION_SECRET",
+  /**
+   * One-shot tab-card still (U-8 / D-31). Convex-only. Never NEXT_PUBLIC_.
+   * Runtime delivery reuses a Telegram file_id; this key is for generate/regenerate.
+   */
+  "KIE_API_KEY",
 ] as const;
 
 /** Client-safe public keys — the only allowed NEXT_PUBLIC_* server-adjacent vars. */
