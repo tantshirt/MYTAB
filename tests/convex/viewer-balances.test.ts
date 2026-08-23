@@ -355,6 +355,80 @@ describe("balances.listOpenTabsForViewer", () => {
     const cards = await run(balances.listOpenTabsForViewer, ctx, { groupId: "groups:g1" });
     expect(cards[0]).toMatchObject({ amountTone: "settled" });
   });
+
+  /* ------------------------------------------------------------------
+     The live-tab fields. Everything here is presence and progress, never
+     money: a wrong claim count is a cosmetic defect, and a wrong figure is
+     the defect this product exists to avoid. They are asserted separately
+     for exactly that reason.
+     ------------------------------------------------------------------ */
+
+  function withBill(store: Record<string, Row[]>): void {
+    store.items = [
+      { _id: "items:i1", tabId: "tabs:t1", name: "Green Curry", quantity: 1, unitPriceMinor: 18_000, lineTotalMinor: 18_000, sortOrder: 0, source: "manual", createdAt: 1, updatedAt: 1 },
+      { _id: "items:i2", tabId: "tabs:t1", name: "Pad Thai", quantity: 1, unitPriceMinor: 16_000, lineTotalMinor: 16_000, sortOrder: 1, source: "manual", createdAt: 1, updatedAt: 1 },
+      { _id: "items:i3", tabId: "tabs:t1", name: "ต้มยำกุ้ง", quantity: 1, unitPriceMinor: 24_000, lineTotalMinor: 24_000, sortOrder: 2, source: "manual", createdAt: 1, updatedAt: 1 },
+      { _id: "items:i4", tabId: "tabs:t1", name: "Som Tam", quantity: 1, unitPriceMinor: 12_000, lineTotalMinor: 12_000, sortOrder: 3, source: "manual", createdAt: 1, updatedAt: 1 },
+      { _id: "items:i5", tabId: "tabs:t1", name: "Coconut Water", quantity: 1, unitPriceMinor: 9_000, lineTotalMinor: 9_000, sortOrder: 4, source: "manual", createdAt: 1, updatedAt: 1 },
+    ];
+    store.allocations = [
+      { _id: "allocations:a1", tabId: "tabs:t1", itemId: "items:i1", userId: "users:maya", revision: 1, mode: "full", amountMinor: 18_000n, roundingMinor: 0n, createdAt: 1, updatedAt: 1 },
+      { _id: "allocations:a2", tabId: "tabs:t1", itemId: "items:i4", userId: "users:andre", revision: 1, mode: "full", amountMinor: 12_000n, roundingMinor: 0n, createdAt: 1, updatedAt: 1 },
+    ];
+  }
+
+  it("reports who is in the room and how many items each has taken", async () => {
+    withBill(store);
+
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+    const [card] = await run(balances.listOpenTabsForViewer, ctx);
+
+    expect(card.participants).toEqual([
+      { userId: "users:andre", displayName: "Andre", claimedCount: 1 },
+      { userId: "users:maya", displayName: "Maya", claimedCount: 1 },
+      { userId: "users:tim", displayName: "Tim", claimedCount: 0 },
+    ]);
+  });
+
+  it("counts claimed items and previews the rest without hiding the total", async () => {
+    withBill(store);
+
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+    const [card] = await run(balances.listOpenTabsForViewer, ctx);
+
+    expect(card.itemCount).toBe(5);
+    expect(card.claimedItemCount).toBe(2);
+    // Three unclaimed items, and the preview names all three.
+    expect(card.unclaimedCount).toBe(3);
+    expect(card.unclaimedItems).toEqual([
+      { itemId: "items:i2", name: "Pad Thai", lineTotalMinor: 16_000 },
+      { itemId: "items:i3", name: "ต้มยำกุ้ง", lineTotalMinor: 24_000 },
+      { itemId: "items:i5", name: "Coconut Water", lineTotalMinor: 9_000 },
+    ]);
+  });
+
+  it("caps the preview but never the count it reports", async () => {
+    withBill(store);
+    store.allocations = [];
+
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+    const [card] = await run(balances.listOpenTabsForViewer, ctx);
+
+    // Five items, none claimed: the card names three and still says five.
+    expect(card.unclaimedItems).toHaveLength(3);
+    expect(card.unclaimedCount).toBe(5);
+    expect(card.claimedItemCount).toBe(0);
+  });
+
+  it("reports a bill with no items as having nothing to claim", async () => {
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+    const [card] = await run(balances.listOpenTabsForViewer, ctx);
+
+    expect(card.itemCount).toBe(0);
+    expect(card.claimedItemCount).toBe(0);
+    expect(card.unclaimedCount).toBe(0);
+    expect(card.unclaimedItems).toEqual([]);
+  });
 });
 
 describe("obligations reads — authorization", () => {

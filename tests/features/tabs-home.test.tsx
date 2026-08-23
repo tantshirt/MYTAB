@@ -11,61 +11,143 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { TabsHomeSurface } from "@/features/balances/TabsHomeSurface";
-import { monogram } from "@/features/balances/monogram";
-import { MYTAB_ELEVATION } from "@/lib/theme/tokens";
 import {
   FIXTURE_ACTIVITY,
+  FIXTURE_BALANCE_COMPONENTS,
   FIXTURE_BALANCE_HERO,
   FIXTURE_OPEN_TABS,
 } from "@/tests/fixtures/balances";
 
-describe("Story 7.2 — Tabs home", () => {
-  const baseProps = {
-    balanceHero: FIXTURE_BALANCE_HERO,
-    openTabs: FIXTURE_OPEN_TABS,
-    groups: [{ id: "g1", name: "Sukhumvit Dinner", memberCount: 5 }],
-    recentActivity: FIXTURE_ACTIVITY,
-    inTelegram: true,
-  };
+const baseProps = {
+  balanceHero: FIXTURE_BALANCE_HERO,
+  openTabs: FIXTURE_OPEN_TABS,
+  groups: [{ id: "g1", name: "Sukhumvit Dinner", memberCount: 5 }],
+  recentActivity: FIXTURE_ACTIVITY,
+  balanceComponents: FIXTURE_BALANCE_COMPONENTS,
+  inTelegram: true,
+};
 
-  it("AC1 — fixed hierarchy with hero first", () => {
+/*
+ * Story 7.2 AC1 asked for a fixed hierarchy: hero → two actions → tabs →
+ * groups → recent. That hierarchy is deliberately gone, and this is the file
+ * that records why.
+ *
+ * Every section was the same weight, so the one tab five people were claiming
+ * on at that moment rendered identically to a group roster. The surface now
+ * ranks by what is HAPPENING: the live tab takes the screen, everything merely
+ * open drops below it, and Groups moved to You (a group is picked inside the
+ * start-a-tab flow, so a roster on the home screen bought nothing).
+ *
+ * What did NOT change is the part AC1 existed to protect: the order is still
+ * fixed, and it is still asserted here.
+ */
+describe("Tabs home — a live tab owns the screen", () => {
+  it("ranks live tab, then merely open, then people, then what just happened", () => {
     const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
-    expect(html.indexOf("You owe")).toBeLessThan(html.indexOf("Start a tab"));
-    expect(html.indexOf("Start a tab")).toBeLessThan(html.indexOf("Open tabs"));
-    // The section micro-label is "RECENT" on the artboard (POLISH-SPEC §1.2).
-    expect(html.indexOf("Open tabs")).toBeLessThan(html.indexOf("Groups"));
-    expect(html.indexOf("Groups")).toBeLessThan(html.indexOf("Recent"));
+
+    // The live tab's own name and hero come before anything else.
+    expect(html.indexOf("Your share")).toBeLessThan(html.indexOf("Also open"));
+    expect(html.indexOf("Also open")).toBeLessThan(html.indexOf("People"));
+    expect(html.indexOf("People")).toBeLessThan(html.indexOf("Just happened"));
   });
 
-  it("AC2 — two primary actions", () => {
+  it("puts the whole position in the top bar without rounding it", () => {
     const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
-    expect(html).toContain("Start a tab");
-    expect(html).toContain("Send a tip");
+    // ฿211.74 — the net, in full, above the live card.
+    expect(html).toContain("211.74");
+    expect(html).not.toContain("About ");
+    expect(html).not.toContain("~");
   });
 
-  it("AC5 — empty state copy", () => {
+  it("renders the live tab's room, progress and unclaimed pool", () => {
+    const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
+
+    expect(html).toContain("Live");
+    // Two of five have claimed nothing... plus Tim and Ploy. Three still choosing.
+    expect(html).toContain("3 still choosing");
+    expect(html).toContain("8 of 12 claimed");
+    expect(html).toContain("Left to claim");
+    expect(html).toContain("Pad Thai");
+    // Four unclaimed, three named: the remainder is shown, never swallowed.
+    expect(html).toContain("+1");
+  });
+
+  it("keeps the locked tab out of the live slot and in the list below", () => {
+    const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
+
+    // The live card is the open tab; the locked one is a plain card under it.
+    expect(html.indexOf("Sukhumvit Dinner")).toBeLessThan(
+      html.indexOf("After-dinner drinks"),
+    );
+    expect(html.indexOf("Also open")).toBeLessThan(html.indexOf("After-dinner drinks"));
+  });
+
+  it("offers review rather than claim once the viewer has taken something", () => {
+    const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
+    // The fixture viewer has claimed two items.
+    expect(html).toContain("Review your items");
+    expect(html).not.toContain("Claim your items");
+  });
+
+  it("falls back to the position card when nothing is live", () => {
     const html = renderToStaticMarkup(
       <TabsHomeSurface
         {...baseProps}
-        openTabs={[]}
-        groups={[]}
+        openTabs={FIXTURE_OPEN_TABS.filter((tab) => tab.status === "locked")}
       />,
     );
-    expect(html).toContain("No tabs yet. Start one from any Telegram group.");
+
+    expect(html).not.toContain("Your share");
+    expect(html).toContain("Open tabs");
+    // The net position is now the 42px figure rather than a pill.
+    expect(html).toContain("You owe");
+  });
+});
+
+describe("Tabs home — people carry their own colour", () => {
+  it("says the direction in words, never in colour alone", () => {
+    const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
+    expect(html).toContain("you owe");
+    expect(html).toContain("owes you");
+  });
+});
+
+describe("Tabs home — empty and blocked states", () => {
+  it("§4.2 — first run is one sentence and one button", () => {
+    const html = renderToStaticMarkup(
+      <TabsHomeSurface
+        {...baseProps}
+        balanceHero={undefined}
+        openTabs={[]}
+        balanceComponents={[]}
+        recentActivity={[]}
+      />,
+    );
+
+    expect(html).toContain("Start a tab.");
+    expect(html).toContain("Everyone taps what they had");
+    // No empty section headers over nothing.
+    expect(html).not.toContain("Also open");
+    expect(html).not.toContain("People");
   });
 
   /*
    * POLISH-SPEC §4.5 separates two states the surface used to conflate.
    *
    *   - No verified group: there is nowhere to start a tab, so the surface
-   *     explains the bot path. This is the *no group context* case and it is
-   *     independent of where the app is running.
+   *     explains the bot path. Independent of where the app is running.
    *   - Outside Telegram: reads work and every mutation is locked, with the
-   *     write-lock sentence repeated on the disabled controls' own sub-line.
+   *     write-lock sentence repeated on the disabled control's own sub-line.
    */
   it("AC6 — no group context explains the bot path", () => {
     const html = renderToStaticMarkup(
-      <TabsHomeSurface {...baseProps} groups={[]} openTabs={[]} />,
+      <TabsHomeSurface
+        {...baseProps}
+        balanceHero={undefined}
+        groups={[]}
+        openTabs={[]}
+        balanceComponents={[]}
+      />,
     );
     expect(html).toContain("Open My Tab from a Telegram group to start a tab");
   });
@@ -77,7 +159,13 @@ describe("Story 7.2 — Tabs home", () => {
    */
   it("AC6 — the bot link is absent when no bot handle is configured", () => {
     const html = renderToStaticMarkup(
-      <TabsHomeSurface {...baseProps} groups={[]} openTabs={[]} />,
+      <TabsHomeSurface
+        {...baseProps}
+        balanceHero={undefined}
+        groups={[]}
+        openTabs={[]}
+        balanceComponents={[]}
+      />,
     );
     expect(html).not.toContain("Open bot");
     expect(html).not.toContain("t.me/");
@@ -93,11 +181,12 @@ describe("Story 7.2 — Tabs home", () => {
     expect(html).toContain("Sukhumvit Dinner");
   });
 
-  it("§4.2 — the recent section is omitted entirely when there is no activity", () => {
+  it("§4.2 — the activity section is omitted entirely when there is nothing", () => {
     const html = renderToStaticMarkup(
       <TabsHomeSurface {...baseProps} recentActivity={[]} />,
     );
-    expect(html).not.toContain("Recent");
+    expect(html).not.toContain("Just happened");
+    expect(html).not.toContain("Tim paid Maya");
   });
 
   it("§4.3 — a query error names its next action", () => {
@@ -108,14 +197,6 @@ describe("Story 7.2 — Tabs home", () => {
 });
 
 describe("POLISH-SPEC §2.2, §2.9 — skeletons are first-paint only", () => {
-  const baseProps = {
-    balanceHero: FIXTURE_BALANCE_HERO,
-    openTabs: FIXTURE_OPEN_TABS,
-    groups: [{ id: "g1", name: "Sukhumvit Dinner", memberCount: 5 }],
-    recentActivity: FIXTURE_ACTIVITY,
-    inTelegram: true,
-  };
-
   it("reserves the amount column at its tabular width on first paint", () => {
     const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} loading />);
     expect(html).toContain('aria-busy="true"');
@@ -135,53 +216,5 @@ describe("POLISH-SPEC §2.2, §2.9 — skeletons are first-paint only", () => {
     );
     expect(html).not.toContain('aria-busy="true"');
     expect(html).toContain("Sukhumvit Dinner");
-  });
-});
-
-describe("Phase 5 — Home containers and button classes", () => {
-  const baseProps = {
-    balanceHero: FIXTURE_BALANCE_HERO,
-    openTabs: FIXTURE_OPEN_TABS,
-    groups: [{ id: "g1", name: "Sukhumvit Dinner", memberCount: 5 }],
-    recentActivity: FIXTURE_ACTIVITY,
-    inTelegram: true,
-  };
-
-  it("puts groups in a surface card with a monogram, not a floating hairline", () => {
-    const html = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
-    expect(html).toContain(MYTAB_ELEVATION.cardShadow);
-    expect(html).toContain(`>${monogram("Sukhumvit Dinner")}<`);
-    expect(html).toContain("5 members");
-    // The old row painted its own border-bottom on paper.
-    expect(html).not.toMatch(/Sukhumvit Dinner<\/span><span[^>]*border-bottom/);
-  });
-
-  it("uses the shared button classes so the pair gets pressure and disabled paper", () => {
-    const ready = renderToStaticMarkup(<TabsHomeSurface {...baseProps} />);
-    expect(ready).toContain("mytab-button-primary");
-    expect(ready).toContain("mytab-button-secondary");
-
-    const locked = renderToStaticMarkup(
-      <TabsHomeSurface {...baseProps} inTelegram={false} />,
-    );
-    expect(locked).toContain('aria-disabled="true"');
-    expect(locked).toContain("mytab-button-primary");
-    expect(locked).not.toContain("opacity:0.5");
-  });
-});
-
-describe("Story 7.9 — offline bar", () => {
-  it("AC4 — offline copy", () => {
-    const html = renderToStaticMarkup(
-      <TabsHomeSurface
-        balanceHero={{ kind: "all_square" }}
-        openTabs={[]}
-        groups={[]}
-        recentActivity={[]}
-        offline
-      />,
-    );
-    expect(html).toContain("offline");
-    expect(html).toContain("catch up");
   });
 });

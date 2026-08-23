@@ -14,7 +14,7 @@ import { formatFiatMinorThb } from "@/lib/domain/format";
 import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import type { TabsHomeSurfaceProps } from "./TabsHomeSurface";
-import type { TabCardProps } from "./TabCard";
+import type { OpenTabRow } from "./openTabRow";
 
 export type TabsHomeData = {
   status: "loading" | "ready" | "error";
@@ -105,7 +105,9 @@ export function useTabsHomeData(): TabsHomeData {
       }
     }
 
-    const openTabs: TabCardProps[] = (tabs.data ?? []).map((tab) => {
+    const viewerUserId = view?.viewerUserId ?? null;
+
+    const openTabs: OpenTabRow[] = (tabs.data ?? []).map((tab) => {
       const amountMinor = fiatMinorFromInteger(tab.viewerAmountMinor ?? 0);
       const totalMinor =
         tab.billTotalMinor === null ? null : fiatMinorFromInteger(tab.billTotalMinor);
@@ -123,6 +125,27 @@ export function useTabsHomeData(): TabsHomeData {
         amountA11yLabel: formatThbMinorForA11y(amountMinor),
         amountTone: tab.amountTone,
         href: `/tabs/${tab.tabId}`,
+        updatedAt: tab.updatedAt,
+        startedAt: tab.startedAt,
+        participants: tab.participants.map((participant) => ({
+          userId: participant.userId,
+          displayName: participant.displayName,
+          claimedCount: participant.claimedCount,
+        })),
+        itemCount: tab.itemCount,
+        claimedItemCount: tab.claimedItemCount,
+        unclaimedItems: tab.unclaimedItems.map((item) => ({
+          itemId: item.itemId,
+          name: item.name,
+          amountLabel: formatFiatMinorThb(fiatMinorFromInteger(item.lineTotalMinor)),
+        })),
+        unclaimedCount: tab.unclaimedCount,
+        viewerClaimedCount:
+          viewerUserId === null
+            ? 0
+            : (tab.participants.find((one) => one.userId === viewerUserId)?.claimedCount ??
+              0),
+        viewerAmountMinor: amountMinor,
       };
     });
 
@@ -151,14 +174,27 @@ export function useTabsHomeData(): TabsHomeData {
         memberCount: group.memberCount,
       })),
       recentActivity: (activity.data ?? []).map(toActivityRow),
-      balanceComponents: (view?.components ?? [])
-        .filter((component) => component.direction === "owe")
-        .map((component) => ({
-          label: `Owe ${memberNames[component.creditorUserId] ?? "them"}`,
+      /*
+       * Both directions now, not just what the viewer owes. The section this
+       * feeds is "People" — who you are square with is as much a fact about a
+       * person as who you owe, and hiding the credit side made a group where
+       * two people owe you look like a group where nothing is outstanding.
+       */
+      balanceComponents: (view?.components ?? []).map((component) => {
+        const owes = component.direction === "owe";
+        const counterpartyUserId = owes
+          ? component.creditorUserId
+          : component.debtorUserId;
+
+        return {
+          counterpartyUserId,
+          counterpartyName: memberNames[counterpartyUserId] ?? "Someone",
+          direction: component.direction,
           amountMinor: fiatMinorFromInteger(component.amountMinor),
           tabId: component.tabId,
           billId: component.billId,
-        })),
+        };
+      }),
       compressedTransfers,
       memberNames,
     };

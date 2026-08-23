@@ -31,9 +31,17 @@ export function ActivitySurface({
   return (
     <main style={{ paddingBottom: "32px" }}>
       <OutsideTelegramBar visible={!inTelegram} />
-      <h1 className="mytab-type-title" style={{ margin: "24px 0 16px" }}>
+      <h1 className="mytab-type-amount-md" style={{ margin: "24px 0 5px" }}>
         Activity
       </h1>
+      {/*
+        Tabs home now shows what is happening; this surface is the record of
+        what happened. Saying so is what stops the two reading as the same list
+        twice.
+      */}
+      <p className="mytab-type-meta" style={{ margin: "0 0 16px" }}>
+        Every settled tab, with its receipt.
+      </p>
       <ActivityFeed
         events={events}
         loading={loading}

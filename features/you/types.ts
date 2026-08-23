@@ -26,6 +26,20 @@ export type YouSurfaceData = {
   supportUrl: string;
   /** U-9 — live invite links this organizer can stop. */
   liveInvites?: LiveInvite[];
+  /**
+   * The viewer's groups.
+   *
+   * They live here rather than on Tabs home: a group is picked inside the
+   * start-a-tab flow, so a roster on the home screen was a section nobody
+   * acted on sitting above sections people did.
+   */
+  groups?: YouGroup[];
+};
+
+export type YouGroup = {
+  id: string;
+  name: string;
+  memberCount: number;
 };
 
 export type LiveInvite = {

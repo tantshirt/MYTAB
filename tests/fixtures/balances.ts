@@ -7,7 +7,7 @@ import { thbMinorFromInteger } from "@/lib/domain/parse";
 import { thbMinorToUsdcAtomicFixture } from "@/lib/domain/fxFixture";
 import { ACTIVITY_EVENT_TYPE } from "@/lib/domain/activityTypes";
 import type { ActivityRowData } from "@/features/balances/ActivityFeed";
-import type { TabCardProps } from "@/features/balances/TabCard";
+import type { OpenTabRow } from "@/features/balances/openTabRow";
 
 /**
  * The Sukhumvit Dinner cast, for tests and for the responsive sweep only.
@@ -110,7 +110,20 @@ export const FIXTURE_BALANCE_HERO: BalanceHeroState = resolveBalanceHero({
   settledUsdcAtomic: thbMinorToUsdcAtomicFixture(thbMinorFromInteger(21_174)),
 });
 
-export const FIXTURE_OPEN_TABS: TabCardProps[] = [
+/**
+ * Two open tabs, deliberately in the two states Tabs home distinguishes: one
+ * still being claimed on (the live card) and one locked and settling (the
+ * quiet list below it).
+ */
+/**
+ * Relative to now, like `FIXTURE_ACTIVITY`. Fixed epoch literals made the
+ * responsive sweep render "started 1012d ago", which is both nonsense and a
+ * string three times longer than any real one — so the sweep was measuring a
+ * layout no user will ever see.
+ */
+const FIXTURE_NOW = Date.now();
+
+export const FIXTURE_OPEN_TABS: OpenTabRow[] = [
   {
     tabId: "tabs:fixture-primary",
     name: "Sukhumvit Dinner",
@@ -124,6 +137,37 @@ export const FIXTURE_OPEN_TABS: TabCardProps[] = [
     amountA11yLabel: formatThbMinorForA11y(thbMinorFromInteger(29_174)),
     amountTone: "owed",
     href: "/tabs/tabs:fixture-primary",
+    updatedAt: FIXTURE_NOW - 60_000,
+    startedAt: FIXTURE_NOW - 12 * 60_000,
+    participants: [
+      { userId: "user-maya", displayName: "Maya", claimedCount: 3 },
+      { userId: "user-andre", displayName: "Andre", claimedCount: 2 },
+      { userId: "user-noi", displayName: "Noi", claimedCount: 0 },
+      { userId: "user-ploy", displayName: "Ploy", claimedCount: 0 },
+      { userId: "user-tim", displayName: "Tim", claimedCount: 0 },
+    ],
+    itemCount: 12,
+    claimedItemCount: 8,
+    unclaimedItems: [
+      {
+        itemId: "items:fixture-pad-thai",
+        name: "Pad Thai",
+        amountLabel: formatFiatMinorThb(thbMinorFromInteger(16_000)),
+      },
+      {
+        itemId: "items:fixture-tom-yum",
+        name: "ต้มยำกุ้ง",
+        amountLabel: formatFiatMinorThb(thbMinorFromInteger(24_000)),
+      },
+      {
+        itemId: "items:fixture-som-tam",
+        name: "Som Tam",
+        amountLabel: formatFiatMinorThb(thbMinorFromInteger(12_000)),
+      },
+    ],
+    unclaimedCount: 4,
+    viewerClaimedCount: 2,
+    viewerAmountMinor: 29_174,
   },
   {
     tabId: "tabs:fixture-secondary",
@@ -137,6 +181,38 @@ export const FIXTURE_OPEN_TABS: TabCardProps[] = [
     amountA11yLabel: formatThbMinorForA11y(thbMinorFromInteger(8_000)),
     amountTone: "settled",
     href: "/tabs/tabs:fixture-secondary",
+    updatedAt: FIXTURE_NOW - 30 * 60_000,
+    startedAt: FIXTURE_NOW - 3 * 60 * 60_000,
+    participants: [
+      { userId: "user-maya", displayName: "Maya", claimedCount: 1 },
+      { userId: "user-andre", displayName: "Andre", claimedCount: 1 },
+    ],
+    itemCount: 2,
+    claimedItemCount: 2,
+    unclaimedItems: [],
+    unclaimedCount: 0,
+    viewerClaimedCount: 1,
+    viewerAmountMinor: 8_000,
+  },
+];
+
+/** The People section's rows — both directions, as the surface now renders. */
+export const FIXTURE_BALANCE_COMPONENTS = [
+  {
+    counterpartyUserId: "user-maya",
+    counterpartyName: "Maya",
+    direction: "owe" as const,
+    amountMinor: thbMinorFromInteger(29_174),
+    tabId: "tabs:fixture-primary",
+    billId: "bill:fixture-primary",
+  },
+  {
+    counterpartyUserId: "user-maya",
+    counterpartyName: "Maya",
+    direction: "owed" as const,
+    amountMinor: thbMinorFromInteger(8_000),
+    tabId: "tabs:fixture-secondary",
+    billId: "bill:fixture-secondary",
   },
 ];
 

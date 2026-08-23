@@ -34,6 +34,16 @@ const IN_FLIGHT_INTENT_STATUSES: ReadonlySet<string> = new Set([
 
 const TAB_OPEN_STATUSES: ReadonlySet<string> = new Set(["draft", "open", "locked"]);
 
+/**
+ * How many still-unclaimed items the live tab card names outright.
+ *
+ * The card shows them as chips on one line, so this is a layout bound, not a
+ * data bound: `unclaimedCount` always reports the true total, and the surface
+ * renders the remainder as `+n`. A bound that silently dropped the rest would
+ * make a 20-item bill look nearly finished.
+ */
+const UNCLAIMED_PREVIEW_LIMIT = 3;
+
 /** Loads the tabs referenced by a set of obligations, by primary key. */
 async function loadTabsById(
   ctx: BalancesCtx,
@@ -254,6 +264,22 @@ export const listOpenTabsForViewer = query({
       viewerObligationId: Id<"obligations"> | null;
       amountTone: "owed" | "settled" | "neutral";
       updatedAt: number;
+      /*
+       * Everything below is what makes a tab READ as live rather than as a row
+       * in a list: who is in the room, how far the claiming has got, and what
+       * is still up for grabs. All of it is derived from `items`,
+       * `allocations` and `tabParticipants` — no new table, and nothing here
+       * is money, so none of it can drift from the obligation arithmetic
+       * above.
+       */
+      participants: Array<{ userId: Id<"users">; claimedCount: number }>;
+      itemCount: number;
+      claimedItemCount: number;
+      /** At most `UNCLAIMED_PREVIEW_LIMIT`, in the bill's own sort order. */
+      unclaimedItems: Array<{ itemId: Id<"items">; name: string; lineTotalMinor: number }>;
+      /** Every unclaimed item, including the ones the preview did not fit. */
+      unclaimedCount: number;
+      startedAt: number;
     }> = [];
 
     for (const groupId of scope.groupIds) {
@@ -322,6 +348,36 @@ export const listOpenTabsForViewer = query({
           .withIndex("by_tab_id", (q) => q.eq("tabId", tab._id))
           .collect();
 
+        /*
+         * Claiming progress. `allocations` is read whole rather than per item
+         * (the Claim Board's own per-item reads are fine there — it is showing
+         * one tab; this query is showing every open tab the viewer is in).
+         *
+         * Allocation rows are replaced on re-claim rather than appended, which
+         * is why there is no revision filter here and none on the Claim Board
+         * either — the rows that exist ARE the current claims.
+         */
+        const items = await ctx.db
+          .query("items")
+          .withIndex("by_tab_and_sort", (q) => q.eq("tabId", tab._id))
+          .collect();
+        const allocations = await ctx.db
+          .query("allocations")
+          .withIndex("by_tab_id", (q) => q.eq("tabId", tab._id))
+          .collect();
+
+        const claimedItemIds = new Set<string>();
+        const claimCountByUser = new Map<string, number>();
+        for (const allocation of allocations) {
+          claimedItemIds.add(allocation.itemId);
+          claimCountByUser.set(
+            allocation.userId,
+            (claimCountByUser.get(allocation.userId) ?? 0) + 1,
+          );
+        }
+
+        const unclaimed = items.filter((item) => !claimedItemIds.has(item._id));
+
         cards.push({
           tabId: tab._id,
           groupId,
@@ -347,11 +403,43 @@ export const listOpenTabsForViewer = query({
                 ? "settled"
                 : "neutral",
           updatedAt: tab.updatedAt,
+          participants: participants.map((participant) => ({
+            userId: participant.userId,
+            claimedCount: claimCountByUser.get(participant.userId) ?? 0,
+          })),
+          itemCount: items.length,
+          claimedItemCount: claimedItemIds.size,
+          unclaimedItems: unclaimed
+            .slice(0, UNCLAIMED_PREVIEW_LIMIT)
+            .map((item) => ({
+              itemId: item._id,
+              name: item.name,
+              lineTotalMinor: item.lineTotalMinor,
+            })),
+          unclaimedCount: unclaimed.length,
+          startedAt: tab.createdAt,
         });
       }
     }
 
-    return cards.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+    const visible = cards.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+
+    /*
+     * Names are resolved AFTER the slice, so a viewer in many groups does not
+     * pay to name people on tabs that never reach the screen.
+     */
+    const displayNames = await loadDisplayNames(
+      ctx,
+      visible.flatMap((card) => card.participants.map((one) => one.userId)),
+    );
+
+    return visible.map((card) => ({
+      ...card,
+      participants: card.participants.map((participant) => ({
+        ...participant,
+        displayName: displayNames[participant.userId] ?? "Someone",
+      })),
+    }));
   },
 });
 
