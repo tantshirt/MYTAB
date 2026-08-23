@@ -117,6 +117,9 @@ export const bindTelegramIdentity = internalMutation({
       groupId: args.groupId,
       initDataHash: args.initDataHash,
       expiresAt: args.expiresAt,
+      // Only a verified initData reaches this mutation, so this is the moment
+      // the session's 12-hour ceiling starts. Renewal never moves it.
+      boundAt: Date.now(),
     };
 
     if (existingContext) {

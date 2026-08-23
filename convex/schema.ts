@@ -19,6 +19,13 @@ export default defineSchema({
     groupId: v.string(),
     initDataHash: v.string(),
     expiresAt: v.number(),
+    /**
+     * When this identity was last bound from a freshly verified initData.
+     * Optional because rows written before renewal existed have none; those
+     * fall back to `_creationTime`. Renewal is capped against this, never
+     * against `expiresAt`, so renewing cannot extend its own ceiling.
+     */
+    boundAt: v.optional(v.number()),
   })
     .index("by_privy_did", ["privyDid"])
     .index("by_init_data_hash", ["initDataHash"]),

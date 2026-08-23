@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { getViewerSubject } from "./identity";
+import {
+  TELEGRAM_CONTEXT_TTL_MS,
+  TELEGRAM_SESSION_MAX_MS,
+} from "../../lib/telegram/verify";
 
 export const UNAUTHORIZED = "UNAUTHORIZED";
 export const TELEGRAM_CONTEXT_REQUIRED = "TELEGRAM_CONTEXT_REQUIRED";
@@ -76,4 +80,38 @@ export async function requireGroupMember(
   }
 
   return membership;
+}
+
+/**
+ * Extends an already-bound Telegram session. See `users.renewTelegramContext`
+ * for why renewal must not re-verify initData.
+ *
+ * Split out from the mutation so the ceiling can be tested directly — it is the
+ * only thing bounding how long a session runs on the Privy credential alone.
+ */
+export async function renewTelegramContextCore(
+  ctx: MutationCtx,
+  now: number = Date.now(),
+): Promise<{ expiresAt: number }> {
+  const identity = await requireIdentity(ctx);
+
+  const context = await ctx.db
+    .query("telegramContexts")
+    .withIndex("by_privy_did", (q) => q.eq("privyDid", identity.subject))
+    .unique();
+
+  if (!context) {
+    throw new AuthError(TELEGRAM_CONTEXT_REQUIRED);
+  }
+
+  // Measured from the bind, never from `expiresAt` — otherwise each renewal
+  // would raise its own ceiling and the session would never end.
+  const boundAt = context.boundAt ?? context._creationTime;
+  if (now - boundAt > TELEGRAM_SESSION_MAX_MS) {
+    throw new AuthError(TELEGRAM_CONTEXT_REQUIRED);
+  }
+
+  const expiresAt = now + TELEGRAM_CONTEXT_TTL_MS;
+  await ctx.db.patch(context._id, { expiresAt });
+  return { expiresAt };
 }
