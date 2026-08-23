@@ -197,6 +197,28 @@ export async function resumeUniversalLinkWallet(input: {
   if (!pending || pending.challengeId !== input.challengeId) {
     return "idle";
   }
+
+  /*
+   * An expired challenge is finished, not resumable.
+   *
+   * `useWalletUlResume` falls back to whatever `readPendingUniversalLink()`
+   * still holds when there is no `startapp=ulcb_*`, so a pending record from an
+   * abandoned attempt survives in web storage and gets picked up on a later,
+   * unrelated launch. Re-opening the wallet for it sends a signMessage link
+   * built on a session the wallet has long since dropped, and Phantom answers
+   * with a bare internal error — observed in production as
+   * `error=-32603` arriving seven seconds after launch, before the person had
+   * touched anything.
+   *
+   * The signature could not be accepted at this point either: `linkExternalWallet`
+   * checks the challenge's own expiry. So this clears the dead session instead
+   * of asking someone to approve a prompt whose result would be refused.
+   */
+  if (pending.expiresAt <= Date.now()) {
+    clearUniversalLinkSession();
+    return "idle";
+  }
+
   if (!readUniversalLinkSecret()) {
     clearUniversalLinkSession();
     return "failed";

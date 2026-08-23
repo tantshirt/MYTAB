@@ -215,3 +215,59 @@ describe("universal-link resume — the sign step re-asks instead of waiting", (
     expect(opened).toEqual([]);
   });
 });
+
+/*
+ * A pending record outlives the attempt that created it.
+ *
+ * `useWalletUlResume` falls back to `readPendingUniversalLink()` when there is
+ * no `startapp=ulcb_*`, so an abandoned attempt sits in web storage and is
+ * picked up on a later, unrelated launch. Combined with the re-open above that
+ * fired a signMessage link for a session the wallet had already dropped:
+ * production logged `error=-32603` from Phantom seven seconds after launch,
+ * before the person had touched anything.
+ */
+describe("universal-link resume — an expired challenge is finished", () => {
+  beforeEach(() => {
+    installMemoryStorage();
+    Object.defineProperty(globalThis, "window", {
+      value: { location: { origin: "https://mytab.example" } },
+      configurable: true,
+    });
+  });
+
+  it("clears the session and opens nothing when the challenge has expired", async () => {
+    const dapp = generateX25519Keypair();
+    const wallet = generateX25519Keypair();
+    writeUniversalLinkSecret(encodeKeyBase58(dapp.secretKey));
+    writePendingUniversalLink({
+      provider: "phantom",
+      step: "sign",
+      challengeId: "k57abcde0123",
+      messagePrefix: "mytab:link-wallet",
+      userId: "users:1",
+      nonce: "nonce-1",
+      expiresAt: Date.now() - 1_000,
+      issuedAt: Date.now() - 900_000,
+      dappPublicKey: encodeKeyBase58(dapp.publicKey),
+      session: "session-1",
+      publicKey: "7RzMXy1WRE8xEUCVLTJeH1TdquRJwJYESJ7882igZhwC",
+      walletEncryptionPublicKey: encodeKeyBase58(wallet.publicKey),
+    });
+
+    const opened: string[] = [];
+    const result = await resumeUniversalLinkWallet({
+      deps: {
+        queryCallback: async () => null,
+        consumeCallback: async () => undefined,
+        submitSigned: async () => undefined,
+        openUrl: (url) => opened.push(url),
+      },
+      challengeId: "k57abcde0123" as never,
+    });
+
+    expect(result).toBe("idle");
+    expect(opened).toEqual([]);
+    // The dead session is gone, so the next launch does not find it again.
+    expect(readUniversalLinkSecret()).toBeNull();
+  });
+});
