@@ -4,9 +4,14 @@ import {
   TELEGRAM_CONTEXT_REQUIRED,
   UNAUTHORIZED,
   getCurrentUser,
+  renewTelegramContextCore,
   requireIdentity,
   requireTelegramContext,
 } from "../../convex/lib/auth";
+import {
+  TELEGRAM_CONTEXT_TTL_MS,
+  TELEGRAM_SESSION_MAX_MS,
+} from "../../lib/telegram/verify";
 import { fakeQueryCtx } from "../helpers/convexFakeDb";
 
 type MockIdentity = {
@@ -150,5 +155,131 @@ describe("Story 1.7 — auth helpers (AC3, AC6)", () => {
     });
 
     await expect(requireTelegramContext(ctx)).resolves.toEqual(telegramContext);
+  });
+});
+
+/*
+ * Renewal exists because `initData` cannot be refreshed.
+ *
+ * Its `auth_date` is fixed for the life of a Mini App launch, so re-presenting
+ * it to keep a session alive works only until it crosses
+ * TELEGRAM_INIT_DATA_MAX_AGE_MS — after which every attempt fails for the same
+ * reason, forever. Production logged eleven consecutive EXPIRED_AUTH_DATE
+ * rejections and then a dead session: reads fine, every write refused, no way
+ * back short of relaunching the app.
+ *
+ * So renewal carries a binding that already happened. What keeps that honest is
+ * the ceiling, which is what these assert.
+ */
+describe("renewing a bound Telegram session", () => {
+  const identity = {
+    tokenIdentifier: "privy.io|did:privy:test",
+    subject: "did:privy:test",
+    issuer: "privy.io",
+  };
+
+  function ctxWithContext(context: Record<string, unknown> | null, now: number) {
+    const patched: Array<Record<string, unknown>> = [];
+    const base = createMockCtx({ identity, telegramContext: context, now });
+    return {
+      ctx: {
+        ...base,
+        db: {
+          ...(base.db as object),
+          patch: async (_id: string, changes: Record<string, unknown>) => {
+            patched.push(changes);
+          },
+        },
+      } as never,
+      patched,
+    };
+  }
+
+  it("extends a live session by a fresh TTL without any initData", async () => {
+    const now = 1_000_000_000;
+    const { ctx, patched } = ctxWithContext(
+      {
+        _id: "ctx1",
+        _creationTime: now - 60_000,
+        privyDid: identity.subject,
+        boundAt: now - 60_000,
+        expiresAt: now - 1,
+      },
+      now,
+    );
+
+    // Already lapsed, and still renewable — that is the point. A lapsed context
+    // used to be unrecoverable for the rest of the launch.
+    await expect(renewTelegramContextCore(ctx, now)).resolves.toEqual({
+      expiresAt: now + TELEGRAM_CONTEXT_TTL_MS,
+    });
+    expect(patched).toEqual([{ expiresAt: now + TELEGRAM_CONTEXT_TTL_MS }]);
+  });
+
+  it("refuses once the binding is older than the ceiling", async () => {
+    const now = 1_000_000_000;
+    const { ctx, patched } = ctxWithContext(
+      {
+        _id: "ctx1",
+        _creationTime: now - TELEGRAM_SESSION_MAX_MS - 1,
+        privyDid: identity.subject,
+        boundAt: now - TELEGRAM_SESSION_MAX_MS - 1,
+        expiresAt: now + 60_000,
+      },
+      now,
+    );
+
+    await expect(renewTelegramContextCore(ctx, now)).rejects.toMatchObject({
+      code: TELEGRAM_CONTEXT_REQUIRED,
+    });
+    expect(patched).toEqual([]);
+  });
+
+  /*
+   * The ceiling is measured from the bind, not from `expiresAt`. Measuring it
+   * from the expiry would let every renewal push its own limit forward, so a
+   * session renewed every few minutes would never end.
+   */
+  it("measures the ceiling from the bind, so renewing cannot raise it", async () => {
+    const now = 1_000_000_000;
+    const { ctx } = ctxWithContext(
+      {
+        _id: "ctx1",
+        _creationTime: now - TELEGRAM_SESSION_MAX_MS - 1,
+        privyDid: identity.subject,
+        boundAt: now - TELEGRAM_SESSION_MAX_MS - 1,
+        // Renewed moments ago — recent expiry must not buy more time.
+        expiresAt: now + TELEGRAM_CONTEXT_TTL_MS,
+      },
+      now,
+    );
+
+    await expect(renewTelegramContextCore(ctx, now)).rejects.toMatchObject({
+      code: TELEGRAM_CONTEXT_REQUIRED,
+    });
+  });
+
+  it("falls back to _creationTime for rows bound before boundAt existed", async () => {
+    const now = 1_000_000_000;
+    const { ctx, patched } = ctxWithContext(
+      {
+        _id: "ctx1",
+        _creationTime: now - 60_000,
+        privyDid: identity.subject,
+        expiresAt: now - 1,
+      },
+      now,
+    );
+
+    await expect(renewTelegramContextCore(ctx, now)).resolves.toBeTruthy();
+    expect(patched).toHaveLength(1);
+  });
+
+  it("refuses when nothing is bound — bootstrap has to run first", async () => {
+    const now = 1_000_000_000;
+    const { ctx } = ctxWithContext(null, now);
+    await expect(renewTelegramContextCore(ctx, now)).rejects.toMatchObject({
+      code: TELEGRAM_CONTEXT_REQUIRED,
+    });
   });
 });

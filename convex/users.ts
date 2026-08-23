@@ -1,6 +1,6 @@
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { getViewerSubject } from "./lib/identity";
-import { getCurrentUser } from "./lib/auth";
+import { getCurrentUser, renewTelegramContextCore } from "./lib/auth";
 
 /** Authenticated viewer — returns Privy DID (`sub`) or null when unauthenticated. */
 export const viewer = query({
@@ -41,4 +41,30 @@ export const viewerIdentity = query({
       avatarUrl: user?.avatarUrl ?? null,
     };
   },
+});
+
+/**
+ * Extends an already-bound Telegram session without re-verifying initData.
+ *
+ * `initData` is fixed for the life of a Mini App launch, so the previous design
+ * — re-post the same payload every few minutes — could only work for the first
+ * TELEGRAM_INIT_DATA_MAX_AGE_MS after that launch. After it, every renewal was
+ * rejected EXPIRED_AUTH_DATE, the context lapsed, and every mutation refused
+ * with TELEGRAM_CONTEXT_REQUIRED with no way back short of relaunching the app.
+ * Production logged eleven consecutive rejections before the client gave up.
+ *
+ * What this does NOT do is weaken the binding. Deciding which Telegram user a
+ * Privy identity belongs to still requires a fresh, HMAC-verified payload and
+ * is still replay-guarded by `initDataHash` — the same payload presented under
+ * a different Privy identity is refused. This only carries a decision already
+ * made, on a credential that is checked on every request anyway.
+ *
+ * Two bounds keep that honest: the context still expires on its own short TTL,
+ * so an abandoned session goes cold; and renewal is refused once the *binding*
+ * is older than TELEGRAM_SESSION_MAX_MS, measured from `boundAt` rather than
+ * from `expiresAt` so renewing can never raise its own ceiling.
+ */
+export const renewTelegramContext = mutation({
+  args: {},
+  handler: async (ctx) => renewTelegramContextCore(ctx),
 });

@@ -22,6 +22,25 @@ export const TELEGRAM_INIT_DATA_MAX_AGE_MS = 5 * 60 * 1000;
 /** Server-side Telegram context TTL (5 minutes). */
 export const TELEGRAM_CONTEXT_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * How long a bound Telegram session may be renewed for before a fresh launch
+ * is required (12 hours).
+ *
+ * `initData` is fixed for the life of a Mini App launch — its `auth_date` never
+ * advances — so renewing the context by re-presenting it can only work for
+ * TELEGRAM_INIT_DATA_MAX_AGE_MS after that launch. Past that every renewal
+ * failed EXPIRED_AUTH_DATE forever, the context lapsed, and every mutation
+ * refused with TELEGRAM_CONTEXT_REQUIRED until the app was fully relaunched.
+ * Five minutes into a meal, on a bill-splitting app.
+ *
+ * Renewal therefore no longer re-verifies initData. It cannot: the payload
+ * cannot be refreshed. Binding still demands a fresh, HMAC-verified payload —
+ * that is the act that decides which Telegram user a Privy identity is — and
+ * this bounds how long the resulting session may be carried on the Privy
+ * credential alone.
+ */
+export const TELEGRAM_SESSION_MAX_MS = 12 * 60 * 60 * 1000;
+
 export type TelegramInitDataUser = {
   id: number;
   first_name: string;
