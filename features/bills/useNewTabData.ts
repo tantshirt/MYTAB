@@ -69,7 +69,7 @@ export function useNewTabData(groupId: string | null): BillAuthoringData {
 
     return {
       tabId,
-      title: "New tab",
+      title: "",
       merchantName: "",
       displayCurrency: defaults.data?.defaultCurrency ?? "THB",
       recipientAsset: defaults.data?.recipientAsset ?? "USDC",

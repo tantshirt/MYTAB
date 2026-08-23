@@ -170,7 +170,13 @@ function HomeTopBar({
   groups: Array<{ id: string; name: string; memberCount: number }>;
   blockedReason?: string;
 }) {
-  const disabled = blockedReason !== undefined || groups.length === 0;
+  /*
+   * The + is disabled ONLY by a real, stated reason (offline, outside
+   * Telegram). Having no group is not one: `StartTabAction` opens a personal
+   * tab in that case (D-06). Before this, the single control on the home
+   * screen was an inert `<span aria-disabled>` for every first-time user.
+   */
+  const disabled = blockedReason !== undefined;
 
   const target = {
     width: "44px",
@@ -363,25 +369,7 @@ function FirstRun({
         {TABS_HOME_COPY.emptyBody}
       </p>
 
-      {noGroups ? (
-        <>
-          <p
-            className="mytab-type-meta"
-            style={{ margin: `${MYTAB_SPACING["6"]} 0 0`, maxWidth: "280px" }}
-          >
-            {STATE_COPY.noGroupContext}
-          </p>
-          {BOT_HANDLE ? (
-            <a
-              href={`https://t.me/${BOT_HANDLE}`}
-              className="mytab-button-primary"
-              style={{ marginTop: MYTAB_SPACING["3"], maxWidth: "300px" }}
-            >
-              {TABS_HOME_COPY.openBot}
-            </a>
-          ) : null}
-        </>
-      ) : blockedReason !== undefined ? (
+      {blockedReason !== undefined ? (
         <>
           <span
             className="mytab-button-primary"
@@ -405,6 +393,27 @@ function FirstRun({
           {TABS_HOME_COPY.startTab}
         </StartTabAction>
       )}
+
+      {/*
+        The group door, secondary. A tab started here is a personal one and the
+        invite code admits everyone else, so the bot is an alternative rather
+        than a prerequisite — which is what `noGroupContext` used to claim.
+      */}
+      {noGroups && blockedReason === undefined && BOT_HANDLE ? (
+        <a
+          href={`https://t.me/${BOT_HANDLE}`}
+          className="mytab-type-meta"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            minHeight: "44px",
+            marginTop: MYTAB_SPACING["2"],
+            color: MYTAB_COLORS.primary,
+          }}
+        >
+          {TABS_HOME_COPY.openBot}
+        </a>
+      ) : null}
     </div>
   );
 }

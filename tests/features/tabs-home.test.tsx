@@ -132,14 +132,19 @@ describe("Tabs home — empty and blocked states", () => {
   });
 
   /*
-   * POLISH-SPEC §4.5 separates two states the surface used to conflate.
+   * POLISH-SPEC §4.5 separates two states the surface used to conflate — but
+   * only one of them is a reason to withhold the control.
    *
-   *   - No verified group: there is nowhere to start a tab, so the surface
-   *     explains the bot path. Independent of where the app is running.
+   *   - No verified group: NOT a blocker. `tabs.createPersonalTab` is the
+   *     second door (D-06) and the invite code admits everyone else, so the
+   *     surface starts a personal tab. It used to render a disabled `<span>`
+   *     and the sentence "Open My Tab from a Telegram group to start a tab",
+   *     which made the single control on the home screen inert for every
+   *     first-time user while the backend to serve them sat there ready.
    *   - Outside Telegram: reads work and every mutation is locked, with the
    *     write-lock sentence repeated on the disabled control's own sub-line.
    */
-  it("AC6 — no group context explains the bot path", () => {
+  it("AC6 — no group context still offers a tab, through the personal door", () => {
     const html = renderToStaticMarkup(
       <TabsHomeSurface
         {...baseProps}
@@ -149,7 +154,10 @@ describe("Tabs home — empty and blocked states", () => {
         balanceComponents={[]}
       />,
     );
-    expect(html).toContain("Open My Tab from a Telegram group to start a tab");
+    expect(html).toContain("Start a tab");
+    expect(html).not.toContain("Open My Tab from a Telegram group to start a tab");
+    // The control is a real button, not the disabled stand-in.
+    expect(html).not.toContain("aria-disabled");
   });
 
   /*

@@ -132,6 +132,23 @@ export function claimFooterAction(props: {
  * in the stack while the caption and the footer tick on the same frame — the numbers
  * never wait for the motion.
  */
+/**
+ * A text action that still clears the 44px floor — `scripts/sweep.mjs` measures
+ * these, and a 15px line box with no padding is a 19px target.
+ */
+const ADD_ITEM_ACTION_STYLE = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "44px",
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: MYTAB_COLORS.primary,
+  fontSize: "15px",
+  fontWeight: 500,
+  cursor: "pointer",
+} as const;
+
 export function ClaimBoard(props: ClaimBoardProps) {
   const reducedMotion = useReducedMotion();
   const haptics = useHaptics();
@@ -439,6 +456,36 @@ export function ClaimBoard(props: ClaimBoardProps) {
                 ? `${props.organizerDisplayName} locked this bill. Amounts are final.`
                 : "Tap a dish to claim it. Two people on the same dish split it — nobody gets bumped."}
             </p>
+
+            {/*
+              The second item onwards.
+              `BillEmptyState` carries "Type an item", but it renders only while
+              `items.length === 0` — so adding the first dish removed the only
+              way to add a second, and a bill of eleven items had no route on
+              this surface at all. Secondary, under the list, organizer-only,
+              and gone once the bill is locked.
+            */}
+            {props.isOrganizer && !props.isLocked && props.onAddManual ? (
+              <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
+                <button
+                  type="button"
+                  onClick={props.onAddManual}
+                  data-testid="claim-board-add-item"
+                  style={ADD_ITEM_ACTION_STYLE}
+                >
+                  + Add another item
+                </button>
+                {props.onScanReceipt ? (
+                  <button
+                    type="button"
+                    onClick={props.onScanReceipt}
+                    style={ADD_ITEM_ACTION_STYLE}
+                  >
+                    Scan receipt
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </>
         )}
       </div>

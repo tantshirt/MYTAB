@@ -24,6 +24,8 @@ import {
   useResolvedTab,
 } from "@/features/tabs/useTabData";
 import { InviteSheet, type InviteSheetMode } from "@/features/invite/InviteSheet";
+import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
+import { bahtToMinor, ItemEditor } from "@/features/bills/ItemEditor";
 
 /**
  * A text action that is still a 44px target.
@@ -285,14 +287,74 @@ function DeepLinkedClaimBoard({
   /*
    * The organizer empty state's "Type an item".
    *
-   * BLOCKED, and not on Convex: `api.items.addItem({ tabId, name, quantity,
-   * unitPriceMinor })` exists and is ready, but `onAddManual` takes no arguments
-   * and this surface has no item editor — `ItemEditor` lives on
-   * `BillAuthoringSurface`, which only has a route for a *new* tab
-   * (`/tabs/new`). Wiring it needs an authoring route for an existing tab, not
-   * a new backend function.
+   * This was `useCallback(() => {}, [])` — a visible primary control wired to
+   * an empty function, which is the one thing §1.4 says is worse than an
+   * absent one. `api.items.addItem` was already built and authorized; what was
+   * missing was somewhere to type. The old note called for "an authoring route
+   * for an existing tab", but a route would take the organizer off the board
+   * everyone else is claiming on. A sheet keeps the board underneath, which is
+   * what §1.0 asks for anyway.
    */
-  const addManualItem = useCallback(() => {}, []);
+  const addItem = useLiveMutation(api.items.addItem);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
+  const [itemError, setItemError] = useState<string | null>(null);
+  const [itemDraft, setItemDraft] = useState({ name: "", quantity: 1, unitPriceBaht: 0 });
+
+  const openItemEditor = useCallback(() => {
+    setItemDraft({ name: "", quantity: 1, unitPriceBaht: 0 });
+    setItemError(null);
+    setEditorOpen(true);
+  }, []);
+
+  const closeItemEditor = useCallback(() => {
+    setEditorOpen(false);
+    setSavingItem(false);
+    setItemError(null);
+  }, []);
+
+  /*
+   * Saves and stays open, so a table's worth of dishes is one sheet rather
+   * than one sheet each. The draft resets to empty and the name field is the
+   * next thing focused.
+   */
+  const saveItem = useCallback(() => {
+    if (!addItem || savingItem) {
+      return;
+    }
+    const name = itemDraft.name.trim();
+    const unitPriceMinor = bahtToMinor(itemDraft.unitPriceBaht);
+    if (name.length === 0 || unitPriceMinor <= 0) {
+      return;
+    }
+    setSavingItem(true);
+    setItemError(null);
+    void addItem({
+      tabId: tabId as Id<"tabs">,
+      name,
+      quantity: itemDraft.quantity,
+      unitPriceMinor,
+      source: "manual",
+    })
+      .then(() => {
+        setSavingItem(false);
+        setItemDraft({ name: "", quantity: 1, unitPriceBaht: 0 });
+      })
+      .catch((error: unknown) => {
+        setSavingItem(false);
+        // Convex redacts a plain Error's message in production, so the default
+        // has to stand on its own and name no mechanism (§4.0 rule 2).
+        const detail = error instanceof Error ? error.message : "";
+        setItemError(
+          detail.includes("TAB_LOCKED")
+            ? "This tab is locked. Nothing can be added now."
+            : detail.includes("FORBIDDEN") || detail.includes("NOT_BILL_ORGANIZER")
+              ? "Only whoever started this tab can add items."
+              : "Couldn't add that item. Try again.",
+        );
+      });
+  }, [addItem, savingItem, itemDraft, tabId]);
+
   const scanEnabled = useReceiptScanEnabled();
 
   // "Scan receipt" routes at the Receipt Review surface for this tab. Gated on
@@ -335,7 +397,9 @@ function DeepLinkedClaimBoard({
         onOpenBillReview={openBillReview}
         onSettleUp={openSettleSheet}
         onAssignItem={canWrite && organizerAssignItem ? handleAssignItem : undefined}
-        onAddManual={addManualItem}
+        onAddManual={
+          board.isOrganizer && canWrite && addItem ? openItemEditor : undefined
+        }
         onScanReceipt={scanEnabled ? scanReceipt : undefined}
         onInvite={
           board.isOrganizer
@@ -346,6 +410,38 @@ function DeepLinkedClaimBoard({
             : undefined
         }
       />
+      {editorOpen ? (
+        <SheetContainer label="Add an item" onDismiss={closeItemEditor}>
+          <h2 className="mytab-type-micro-label" style={{ margin: "0 0 16px" }}>
+            Add an item
+          </h2>
+          <ItemEditor
+            name={itemDraft.name}
+            quantity={itemDraft.quantity}
+            unitPriceBaht={itemDraft.unitPriceBaht}
+            onChange={(patch) => setItemDraft((current) => ({ ...current, ...patch }))}
+            onSave={saveItem}
+            onCancel={closeItemEditor}
+          />
+          {savingItem ? (
+            <p className="mytab-type-meta" role="status" aria-live="polite" style={{ margin: "12px 0 0" }}>
+              Adding…
+            </p>
+          ) : null}
+          {itemError ? (
+            <p
+              className="mytab-type-meta"
+              role="status"
+              aria-live="polite"
+              style={{ margin: "12px 0 0", color: MYTAB_COLORS.owed }}
+              data-testid="add-item-error"
+            >
+              {itemError}
+            </p>
+          ) : null}
+        </SheetContainer>
+      ) : null}
+
       {board.isOrganizer ? (
         <InviteSheet
           open={inviteOpen}

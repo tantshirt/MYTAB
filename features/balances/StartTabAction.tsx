@@ -11,9 +11,14 @@ export type StartTabGroup = { id: string; name: string; memberCount: number };
 /**
  * "Start a tab" — a bottom sheet, never a route (POLISH-SPEC §1.2).
  *
- *   0 verified groups → the caller renders the empty state instead; this never mounts.
+ *   0 verified groups → a personal tab (D-06, the second door). NOT a dead end.
  *   exactly 1        → skip the sheet entirely and go straight to the form.
  *   2 or more        → the picker sheet.
+ *
+ * The zero case used to render a disabled button with no explanation, which
+ * made the one control on the home screen inert for anybody who had not been
+ * admitted to a group yet — while `tabs.createPersonalTab` sat there ready.
+ * A personal tab is a real door, so this opens it.
  *
  * `/groups/picker` was a 404 and is deliberately not built. Telegram also ships
  * `requestChat()` (Bot API 9.6+) for this; that is a later swap behind the same
@@ -47,12 +52,17 @@ export function StartTabAction({
   );
 
   const onClick = useCallback(() => {
+    if (groups.length === 0) {
+      // The personal door. `/tabs/new` with no `?group=` is `origin: "personal"`.
+      router.push("/tabs/new");
+      return;
+    }
     if (groups.length === 1) {
       go(groups[0]!.id);
       return;
     }
     setOpen(true);
-  }, [groups, go]);
+  }, [groups, go, router]);
 
   const close = useCallback(() => {
     setOpen(false);

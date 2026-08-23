@@ -248,6 +248,35 @@ describe("New Tab — the primary action always states its reason", () => {
     // `members` arriving late is the normal case: `viewerIdentity` and
     // `listTabMemberOptions` both resolve after first paint. The surface must
     // render whatever `data` currently says, never a copy taken at mount.
+    //
+    // Asserted on the *group* door, because that is the only one with a roster
+    // to read: the personal form asks for a name and a head count and nothing
+    // else, so "Who paid?" is not on it to be frozen.
+    const html = renderBill(
+      <BillAuthoringSurface
+        tabId="tabs:new:groups:fixture"
+        viewerUserId="users:andre"
+        data={{ ...FIXTURE_EMPTY_BILL, origin: "chat" }}
+      />,
+    );
+
+    expect(html).not.toContain("Nobody in this group has opened My Tab yet");
+    for (const member of FIXTURE_EMPTY_BILL.members) {
+      expect(html).toContain(member.displayName.trim().charAt(0).toUpperCase());
+    }
+  });
+
+  /*
+   * The personal door asks two questions, not five.
+   *
+   * "Where" and "Who paid?" were answerable but pointless — the merchant is on
+   * the receipt, and the roster on a personal tab is the viewer alone. The
+   * currency pair was worse than pointless: THB and USDC are not alternatives
+   * to one another. The bill is denominated in local fiat and the token is the
+   * payer's own choice at settlement, so offering them as one radio group made
+   * the create screen state something untrue about how the product works.
+   */
+  it("the personal door asks for a name and a head count, and nothing else", () => {
     const html = renderBill(
       <BillAuthoringSurface
         tabId="tabs:new"
@@ -256,9 +285,14 @@ describe("New Tab — the primary action always states its reason", () => {
       />,
     );
 
-    expect(html).not.toContain("Nobody in this group has opened My Tab yet");
-    for (const member of FIXTURE_EMPTY_BILL.members) {
-      expect(html).toContain(member.displayName.trim().charAt(0).toUpperCase());
-    }
+    expect(html).toContain("What&#x27;s this tab for?");
+    expect(html).toContain("How many people");
+    expect(html).toContain("Start tab");
+
+    expect(html).not.toContain("Where");
+    expect(html).not.toContain("Currency");
+    expect(html).not.toContain("Who paid?");
+    // The settlement token never appears on a screen about a restaurant bill.
+    expect(html).not.toContain("USDC");
   });
 });
