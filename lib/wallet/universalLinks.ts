@@ -1,10 +1,12 @@
 /**
- * iOS universal-link path for the three named wallets (U-10, D-28).
+ * Universal-link path for the three named wallets (U-10, D-28).
  *
- * Telegram Mini App is a WebView — Safari Web Extensions do not apply, and
- * MWA is unsupported on every iOS surface. These https:// hosts are
- * load-bearing. Return-to-Telegram after sign is unproven: if the callback
- * payload is missing, callers must fail closed. Do not invent a fourth wallet.
+ * Telegram Mini App is a WebView on every OS — Safari Web Extensions do not
+ * apply, and MWA is unsupported on iOS. These https:// hosts are load-bearing.
+ * HTTPS redirect_link opens the mobile browser, not Telegram; the callback is
+ * stashed on Convex and the Mini App reopens via `startapp=ulcb_*`.
+ * Return-to-Telegram after sign is unproven on a physical phone. Do not invent
+ * a fourth wallet.
  */
 
 import { bytesToBase58 } from "../solana/decodeTransaction";
@@ -17,6 +19,21 @@ import {
   generateX25519Keypair,
 } from "./deeplinkBox";
 import type { NamedWalletProvider } from "./providers";
+import {
+  buildWalletUlStartParam,
+  isWalletUlChallengeId,
+  parseWalletUlStartParam,
+  readUniversalLinkEncryptionPublicKey,
+  WALLET_UL_START_PREFIX,
+} from "./universalLinkParams";
+
+export {
+  buildWalletUlStartParam,
+  isWalletUlChallengeId,
+  parseWalletUlStartParam,
+  readUniversalLinkEncryptionPublicKey,
+  WALLET_UL_START_PREFIX,
+};
 
 export const UNIVERSAL_LINK_HOSTS: Record<NamedWalletProvider, string> = {
   phantom: "https://phantom.app/ul/v1",
@@ -29,6 +46,8 @@ export const UL_CALLBACK_KEY = "mytab:wallet-ul-callback";
 export const UL_SECRET_KEY = "mytab:wallet-ul-secret";
 
 export const WALLET_CALLBACK_PATH = "/wallet/callback";
+
+const UL_PEER_KEY = `${UL_SECRET_KEY}:peer`;
 
 export type UniversalLinkPending = {
   provider: NamedWalletProvider;
@@ -54,43 +73,65 @@ export type UniversalLinkCallback =
     }
   | { ok: false; errorCode: string };
 
-function sessionGet(key: string): string | null {
-  if (typeof sessionStorage === "undefined") {
+function webStorageGet(storage: Storage | undefined, key: string): string | null {
+  if (!storage) {
     return null;
   }
   try {
-    return sessionStorage.getItem(key);
+    return storage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function sessionSet(key: string, value: string): void {
-  if (typeof sessionStorage === "undefined") {
+function webStorageSet(storage: Storage | undefined, key: string, value: string): void {
+  if (!storage) {
     return;
   }
   try {
-    sessionStorage.setItem(key, value);
+    storage.setItem(key, value);
   } catch {
     /* private mode — the path will fail closed */
   }
 }
 
-function sessionClear(...keys: string[]): void {
-  if (typeof sessionStorage === "undefined") {
+function webStorageClear(storage: Storage | undefined, keys: string[]): void {
+  if (!storage) {
     return;
   }
   try {
     for (const key of keys) {
-      sessionStorage.removeItem(key);
+      storage.removeItem(key);
     }
   } catch {
     /* ignore */
   }
 }
 
+function sessionStore(): Storage | undefined {
+  return typeof sessionStorage === "undefined" ? undefined : sessionStorage;
+}
+
+function localStore(): Storage | undefined {
+  return typeof localStorage === "undefined" ? undefined : localStorage;
+}
+
+function storeGet(key: string): string | null {
+  return webStorageGet(sessionStore(), key) ?? webStorageGet(localStore(), key);
+}
+
+function storeSet(key: string, value: string): void {
+  webStorageSet(sessionStore(), key, value);
+  webStorageSet(localStore(), key, value);
+}
+
+function storeClear(...keys: string[]): void {
+  webStorageClear(sessionStore(), keys);
+  webStorageClear(localStore(), keys);
+}
+
 export function readPendingUniversalLink(): UniversalLinkPending | null {
-  const raw = sessionGet(UL_PENDING_KEY);
+  const raw = storeGet(UL_PENDING_KEY);
   if (!raw) {
     return null;
   }
@@ -102,15 +143,15 @@ export function readPendingUniversalLink(): UniversalLinkPending | null {
 }
 
 export function writePendingUniversalLink(pending: UniversalLinkPending): void {
-  sessionSet(UL_PENDING_KEY, JSON.stringify(pending));
+  storeSet(UL_PENDING_KEY, JSON.stringify(pending));
 }
 
 export function clearUniversalLinkSession(): void {
-  sessionClear(UL_PENDING_KEY, UL_CALLBACK_KEY, UL_SECRET_KEY);
+  storeClear(UL_PENDING_KEY, UL_CALLBACK_KEY, UL_SECRET_KEY, UL_PEER_KEY);
 }
 
 export function readUniversalLinkCallback(): UniversalLinkCallback | null {
-  const raw = sessionGet(UL_CALLBACK_KEY);
+  const raw = storeGet(UL_CALLBACK_KEY);
   if (!raw) {
     return null;
   }
@@ -122,13 +163,25 @@ export function readUniversalLinkCallback(): UniversalLinkCallback | null {
 }
 
 export function writeUniversalLinkCallback(payload: UniversalLinkCallback): void {
-  sessionSet(UL_CALLBACK_KEY, JSON.stringify(payload));
+  storeSet(UL_CALLBACK_KEY, JSON.stringify(payload));
 }
 
-export function resolveWalletCallbackUrl(origin = ""): string {
+export function clearUniversalLinkCallback(): void {
+  storeClear(UL_CALLBACK_KEY);
+}
+
+export function readUniversalLinkSecret(): string | null {
+  return storeGet(UL_SECRET_KEY);
+}
+
+export function resolveWalletCallbackUrl(origin = "", challengeId?: string): string {
   const base =
     origin || (typeof window !== "undefined" ? window.location.origin : "");
-  return `${base.replace(/\/$/, "")}${WALLET_CALLBACK_PATH}`;
+  const url = `${base.replace(/\/$/, "")}${WALLET_CALLBACK_PATH}`;
+  if (!challengeId) {
+    return url;
+  }
+  return `${url}?c=${encodeURIComponent(challengeId)}`;
 }
 
 function randomNonce24(): Uint8Array {
@@ -148,7 +201,7 @@ export function beginUniversalLinkConnect(input: {
   cluster?: "mainnet-beta" | "devnet";
 }): { url: string; pending: UniversalLinkPending } {
   const keypair = generateX25519Keypair();
-  sessionSet(UL_SECRET_KEY, encodeKeyBase58(keypair.secretKey));
+  storeSet(UL_SECRET_KEY, encodeKeyBase58(keypair.secretKey));
 
   const dappPublicKey = encodeKeyBase58(keypair.publicKey);
   const pending: UniversalLinkPending = {
@@ -167,7 +220,10 @@ export function beginUniversalLinkConnect(input: {
   const params = new URLSearchParams({
     app_url: input.appUrl,
     dapp_encryption_public_key: dappPublicKey,
-    redirect_link: resolveWalletCallbackUrl(new URL(input.appUrl).origin),
+    redirect_link: resolveWalletCallbackUrl(
+      new URL(input.appUrl).origin,
+      input.challengeId,
+    ),
     cluster: input.cluster ?? "mainnet-beta",
   });
 
@@ -183,17 +239,13 @@ export function beginUniversalLinkSign(input: {
   message: string;
   appUrl: string;
 }): { url: string } {
-  const secretRaw = sessionGet(UL_SECRET_KEY);
+  const secretRaw = storeGet(UL_SECRET_KEY);
   const theirPub = input.pending.dappPublicKey;
   if (!secretRaw) {
     throw new Error("UL_SECRET_MISSING");
   }
 
-  // The wallet's encryption pubkey was stored on the pending row after connect.
-  const walletEncryptionKey = input.pending.dappPublicKey;
-  void walletEncryptionKey;
-
-  const walletPub = sessionGet(`${UL_SECRET_KEY}:peer`);
+  const walletPub = storeGet(UL_PEER_KEY);
   if (!walletPub) {
     throw new Error("UL_PEER_MISSING");
   }
@@ -217,7 +269,10 @@ export function beginUniversalLinkSign(input: {
   const params = new URLSearchParams({
     dapp_encryption_public_key: theirPub,
     nonce: bytesToBase58(nonce),
-    redirect_link: resolveWalletCallbackUrl(new URL(input.appUrl).origin),
+    redirect_link: resolveWalletCallbackUrl(
+      new URL(input.appUrl).origin,
+      input.pending.challengeId,
+    ),
     payload: bytesToBase58(payload),
   });
 
@@ -240,7 +295,7 @@ export function decryptUniversalLinkData(input: {
   nonce: string;
   phantomEncryptionPublicKey: string;
 }): Record<string, unknown> | null {
-  const secretRaw = sessionGet(UL_SECRET_KEY);
+  const secretRaw = storeGet(UL_SECRET_KEY);
   if (!secretRaw) {
     return null;
   }
@@ -257,7 +312,7 @@ export function decryptUniversalLinkData(input: {
     if (!opened) {
       return null;
     }
-    sessionSet(`${UL_SECRET_KEY}:peer`, input.phantomEncryptionPublicKey);
+    storeSet(UL_PEER_KEY, input.phantomEncryptionPublicKey);
     return JSON.parse(new TextDecoder().decode(opened)) as Record<string, unknown>;
   } catch {
     return null;
@@ -276,10 +331,7 @@ export function parseUniversalLinkSearch(search: string): UniversalLinkCallback 
     return { ok: false, errorCode: "UL_CALLBACK_ORPHAN" };
   }
 
-  const encryptionKey =
-    params.get("phantom_encryption_public_key") ??
-    params.get("solflare_encryption_public_key") ??
-    params.get("encryption_public_key");
+  const encryptionKey = readUniversalLinkEncryptionPublicKey(params);
   const nonce = params.get("nonce");
   const data = params.get("data");
 
@@ -311,4 +363,20 @@ export function parseUniversalLinkSearch(search: string): UniversalLinkCallback 
     return { ok: false, errorCode: "UL_CALLBACK_MISSING" };
   }
   return { ok: true, provider: pending.provider, signature, publicKey: pending.publicKey };
+}
+
+export function applyStoredUniversalLinkBlob(blob: {
+  data: string;
+  nonce: string;
+  encryptionPublicKey: string;
+}): UniversalLinkCallback {
+  const params = new URLSearchParams({
+    data: blob.data,
+    nonce: blob.nonce,
+    encryption_public_key: blob.encryptionPublicKey,
+  });
+  const parsed = parseUniversalLinkSearch(`?${params.toString()}`);
+  const result = parsed ?? { ok: false as const, errorCode: "UL_CALLBACK_MISSING" };
+  writeUniversalLinkCallback(result);
+  return result;
 }

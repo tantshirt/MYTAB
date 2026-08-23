@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useCallback } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -11,24 +11,18 @@ import type { ExternalWalletProvider, NamedWalletProvider } from "@/lib/wallet/p
 import { detectStandardWallets, findNamedWallet } from "@/lib/wallet/standard";
 import {
   beginUniversalLinkConnect,
-  beginUniversalLinkSign,
   clearUniversalLinkSession,
-  parseUniversalLinkSearch,
-  readPendingUniversalLink,
-  readUniversalLinkCallback,
-  writeUniversalLinkCallback,
 } from "@/lib/wallet/universalLinks";
+import { waitForUniversalLinkCallback } from "@/lib/wallet/waitForUniversalLinkCallback";
 import { CONNECT_COPY } from "./connectCopy";
+import { WalletLinkClientError } from "./walletLinkError";
+import {
+  completeUniversalLinkAfterConnect,
+  readLocalOrConvex,
+  type WalletUlHandoffDeps,
+} from "./walletUlHandoff";
 
-export class WalletLinkClientError extends Error {
-  constructor(
-    public readonly code: string,
-    message?: string,
-  ) {
-    super(message ?? code);
-    this.name = "WalletLinkClientError";
-  }
-}
+export { WalletLinkClientError } from "./walletLinkError";
 
 function openExternalUrl(url: string): void {
   const webApp = window.Telegram?.WebApp as { openLink?: (href: string) => void } | undefined;
@@ -39,49 +33,19 @@ function openExternalUrl(url: string): void {
   window.location.assign(url);
 }
 
-async function waitForUniversalLinkCallback(timeoutMs = 120_000): Promise<void> {
-  const started = Date.now();
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      if (readUniversalLinkCallback()) {
-        resolve();
-        return;
-      }
-      if (Date.now() - started > timeoutMs) {
-        reject(new WalletLinkClientError("UL_CALLBACK_MISSING", CONNECT_COPY.failedCallback));
-        return;
-      }
-      window.setTimeout(tick, 400);
-    };
-
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      if (!readUniversalLinkCallback()) {
-        reject(new WalletLinkClientError("UL_CALLBACK_MISSING", CONNECT_COPY.failedCallback));
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisible);
-    tick();
-    window.setTimeout(() => {
-      document.removeEventListener("visibilitychange", onVisible);
-    }, timeoutMs + 50);
-  });
-}
-
 /**
- * Issue a challenge, get a signature from wallet-standard or an iOS
- * universal link, then call `linkExternalWallet`. Never sends an address
+ * Issue a challenge, get a signature from wallet-standard or a universal
+ * link, then call `linkExternalWallet`. Never sends an address
  * as authorization.
  */
 export function useLinkExternalWallet(): {
   linkNamed: (provider: NamedWalletProvider) => Promise<void>;
   linkDetected: (provider: ExternalWalletProvider) => Promise<void>;
 } {
+  const convex = useConvex();
   const issue = useMutation(api.wallets.issueWalletLinkChallenge);
   const link = useMutation(api.wallets.linkExternalWallet);
+  const consume = useMutation(api.wallets.consumeWalletUlCallback);
 
   const submitSigned = useCallback(
     async (input: {
@@ -94,6 +58,17 @@ export function useLinkExternalWallet(): {
     },
     [link],
   );
+
+  const handoffDeps = useCallback((): WalletUlHandoffDeps => {
+    return {
+      queryCallback: (challengeId) => convex.query(api.wallets.walletUlCallback, { challengeId }),
+      consumeCallback: async (challengeId) => {
+        await consume({ challengeId });
+      },
+      submitSigned,
+      openUrl: openExternalUrl,
+    };
+  }, [convex, consume, submitSigned]);
 
   const linkViaStandard = useCallback(
     async (provider: NamedWalletProvider | "standard") => {
@@ -140,58 +115,27 @@ export function useLinkExternalWallet(): {
       openExternalUrl(url);
 
       try {
-        await waitForUniversalLinkCallback();
+        const first = await waitForUniversalLinkCallback({
+          read: () =>
+            readLocalOrConvex(challenge.challengeId, handoffDeps().queryCallback, handoffDeps().consumeCallback),
+          onTimeout: () =>
+            new WalletLinkClientError("UL_CALLBACK_MISSING", CONNECT_COPY.failedCallback),
+        });
+        if (!first.ok) {
+          clearUniversalLinkSession();
+          throw new WalletLinkClientError("UL_CALLBACK_MISSING", CONNECT_COPY.failedCallback);
+        }
+        await completeUniversalLinkAfterConnect({
+          deps: handoffDeps(),
+          challengeId: challenge.challengeId,
+          provider,
+        });
       } catch (error) {
         clearUniversalLinkSession();
         throw error;
       }
-
-      const callback = readUniversalLinkCallback();
-      const pending = readPendingUniversalLink();
-      if (!callback?.ok || !pending?.publicKey || !pending.session) {
-        clearUniversalLinkSession();
-        throw new WalletLinkClientError("UL_CALLBACK_MISSING", CONNECT_COPY.failedCallback);
-      }
-
-      writeUniversalLinkCallback({ ok: false, errorCode: "consumed" });
-
-      const signedMessage = buildWalletLinkMessage({
-        userId: pending.userId,
-        nonce: pending.nonce,
-        expiresAt: pending.expiresAt,
-        publicKey: pending.publicKey,
-      });
-
-      const sign = beginUniversalLinkSign({
-        pending,
-        session: pending.session,
-        message: signedMessage,
-        appUrl: window.location.origin,
-      });
-      openExternalUrl(sign.url);
-
-      try {
-        await waitForUniversalLinkCallback();
-      } catch (error) {
-        clearUniversalLinkSession();
-        throw error;
-      }
-
-      const signed = readUniversalLinkCallback();
-      if (!signed?.ok || !signed.signature) {
-        clearUniversalLinkSession();
-        throw new WalletLinkClientError("UL_CALLBACK_MISSING", CONNECT_COPY.failedCallback);
-      }
-
-      await submitSigned({
-        challengeId: pending.challengeId as Id<"walletLinkChallenges">,
-        signedMessage,
-        signature: signed.signature,
-        provider,
-      });
-      clearUniversalLinkSession();
     },
-    [issue, submitSigned],
+    [issue, handoffDeps],
   );
 
   const linkNamed = useCallback(

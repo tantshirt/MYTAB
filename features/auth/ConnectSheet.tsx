@@ -76,7 +76,7 @@ export function ConnectSheet({
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(180deg, rgba(10,32,56,0.26) 0%, rgba(10,32,56,0) 22%, rgba(10,32,56,0.58) 48%, rgba(10,32,56,0.97) 74%)",
+            "linear-gradient(180deg, rgba(10,32,56,0.22) 0%, rgba(10,32,56,0.08) 18%, rgba(10,32,56,0.72) 42%, rgba(10,32,56,0.97) 68%)",
         }}
       />
 
@@ -94,7 +94,11 @@ export function ConnectSheet({
           color: "#FFFFFF",
         }}
       >
-        <Lockup size={18} tone="paper" style={{ opacity: 0.88 }} />
+        <Lockup
+          size={28}
+          tone="paper"
+          style={{ color: "#FFFFFF", WebkitTextFillColor: "#FFFFFF" }}
+        />
         <h1
           style={{
             margin: 0,
@@ -102,6 +106,9 @@ export function ConnectSheet({
             fontWeight: 600,
             letterSpacing: "-0.028em",
             textWrap: "balance",
+            color: "#FFFFFF",
+            WebkitTextFillColor: "#FFFFFF",
+            textShadow: "0 1px 2px rgba(10,32,56,0.45)",
           }}
         >
           {CONNECT_COPY.title}
@@ -112,7 +119,8 @@ export function ConnectSheet({
             maxWidth: "34ch",
             fontSize: "14px",
             lineHeight: 1.55,
-            color: "rgba(255,255,255,0.78)",
+            color: "#FFFFFF",
+            WebkitTextFillColor: "rgba(255,255,255,0.78)",
           }}
         >
           {CONNECT_COPY.body}
@@ -199,7 +207,8 @@ export function ConnectSheet({
             minHeight: "44px",
             border: "none",
             background: "transparent",
-            color: "rgba(255,255,255,0.78)",
+            color: "#FFFFFF",
+            WebkitTextFillColor: "rgba(255,255,255,0.78)",
             fontFamily: "var(--mytab-font-family)",
             fontSize: "14px",
             fontWeight: 500,
@@ -214,7 +223,8 @@ export function ConnectSheet({
             maxWidth: "34ch",
             fontSize: "12px",
             lineHeight: 1.45,
-            color: "rgba(255,255,255,0.56)",
+            color: "#FFFFFF",
+            WebkitTextFillColor: "rgba(255,255,255,0.56)",
           }}
         >
           {CONNECT_COPY.skipHint}

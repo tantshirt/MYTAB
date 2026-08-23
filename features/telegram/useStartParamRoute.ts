@@ -2,7 +2,37 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { parseWalletUlStartParam } from "@/lib/wallet/universalLinkParams";
 import { useTelegramRuntime } from "./TelegramRuntimeProvider";
+
+export type StartParamDestination =
+  | { kind: "new-tab" }
+  | { kind: "owe" }
+  | { kind: "wallet-ul"; challengeId: string }
+  | { kind: "tab-token"; token: string }
+  | { kind: "ignore" };
+
+/**
+ * Reserved start params (`tab` / `owe` / `ulcb_*`) are handled before the
+ * opaque tab-token shape. `tab` and `owe` are three characters so they would
+ * otherwise be ignored; `ulcb_*` is long enough to look like a tab token.
+ */
+export function resolveStartParamDestination(startParam: string): StartParamDestination {
+  if (startParam === "tab") {
+    return { kind: "new-tab" };
+  }
+  if (startParam === "owe") {
+    return { kind: "owe" };
+  }
+  const walletUl = parseWalletUlStartParam(startParam);
+  if (walletUl) {
+    return { kind: "wallet-ul", challengeId: walletUl };
+  }
+  if (/^[A-Za-z0-9_-]{8,256}$/.test(startParam)) {
+    return { kind: "tab-token", token: startParam };
+  }
+  return { kind: "ignore" };
+}
 
 /**
  * Module scope, deliberately. Telegram supplies `start_param` for the whole
@@ -50,15 +80,22 @@ export function useStartParamRoute(): void {
       consumed = true;
       return;
     }
-    // The token is opaque and server-resolved; we only guard the URL shape so a
-    // malformed launch param cannot build a nonsense path.
-    if (!/^[A-Za-z0-9_-]{8,256}$/.test(startParam)) {
+    const destination = resolveStartParamDestination(startParam);
+    if (destination.kind === "ignore" || destination.kind === "wallet-ul") {
       consumed = true;
       return;
     }
 
     routed.current = true;
     consumed = true;
-    router.replace(`/tabs/${encodeURIComponent(startParam)}`);
+    if (destination.kind === "new-tab") {
+      router.replace("/tabs/new");
+      return;
+    }
+    if (destination.kind === "owe") {
+      router.replace("/you");
+      return;
+    }
+    router.replace(`/tabs/${encodeURIComponent(destination.token)}`);
   }, [startParam, isTelegramWebApp, pathname, router]);
 }

@@ -61,6 +61,13 @@ export default defineSchema({
     expiresAt: v.number(),
     consumedAt: v.optional(v.number()),
     createdAt: v.number(),
+    /** Raw Phantom/Solflare/Backpack UL callback — Safari cannot share sessionStorage with Telegram. */
+    ulData: v.optional(v.string()),
+    ulNonce: v.optional(v.string()),
+    ulEncryptionPublicKey: v.optional(v.string()),
+    ulErrorCode: v.optional(v.string()),
+    ulRecordedAt: v.optional(v.number()),
+    ulReadAt: v.optional(v.number()),
   })
     .index("by_user_id", ["userId"])
     .index("by_nonce", ["nonce"]),
