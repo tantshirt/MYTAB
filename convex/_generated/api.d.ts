@@ -77,6 +77,7 @@ import type * as lib_telegramVerify from "../lib/telegramVerify.js";
 import type * as lib_telegramWebhook from "../lib/telegramWebhook.js";
 import type * as lib_viewerScope from "../lib/viewerScope.js";
 import type * as lib_walletChallenge from "../lib/walletChallenge.js";
+import type * as lib_walletMoveSync from "../lib/walletMoveSync.js";
 import type * as lib_walletSync from "../lib/walletSync.js";
 import type * as lib_walletUlCallback from "../lib/walletUlCallback.js";
 import type * as obligations from "../obligations.js";
@@ -168,6 +169,7 @@ declare const fullApi: ApiFromModules<{
   "lib/telegramWebhook": typeof lib_telegramWebhook;
   "lib/viewerScope": typeof lib_viewerScope;
   "lib/walletChallenge": typeof lib_walletChallenge;
+  "lib/walletMoveSync": typeof lib_walletMoveSync;
   "lib/walletSync": typeof lib_walletSync;
   "lib/walletUlCallback": typeof lib_walletUlCallback;
   obligations: typeof obligations;

@@ -514,3 +514,14 @@ money. It does not block a demo; it blocks a cutover until the operator secret i
    practical path is per-wallet universal links. If that holds, the three named wallets are
    load-bearing on iOS rather than a convenience layer over a generic standard. **Verify
    before Phase 2 estimates are trusted.**
+
+### Device checklist (U-10) — cannot be proven in this environment
+
+On a physical iPhone and Android, with Phantom then Solflare then Backpack installed:
+
+1. Tap Connect on the launch sheet. The installed app must open, not the vendor website.
+2. Approve connect, then the second confirm. Land back in Telegram with the wallet on You.
+3. Skip, claim, then Pay — the same sheet appears, then Pay continues.
+4. Organizer skip, then Lock — the same sheet appears, then Lock continues.
+5. Use a My Tab wallet, then connect Phantom — Phantom is the new default; You offers
+   “Send what you received to Phantom” if USDC remains on the previous row.

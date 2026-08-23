@@ -61,7 +61,10 @@ export function mapObligationQuoteToSheet(
   quote: ObligationQuoteResult | null | undefined,
 ): SettleSheetData {
   if (!quote || !quote.available) {
-    return EMPTY_SETTLE_SHEET;
+    return {
+      ...EMPTY_SETTLE_SHEET,
+      unavailableReason: quote && "reason" in quote ? quote.reason : undefined,
+    };
   }
 
   const billAmount = formatThbLabel(quote.displayAmountThbMinor);

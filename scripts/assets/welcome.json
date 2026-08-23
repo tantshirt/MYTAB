@@ -1,0 +1,14 @@
+{
+  "model": "nano-banana-2",
+  "defaults": {
+    "resolution": "2K",
+    "output_format": "jpg",
+    "aspect_ratio": "4:3"
+  },
+  "items": [
+    {
+      "name": "welcome",
+      "prompt": "35mm film photograph of a sociable restaurant table in Bangkok evening light, warm and a little grainy. The end of a good meal: plates pushed together and half cleared, glasses of water, a wooden table, paper menus at the edge. Five friends in their late twenties, mixed Thai and Western, still talking — one leaning in, one laughing, one reaching across the table. A folded paper bill has just been set down near the middle of the table and one hand rests beside it, unhurried. Nobody looks at the camera, nobody poses. Available warm light, soft falloff, natural colour, slight film grain. Paper-and-ink warmth: cream, warm ochre, soft brown, muted terracotta. Alive and companionable, not a campaign shot. No neon, no glass architecture, no gradient sky, no chrome, no bokeh orbs. No text, no logos, no watermarks, no legible writing on the bill, no wallets, no phones showing money, no banknotes, no coins, no QR codes, no user interface. Photographed as a still frame, 4:3, documentary, unposed."
+    }
+  ]
+}

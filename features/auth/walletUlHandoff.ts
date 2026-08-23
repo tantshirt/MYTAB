@@ -3,27 +3,42 @@ import { CONNECT_COPY } from "./connectCopy";
 import { WalletLinkClientError } from "./walletLinkError";
 import { buildWalletLinkMessage } from "@/lib/wallet/challenge";
 import type { NamedWalletProvider } from "@/lib/wallet/providers";
+import { readTelegramSecureStorage } from "@/lib/wallet/telegramSecureStorage";
 import {
   applyStoredUniversalLinkBlob,
   beginUniversalLinkSign,
   clearUniversalLinkCallback,
   clearUniversalLinkSession,
+  hydratePendingUniversalLink,
   readPendingUniversalLink,
   readUniversalLinkCallback,
+  readUniversalLinkPeer,
   readUniversalLinkSecret,
+  writeUniversalLinkSecret,
   type UniversalLinkCallback,
 } from "@/lib/wallet/universalLinks";
 import { waitForUniversalLinkCallback } from "@/lib/wallet/waitForUniversalLinkCallback";
 
 export type WalletUlBlobView =
-  | { status: "pending" }
-  | { status: "error"; errorCode: string }
+  | { status: "pending"; ulSecret?: string; ulPending?: string }
+  | { status: "error"; errorCode: string; ulSecret?: string; ulPending?: string }
   | {
       status: "ready";
       data: string;
       nonce: string;
       encryptionPublicKey: string;
+      ulSecret?: string;
+      ulPending?: string;
     };
+
+function hydrateSessionFromView(blob: WalletUlBlobView): void {
+  if (blob.ulSecret) {
+    writeUniversalLinkSecret(blob.ulSecret);
+  }
+  if (blob.ulPending) {
+    hydratePendingUniversalLink(blob.ulPending);
+  }
+}
 
 export type WalletUlHandoffDeps = {
   queryCallback: (challengeId: Id<"walletLinkChallenges">) => Promise<WalletUlBlobView | null>;
@@ -35,7 +50,30 @@ export type WalletUlHandoffDeps = {
     provider: NamedWalletProvider;
   }) => Promise<void>;
   openUrl: (url: string) => void;
+  persistSession?: (
+    challengeId: Id<"walletLinkChallenges">,
+    secret: string,
+    pending: string,
+  ) => Promise<{ ok: boolean }>;
+  storePaySession?: (input: {
+    session: string;
+    secret: string;
+    peerPublicKey: string;
+    dappPublicKey: string;
+  }) => Promise<void>;
 };
+
+async function persistIfPossible(
+  deps: WalletUlHandoffDeps,
+  challengeId: Id<"walletLinkChallenges">,
+): Promise<void> {
+  const secret = readUniversalLinkSecret();
+  const pending = readPendingUniversalLink();
+  if (!secret || !pending || !deps.persistSession) {
+    return;
+  }
+  await deps.persistSession(challengeId, secret, JSON.stringify(pending));
+}
 
 async function readLocalOrConvex(
   challengeId: Id<"walletLinkChallenges">,
@@ -48,7 +86,11 @@ async function readLocalOrConvex(
   }
 
   const blob = await queryCallback(challengeId);
-  if (!blob || blob.status === "pending") {
+  if (!blob) {
+    return null;
+  }
+  hydrateSessionFromView(blob);
+  if (blob.status === "pending") {
     return null;
   }
   if (blob.status === "error") {
@@ -90,6 +132,7 @@ export async function completeUniversalLinkAfterConnect(input: {
     message: signedMessage,
     appUrl: window.location.origin,
   });
+  await persistIfPossible(input.deps, input.challengeId);
   input.deps.openUrl(sign.url);
 
   let signed: UniversalLinkCallback;
@@ -116,6 +159,16 @@ export async function completeUniversalLinkAfterConnect(input: {
     signature: signed.signature,
     provider: input.provider,
   });
+  const secret = readUniversalLinkSecret();
+  const peer = readUniversalLinkPeer() ?? pending.walletEncryptionPublicKey;
+  if (input.deps.storePaySession && pending.session && secret && peer) {
+    await input.deps.storePaySession({
+      session: pending.session,
+      secret,
+      peerPublicKey: peer,
+      dappPublicKey: pending.dappPublicKey,
+    });
+  }
   clearUniversalLinkSession();
 }
 
@@ -127,6 +180,19 @@ export async function resumeUniversalLinkWallet(input: {
   deps: WalletUlHandoffDeps;
   challengeId: Id<"walletLinkChallenges">;
 }): Promise<"linked" | "idle" | "failed"> {
+  if (!readUniversalLinkSecret() || !readPendingUniversalLink()) {
+    const blob = await input.deps.queryCallback(input.challengeId);
+    if (blob) {
+      hydrateSessionFromView(blob);
+    }
+  }
+  if (!readUniversalLinkSecret()) {
+    const fromSecure = await readTelegramSecureStorage();
+    if (fromSecure) {
+      writeUniversalLinkSecret(fromSecure);
+    }
+  }
+
   const pending = readPendingUniversalLink();
   if (!pending || pending.challengeId !== input.challengeId) {
     return "idle";
@@ -175,6 +241,16 @@ export async function resumeUniversalLinkWallet(input: {
         signature: callback.signature,
         provider: pending.provider,
       });
+      const secret = readUniversalLinkSecret();
+      const peer = readUniversalLinkPeer() ?? pending.walletEncryptionPublicKey;
+      if (input.deps.storePaySession && pending.session && secret && peer) {
+        await input.deps.storePaySession({
+          session: pending.session,
+          secret,
+          peerPublicKey: peer,
+          dappPublicKey: pending.dappPublicKey,
+        });
+      }
       clearUniversalLinkSession();
       return "linked";
     }

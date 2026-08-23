@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { WALLET_LINK_CHALLENGE_TTL_MS } from "../../lib/wallet/challenge";
 import { AuthError, UNAUTHORIZED, getCurrentUser } from "./auth";
 
 export type RecordWalletUlCallbackArgs = {
@@ -57,15 +58,30 @@ export async function recordWalletUlCallbackCore(
   return { ok: true };
 }
 
+export type WalletUlSessionFields = {
+  ulSecret?: string;
+  ulPending?: string;
+};
+
 export type WalletUlCallbackView =
-  | { status: "pending" }
-  | { status: "error"; errorCode: string }
-  | {
+  | ({ status: "pending" } & WalletUlSessionFields)
+  | ({ status: "error"; errorCode: string } & WalletUlSessionFields)
+  | ({
       status: "ready";
       data: string;
       nonce: string;
       encryptionPublicKey: string;
-    };
+    } & WalletUlSessionFields);
+
+function sessionFields(row: {
+  ulSecret?: string;
+  ulPending?: string;
+}): WalletUlSessionFields {
+  return {
+    ...(row.ulSecret ? { ulSecret: row.ulSecret } : {}),
+    ...(row.ulPending ? { ulPending: row.ulPending } : {}),
+  };
+}
 
 /**
  * Authenticated read. Strangers and the wrong user see the same null as a
@@ -98,20 +114,61 @@ export async function readWalletUlCallbackCore(
     row.ulRecordedAt !== undefined &&
     row.ulReadAt === row.ulRecordedAt
   ) {
-    return { status: "pending" };
+    return { status: "pending", ...sessionFields(row) };
   }
   if (row.ulErrorCode) {
-    return { status: "error", errorCode: row.ulErrorCode };
+    return { status: "error", errorCode: row.ulErrorCode, ...sessionFields(row) };
   }
   if (!row.ulData || !row.ulNonce || !row.ulEncryptionPublicKey) {
-    return { status: "pending" };
+    return { status: "pending", ...sessionFields(row) };
   }
   return {
     status: "ready",
     data: row.ulData,
     nonce: row.ulNonce,
     encryptionPublicKey: row.ulEncryptionPublicKey,
+    ...sessionFields(row),
   };
+}
+
+export async function storeWalletUlSessionCore(
+  ctx: MutationCtx,
+  args: {
+    challengeId: Id<"walletLinkChallenges">;
+    secret: string;
+    pending: string;
+    now?: number;
+  },
+): Promise<{ ok: boolean }> {
+  const user = await getCurrentUser(ctx);
+  if (!user) {
+    throw new AuthError(UNAUTHORIZED);
+  }
+
+  const secret = args.secret.trim();
+  const pending = args.pending.trim();
+  if (!secret || !pending) {
+    return { ok: false };
+  }
+
+  let row;
+  try {
+    row = await ctx.db.get(args.challengeId);
+  } catch {
+    return { ok: false };
+  }
+
+  const now = args.now ?? Date.now();
+  if (!row || row.userId !== user._id || row.consumedAt !== undefined || row.expiresAt <= now) {
+    return { ok: false };
+  }
+
+  await ctx.db.patch(row._id, {
+    ulSecret: secret,
+    ulPending: pending,
+    expiresAt: now + WALLET_LINK_CHALLENGE_TTL_MS,
+  });
+  return { ok: true };
 }
 
 export async function consumeWalletUlCallbackCore(

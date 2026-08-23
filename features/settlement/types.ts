@@ -2,6 +2,7 @@ import type { PaymentTokenOption } from "@/components/settlement-sheet/PaymentTo
 
 export type SettleSheetData = {
   status: "loading" | "ready" | "unavailable";
+  unavailableReason?: "NO_WALLET" | "RPC_FAILED";
   intentId: string;
   billAmountLabel: string;
   billAmount: string;

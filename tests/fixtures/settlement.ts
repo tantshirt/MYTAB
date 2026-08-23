@@ -47,4 +47,7 @@ export const FIXTURE_PAYMENT_PROGRESS: PaymentProgressData = {
   billName: "Sukhumvit Dinner",
   recipientReceivesLabel: "8.25 USDC",
   tabHref: "/",
+  walletKind: null,
+  walletProvider: null,
+  preparedTxBase64: null,
 };

@@ -11,7 +11,7 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { base58ToBytes, bytesToBase58 } from "../solana/decodeTransaction";
 
-export const WALLET_LINK_CHALLENGE_TTL_MS = 5 * 60_000;
+export const WALLET_LINK_CHALLENGE_TTL_MS = 15 * 60_000;
 
 export const WALLET_LINK_FAILURE = {
   CHALLENGE_NOT_FOUND: "WALLET_LINK_CHALLENGE_NOT_FOUND",

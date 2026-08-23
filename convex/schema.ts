@@ -44,6 +44,13 @@ export default defineSchema({
     solanaAddress: v.string(),
     isEmbedded: v.boolean(),
     isDefaultReceiving: v.boolean(),
+    /** Set when this row loses default — identifies the previous receiving wallet. */
+    lastDefaultAt: v.optional(v.number()),
+    /** Authenticated UL session for later `/signTransaction` — never an address. */
+    ulSession: v.optional(v.string()),
+    ulSecret: v.optional(v.string()),
+    ulPeerPublicKey: v.optional(v.string()),
+    ulDappPublicKey: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -68,6 +75,10 @@ export default defineSchema({
     ulErrorCode: v.optional(v.string()),
     ulRecordedAt: v.optional(v.number()),
     ulReadAt: v.optional(v.number()),
+    /** Authenticated-only X25519 secret — Safari callback must never read this. */
+    ulSecret: v.optional(v.string()),
+    /** Authenticated-only pending UL session so a killed WebView can resume. */
+    ulPending: v.optional(v.string()),
   })
     .index("by_user_id", ["userId"])
     .index("by_nonce", ["nonce"]),
@@ -175,12 +186,17 @@ export default defineSchema({
   settlementIntents: defineTable({
     userId: v.id("users"),
     walletId: v.id("wallets"),
-    groupId: v.id("groups"),
+    groupId: v.optional(v.id("groups")),
     tabId: v.optional(v.id("tabs")),
     tabRevision: v.optional(v.number()),
-    targetKind: v.union(v.literal("tip"), v.literal("obligation")),
+    targetKind: v.union(
+      v.literal("tip"),
+      v.literal("obligation"),
+      v.literal("wallet_move"),
+    ),
     tipId: v.optional(v.id("tips")),
     obligationId: v.optional(v.id("obligations")),
+    sourceWalletId: v.optional(v.id("wallets")),
     billSnapshotHash: v.optional(v.string()),
     roundUpAtomic: v.optional(v.int64()),
     excessOutputAtomic: v.optional(v.int64()),
@@ -340,7 +356,11 @@ export default defineSchema({
 
   settlementLedgerEvents: defineTable({
     intentId: v.id("settlementIntents"),
-    targetKind: v.union(v.literal("tip"), v.literal("obligation")),
+    targetKind: v.union(
+      v.literal("tip"),
+      v.literal("obligation"),
+      v.literal("wallet_move"),
+    ),
     tipId: v.optional(v.id("tips")),
     obligationId: v.optional(v.id("obligations")),
     eventKind: v.literal("settlement_offset"),

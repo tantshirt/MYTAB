@@ -43,6 +43,42 @@ export type BillAuthoringSurfaceProps = {
 
 type AuthorPhase = "setup" | "items";
 
+/**
+ * How long "Start a tab" waits before it admits nothing is happening.
+ *
+ * Convex parks a mutation until the auth bridge resolves rather than rejecting
+ * it, so a stale Privy token produces a promise that simply never settles. Left
+ * alone that turns the primary button into a control that swallows the tap and
+ * changes nothing on screen — the exact silent degradation this project fails
+ * closed against everywhere else.
+ */
+const CREATE_TIMEOUT_MS = 12_000;
+
+const CREATE_FAILED = "Couldn't start this tab. Try again.";
+const CREATE_STALLED =
+  "Still trying. Close My Tab and open it again if this keeps happening.";
+
+/**
+ * Honest copy for a create that came back refused.
+ *
+ * Convex redacts the message of a plain `Error` in production, so the code is
+ * only readable some of the time and the default has to stand on its own.
+ * Neither branch names a mechanism (§4.0 rule 2).
+ */
+function createFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? "");
+  if (detail.includes("TELEGRAM_CONTEXT_REQUIRED") || detail.includes("UNAUTHORIZED")) {
+    return "Your Telegram session ran out. Close My Tab and open it again.";
+  }
+  if (detail.includes("INVALID_TITLE")) {
+    return "Give this tab a name first.";
+  }
+  if (detail.includes("INVALID_SEATS")) {
+    return "Pick somewhere between 2 and 20 people.";
+  }
+  return CREATE_FAILED;
+}
+
 /** Full tab authoring surface — Epic 4 stories 4.1–4.4, rebuilt per §1.4. */
 export function BillAuthoringSurface({
   tabTitle,
@@ -62,18 +98,41 @@ export function BillAuthoringSurface({
   const [showEditor, setShowEditor] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
-  const [form, setForm] = useState(() => ({
-    title: resolved?.title ?? tabTitle ?? "New tab",
-    merchantName: resolved?.merchantName ?? "",
-    displayCurrency: resolved?.displayCurrency ?? "THB",
-    payerUserId: resolved?.payerUserId ?? viewerUserId ?? "",
-    captureMethod: "manual" as CaptureMethod,
+  /**
+   * The draft holds *edits only* — what the person actually typed or tapped.
+   *
+   * Everything else on this form arrives from Convex after first paint:
+   * `viewerIdentity` on a personal tab, `listTabMemberOptions` on a group one.
+   * Seeding local state from `data` in a `useState` initialiser froze that
+   * first, empty read for the life of the surface — the roster stayed `[]`,
+   * `payerUserId` stayed `""`, and "Who paid?" was pinned to "Nobody in this
+   * group has opened My Tab yet" with no avatar to pick and no way forward.
+   *
+   * So an unedited field reads *through* to the live value, and only a real
+   * edit shadows it. That is also why `undefined` is the untouched marker
+   * rather than `""`: clearing the title must stay cleared.
+   */
+  const [edits, setEdits] = useState<{
+    title?: string;
+    merchantName?: string;
+    displayCurrency?: string;
+    payerUserId?: string;
+    captureMethod?: CaptureMethod;
+    seats?: number;
+  }>({});
+
+  const form = {
+    title: edits.title ?? resolved?.title ?? tabTitle ?? "New tab",
+    merchantName: edits.merchantName ?? resolved?.merchantName ?? "",
+    displayCurrency: edits.displayCurrency ?? resolved?.displayCurrency ?? "THB",
+    payerUserId: edits.payerUserId ?? resolved?.payerUserId ?? viewerUserId ?? "",
+    captureMethod: edits.captureMethod ?? ("manual" as CaptureMethod),
     members: resolved?.members ?? [],
     organizerDisplayName: resolved?.organizerDisplayName ?? "Organizer",
     fxFixtureBadge: resolved?.fxFixtureBadge,
-    seats: resolved?.seats ?? SEAT_DEFAULT,
+    seats: edits.seats ?? resolved?.seats ?? SEAT_DEFAULT,
     origin: resolved?.origin ?? "personal",
-  }));
+  };
 
   const [items, setItems] = useState<BillItemView[]>(resolved?.items ?? []);
   const [adjustments] = useState(resolved?.adjustments ?? []);
@@ -122,7 +181,7 @@ export function BillAuthoringSurface({
   }, [items, adjustments]);
 
   const handleFormChange = useCallback((patch: NewTabFormPatch) => {
-    setForm((current) => ({ ...current, ...patch }));
+    setEdits((current) => ({ ...current, ...patch }));
   }, []);
 
   const openNewItemEditor = useCallback(() => {
@@ -207,6 +266,10 @@ export function BillAuthoringSurface({
       }
       setCreating(true);
       setCreateError(null);
+      const stalled = setTimeout(() => {
+        setCreateError(CREATE_STALLED);
+        setCreating(false);
+      }, CREATE_TIMEOUT_MS);
       void createPersonalTab({
         name: form.title.trim(),
         seats: form.seats,
@@ -214,10 +277,18 @@ export function BillAuthoringSurface({
         displayCurrency: form.displayCurrency,
       })
         .then((created) => {
-          router.push(`/tabs/${created.token}`);
+          clearTimeout(stalled);
+          /*
+           * Straight onto the invite code. A tab is started with the table
+           * still sitting there, so the next thing on screen is the thing
+           * four other people need to point a camera at — not a board they
+           * are not on yet (D-24).
+           */
+          router.push(`/tabs/${created.token}?invite=1`);
         })
-        .catch(() => {
-          setCreateError("Couldn't start this tab. Try again.");
+        .catch((error: unknown) => {
+          clearTimeout(stalled);
+          setCreateError(createFailureMessage(error));
           setCreating(false);
         });
       return;
@@ -243,6 +314,21 @@ export function BillAuthoringSurface({
     router,
   ]);
 
+  /*
+   * Every reason this control is disabled, in the order the person can act on
+   * them. A disabled primary button that states nothing is the defect §4.4
+   * exists to prevent — and on this route it was the whole failure: the tap
+   * went nowhere and the screen said nothing about why.
+   */
+  const cannotWrite = form.origin === "personal" && !createPersonalTab;
+  const setupBlockedReason = offline
+    ? STATE_COPY.needsConnection
+    : cannotWrite
+      ? STATE_COPY.outsideTelegram
+      : form.title.trim().length === 0
+        ? "Give this tab a name first."
+        : null;
+
   const primaryAction = (
     <>
       {phase === "setup" ? (
@@ -250,15 +336,10 @@ export function BillAuthoringSurface({
           type="button"
           className="mytab-button-primary"
           onClick={startCapture}
-          disabled={
-            offline ||
-            form.title.trim().length === 0 ||
-            creating ||
-            (form.origin === "personal" && !createPersonalTab)
-          }
+          disabled={setupBlockedReason !== null || creating}
           data-testid="primary-add-items"
         >
-          Add items
+          {creating ? "Starting…" : "Add items"}
         </button>
       ) : (
         <button
@@ -273,11 +354,26 @@ export function BillAuthoringSurface({
       )}
       {/* A disabled control states its reason rather than going silent (§4.4). */}
       {createError ? (
-        <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
+        <p
+          role="status"
+          aria-live="polite"
+          className="mytab-type-meta"
+          style={{ margin: "8px 0 0", textAlign: "center" }}
+          data-testid="primary-action-error"
+        >
           {createError}
         </p>
       ) : null}
-      {offline ? (
+      {!createError && phase === "setup" && setupBlockedReason ? (
+        <p
+          className="mytab-type-meta"
+          style={{ margin: "8px 0 0", textAlign: "center" }}
+          data-testid="primary-action-reason"
+        >
+          {setupBlockedReason}
+        </p>
+      ) : null}
+      {!createError && phase !== "setup" && offline ? (
         <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
           {STATE_COPY.needsConnection}
         </p>

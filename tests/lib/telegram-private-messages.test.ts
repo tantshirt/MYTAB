@@ -22,6 +22,7 @@ describe("private chat copy", () => {
       kind: "reply",
       text: WELCOME_MESSAGE,
       buttons: ["start_tab", "what_i_owe", "add_to_group"],
+      photo: true,
     });
   });
 
@@ -101,5 +102,46 @@ describe("scoped command menus", () => {
     expect(GROUP_BOT_COMMANDS.map((row) => row.command)).toEqual(["tab", "balance", "tip"]);
     expect(PRIVATE_BOT_COMMANDS.some((row) => row.command === "splitbill")).toBe(false);
     expect(GROUP_BOT_COMMANDS.some((row) => row.command === "splitbill")).toBe(false);
+  });
+});
+
+/*
+ * The welcome is a photo caption now, not a message body. Telegram caps a
+ * caption at 1024 characters and does NOT truncate past it — the whole send
+ * fails — so the cap is a correctness bound, not a style note.
+ */
+describe("the welcome leads with the house still", () => {
+  it("keeps the welcome inside Telegram's photo-caption cap", () => {
+    expect(WELCOME_MESSAGE.length).toBeLessThanOrEqual(1024);
+  });
+
+  it("asks for the photo on a bare /start and on nothing else", () => {
+    const welcome = planPrivateReply({ command: "start", commandArg: null, now: 0 });
+    expect(welcome).toMatchObject({ kind: "reply", photo: true });
+
+    for (const command of ["tab", "tip", "balance", "help", null]) {
+      const plan = planPrivateReply({ command, commandArg: null, now: 0 });
+      expect(plan.kind === "reply" && plan.photo).toBeFalsy();
+    }
+  });
+
+  it("tells one story: the welcome and /help share their steps and commands", () => {
+    for (const line of ["/tab — start a tab", "/balance — where you stand"]) {
+      expect(WELCOME_MESSAGE).toContain(line);
+      expect(HELP_MESSAGE).toContain(line);
+    }
+    expect(WELCOME_MESSAGE).toContain("How it works");
+    expect(HELP_MESSAGE).toContain("How it works");
+    // Routed but deliberately unlisted (INVITE-FLOW §2.2).
+    expect(WELCOME_MESSAGE).not.toContain("/splitbill");
+    expect(HELP_MESSAGE).not.toContain("/splitbill");
+  });
+
+  it("says nothing from the banned vocabulary", () => {
+    // The project's own list, not a second one written here — a private copy
+    // of the ban list would drift away from the one that matters.
+    for (const copy of [WELCOME_MESSAGE, HELP_MESSAGE, FALLBACK_MESSAGE]) {
+      expect(findBannedCopyWords(copy)).toEqual([]);
+    }
   });
 });

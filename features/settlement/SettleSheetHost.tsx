@@ -11,6 +11,8 @@ import { useLiveMutation } from "@/features/convex/useConvexData";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import { ErrorState } from "@/components/primitives/error-state";
 import { STATE_COPY } from "@/components/primitives/state-copy";
+import { WalletConnectHost } from "@/features/auth/WalletConnectHost";
+import { writePendingWalletAction } from "@/features/auth/pendingWalletAction";
 
 /**
  * The Payment Sheet is a *sheet*, not a route (POLISH-SPEC §1.0).
@@ -110,6 +112,18 @@ function SettleSheet({ obligationId }: { obligationId: string }) {
    * renders amounts nobody owes under a live Pay button.
    */
   if (data.status !== "ready") {
+    if (data.unavailableReason === "NO_WALLET") {
+      return (
+        <WalletConnectHost
+          reason="pay"
+          onLinked={() => {
+            writePendingWalletAction({ kind: "pay", obligationId });
+            refresh();
+          }}
+          onSkip={dismiss}
+        />
+      );
+    }
     return (
       <SheetContainer label="Payment sheet" dismissible onDismiss={dismiss}>
         <ErrorState

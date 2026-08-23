@@ -16,28 +16,69 @@ export const ADD_TO_GROUP_BUTTON_LABEL = "Add me to a group";
 export const SEND_TIP_BUTTON_LABEL = "Send a tip";
 export const OPEN_MY_TAB_BUTTON_LABEL = "Open My Tab";
 
-export const WELCOME_MESSAGE = [
-  "Hi — I'm My Tab.",
-  "",
-  "I split a restaurant bill so everyone pays their own part. You photograph the receipt, your friends tap what they ordered, and each share comes out exact.",
-  "",
-  "Start a tab and I'll give you a link to send them.",
-].join("\n");
+/**
+ * The three steps, in the order they happen at a table.
+ *
+ * Shared by the welcome and by `/help` so the two can never drift into telling
+ * a person two different stories about the same product.
+ *
+ * Telegram sends these as plain text — this bot registers no `parse_mode` — so
+ * the shape has to come from line breaks and a separator that survives a
+ * proportional font. Space-padded columns would not align; " — " does.
+ */
+const HOW_IT_WORKS = [
+  "How it works",
+  "1 · Start a tab and photograph the receipt.",
+  "2 · Show everyone the code at the table, or send them the link.",
+  "3 · Everyone taps what they ordered, on their own phone, at the same time.",
+];
 
-export const HELP_MESSAGE = [
-  "My Tab splits a restaurant bill.",
-  "",
-  "Start a tab, photograph the receipt, and send the link to whoever was there. Everyone taps what they ordered on their own phone. Each share comes out exact — items, service, tax, tip, to the satang — and everyone pays their part back to whoever fronted it.",
-  "",
+/**
+ * `/splitbill` is routed but deliberately unlisted (INVITE-FLOW §2.2), so it is
+ * absent here too. Registered is not the same as listed.
+ */
+const COMMAND_LIST = [
   "/tab — start a tab",
   "/balance — where you stand",
   "/tip — send someone a tip",
+  "/help — how this works",
+];
+
+/**
+ * The welcome, sent as the caption on the house still.
+ *
+ * Telegram caps a photo caption at 1024 characters; `tests/lib/private-messages`
+ * pins that, because a caption one character over does not truncate — the whole
+ * send fails.
+ */
+export const WELCOME_MESSAGE = [
+  "Hey — this is My Tab. I split restaurant bills.",
+  "",
+  "One dinner, five people, everyone ordered something different. Each share comes out exact — items, service, tax, tip, to the satang — and everyone pays their own part back to whoever fronted it.",
+  "",
+  ...HOW_IT_WORKS,
+  "",
+  ...COMMAND_LIST,
+].join("\n");
+
+export const HELP_MESSAGE = [
+  "My Tab splits a restaurant bill so nobody has to do arithmetic at the table.",
+  "",
+  ...HOW_IT_WORKS,
+  "4 · Each share comes out exact — items, service, tax, tip, to the satang.",
+  "5 · Everyone pays their own part back to whoever fronted it.",
+  "",
+  "Commands",
+  ...COMMAND_LIST,
+  "",
+  "In a group",
+  "Add me to a group chat and type /tab when the bill lands. Make me an admin and I'll keep one live card in the chat as people settle.",
 ].join("\n");
 
 export const FALLBACK_MESSAGE = [
   "I only do one thing, and it's bills.",
   "",
-  "Start a tab and I'll give you a link to send your friends.",
+  "Start a tab and I'll give you a code to show the table. /help if you want the longer version.",
 ].join("\n");
 
 export const START_TAB_REPLY = "Let's do it.";
@@ -63,7 +104,21 @@ export type PrivateButtonKind =
 
 export type PrivateReplyPlan =
   | { kind: "silent" }
-  | { kind: "reply"; text: string; buttons: PrivateButtonKind[] };
+  | {
+      kind: "reply";
+      text: string;
+      buttons: PrivateButtonKind[];
+      /**
+       * Lead with the house still.
+       *
+       * True for a bare `/start` and nothing else — that is the one reply
+       * that is a person meeting this product for the first time. A photograph
+       * above "Who are you tipping?" is noise, and above a refusal it is worse.
+       * `text` becomes the photo caption, so it must stay inside Telegram's
+       * 1024-character cap.
+       */
+      photo?: true;
+    };
 
 export function renderStartTokenCard(input: {
   tabName: string;
@@ -127,6 +182,7 @@ export function planPrivateReply(input: {
       kind: "reply",
       text: WELCOME_MESSAGE,
       buttons: ["start_tab", "what_i_owe", "add_to_group"],
+      photo: true,
     };
   }
 

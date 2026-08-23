@@ -52,6 +52,12 @@ export const YOU_COPY = {
   noneLabel: "No wallet linked",
   noneSub: "Claim without one. You'll need a wallet to pay.",
   addWallet: "Add a wallet",
+  exportExternalReason: "Export is for the My Tab wallet. This one lives in your wallet app.",
+  useMyTabWallet: "Use a My Tab wallet",
+  moveReceived: (destination: string) => `Send what you received to ${destination}`,
+  moveReceivedSub: "The exact USDC still sitting on your previous wallet.",
+  moveReceivedBusy: "Sending…",
+  moveReceivedFailed: "Couldn't send it. Try again.",
 
   viewerFailed: "Couldn't load your details.",
   retry: STATE_COPY.retry,

@@ -11,10 +11,12 @@ import {
 import {
   DUPLICATE_DEFAULT_RECEIVING,
   WalletError,
+  findPreviousReceivingWallet,
   getDefaultReceivingWalletForUser,
   setDefaultReceivingWallet,
   shouldNewEmbeddedWalletBeDefault,
   upsertEmbeddedWallet,
+  upsertExternalWallet,
 } from "../../convex/lib/walletSync";
 import { fakeId } from "../helpers/convexFakeDb";
 
@@ -176,6 +178,9 @@ describe("Story 1.8 — wallet sync helpers", () => {
     expect(wallets).toHaveLength(2);
     expect(wallets.find((wallet) => wallet.privyWalletId === "wallet-1")).toMatchObject({
       isEmbedded: true,
+      isDefaultReceiving: true,
+    });
+    expect(wallets.find((wallet) => wallet.solanaAddress === "ExternalAddr")).toMatchObject({
       isDefaultReceiving: false,
     });
     expect(wallets.filter((wallet) => wallet.isDefaultReceiving)).toHaveLength(1);
@@ -285,5 +290,21 @@ describe("Story 1.8 — wallet sync helpers", () => {
     expect(wallets.find((wallet) => wallet._id === "wallets:1")?.isDefaultReceiving).toBe(false);
     expect(wallets.find((wallet) => wallet._id === "wallets:2")?.isDefaultReceiving).toBe(true);
     expect(wallets.filter((wallet) => wallet.isDefaultReceiving)).toHaveLength(1);
+  });
+
+  it("newest external link becomes the sole default", async () => {
+    const { ctx, wallets } = createWalletStore();
+    const userId = fakeId<"users">("users:1");
+
+    await upsertEmbeddedWallet(ctx as never, userId, "wallet-1", "EmbeddedAddr");
+    await upsertExternalWallet(ctx as never, userId, "PhantomAddr", "phantom");
+
+    expect(wallets.find((wallet) => wallet.solanaAddress === "PhantomAddr")?.isDefaultReceiving).toBe(
+      true,
+    );
+    expect(wallets.find((wallet) => wallet.solanaAddress === "EmbeddedAddr")?.isDefaultReceiving).toBe(
+      false,
+    );
+    expect(findPreviousReceivingWallet(wallets)?.solanaAddress).toBe("EmbeddedAddr");
   });
 });

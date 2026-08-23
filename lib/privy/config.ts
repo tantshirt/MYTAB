@@ -55,6 +55,13 @@ export function createPrivyConfig(): PrivyClientConfig {
 function solanaConnectors(): NonNullable<
   NonNullable<PrivyClientConfig["externalWallets"]>["solana"]
 >["connectors"] {
+  if (process.env.VITEST) {
+    return {
+      onMount: () => undefined,
+      onUnmount: () => undefined,
+      get: () => [],
+    };
+  }
   const mod = require("@privy-io/react-auth/solana") as {
     toSolanaWalletConnectors: (args?: { shouldAutoConnect?: boolean }) => NonNullable<
       NonNullable<PrivyClientConfig["externalWallets"]>["solana"]

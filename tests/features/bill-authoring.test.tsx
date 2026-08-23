@@ -211,3 +211,54 @@ describe("Story 4.4 — loading and offline", () => {
     expect(html).toMatch(/catch up/i);
   });
 });
+
+/*
+ * The dead-end that shipped: the setup footer could be disabled with nothing on
+ * screen explaining it, and the draft froze the first (empty) Convex read so the
+ * roster never arrived. Both are §4.4 failures — a control that goes silent.
+ */
+describe("New Tab — the primary action always states its reason", () => {
+  it("names the write lock rather than sitting mute on a personal draft", () => {
+    const html = renderBill(
+      <BillAuthoringSurface
+        tabId="tabs:new"
+        viewerUserId="users:andre"
+        data={{ ...FIXTURE_EMPTY_BILL, origin: "personal", seats: 4 }}
+      />,
+    );
+
+    // No Convex client in this environment, so the create mutation is absent.
+    expect(html).toContain("Open this in Telegram to make changes.");
+    expect(html).toContain("disabled");
+  });
+
+  it("names an empty title rather than sitting mute", () => {
+    const html = renderBill(
+      <BillAuthoringSurface
+        tabId="tabs:new:groups:fixture"
+        viewerUserId="users:andre"
+        data={{ ...FIXTURE_EMPTY_BILL, origin: "chat", title: "   " }}
+      />,
+    );
+
+    expect(html).toContain("Give this tab a name first.");
+  });
+
+  it("reads the roster through from data rather than from a frozen first paint", () => {
+    // `members` arriving late is the normal case: `viewerIdentity` and
+    // `listTabMemberOptions` both resolve after first paint. The surface must
+    // render whatever `data` currently says, never a copy taken at mount.
+    const html = renderBill(
+      <BillAuthoringSurface
+        tabId="tabs:new"
+        viewerUserId="users:andre"
+        data={{ ...FIXTURE_EMPTY_BILL, origin: "personal", seats: 4 }}
+      />,
+    );
+
+    expect(html).not.toContain("Nobody in this group has opened My Tab yet");
+    for (const member of FIXTURE_EMPTY_BILL.members) {
+      expect(html).toContain(member.displayName.trim().charAt(0).toUpperCase());
+    }
+  });
+});

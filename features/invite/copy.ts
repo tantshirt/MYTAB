@@ -9,6 +9,14 @@ export const INVITE_COPY = {
   copyFailed: "Couldn't copy. Long-press to select.",
   addSomeone: "Add someone",
   sheetTitle: "Invite",
+  /*
+   * The handoff is the moment the tab is born and five people are sitting
+   * around it. The code is the hero and the instruction is what someone reads
+   * out loud, so it has to survive being said across a loud table.
+   */
+  handoffTitle: "Get everyone in",
+  handoffInstruction: "Point your camera at this. It opens the tab on your phone.",
+  handoffAside: "Not at the table? Copy the link and send it.",
   showQr: "Show the code",
   hideQr: "Hide the code",
   qrLabel: "Invite code",

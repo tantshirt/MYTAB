@@ -6,7 +6,7 @@ export async function applySettlementOffset(
   ctx: MutationCtx,
   args: {
     intentId: Id<"settlementIntents">;
-    targetKind: "tip" | "obligation";
+    targetKind: "tip" | "obligation" | "wallet_move";
     tipId?: Id<"tips">;
     obligationId?: Id<"obligations">;
     transactionSignature: string;
@@ -65,7 +65,7 @@ export async function applySettlementOffset(
 export async function isTargetAlreadySettled(
   ctx: MutationCtx,
   args: {
-    targetKind: "tip" | "obligation";
+    targetKind: "tip" | "obligation" | "wallet_move";
     tipId?: Id<"tips">;
     obligationId?: Id<"obligations">;
   },

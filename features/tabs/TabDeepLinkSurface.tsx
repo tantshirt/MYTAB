@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { ClaimBoard } from "@/features/claims";
@@ -11,6 +11,7 @@ import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider"
 import {
   STALE_NOTICE,
   useLiveMutation,
+  useLiveQuery,
   useRetryNonce,
 } from "@/features/convex/useConvexData";
 import { api } from "@/convex/_generated/api";
@@ -22,7 +23,7 @@ import {
   TAB_REFUSAL_ACTION_LABEL,
   useResolvedTab,
 } from "@/features/tabs/useTabData";
-import { InviteSheet } from "@/features/invite/InviteSheet";
+import { InviteSheet, type InviteSheetMode } from "@/features/invite/InviteSheet";
 
 /**
  * A text action that is still a 44px target.
@@ -156,6 +157,9 @@ function DeepLinkedClaimBoard({
   const toggleOwnClaim = useLiveMutation(api.allocations.toggleOwnClaim);
   const setOwnClaimQuantity = useLiveMutation(api.allocations.setOwnClaimQuantity);
   const organizerAssignItem = useLiveMutation(api.allocations.organizerAssignItem);
+  const tabObligations = useLiveQuery(api.obligations.forTab, {
+    tabId: tabId as Id<"tabs">,
+  });
 
   /*
    * "That changed a moment ago." — the one line a rejected write is allowed to
@@ -167,6 +171,37 @@ function DeepLinkedClaimBoard({
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
 
+  /*
+   * `?invite=1` is what "Start a tab" hands over on success: open the code
+   * immediately, in handoff shape, once.
+   *
+   * Read from `window.location` rather than `useSearchParams` for the reason
+   * `useGroupScope` gives — this surface has no Suspense boundary of its own,
+   * and `useSearchParams` would opt the whole route out of static rendering.
+   */
+  const [inviteMode, setInviteMode] = useState<InviteSheetMode>("manage");
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (new URLSearchParams(window.location.search).get("invite") === "1") {
+      setInviteMode("handoff");
+      setInviteOpen(true);
+    }
+  }, []);
+
+  /*
+   * Dismissing the handoff drops the key, so a back-navigation or a refresh
+   * does not re-open the code over a board the organizer is now working in.
+   */
+  const dismissInvite = useCallback(() => {
+    setInviteOpen(false);
+    if (inviteMode === "handoff") {
+      setInviteMode("manage");
+      router.replace(`/tabs/${publicToken}`);
+    }
+  }, [inviteMode, router, publicToken]);
+
   const openBillReview = useCallback(() => {
     router.push(`/tabs/${publicToken}/bill`);
   }, [router, publicToken]);
@@ -175,14 +210,16 @@ function DeepLinkedClaimBoard({
    * The locked footer action. The Payment Sheet is a sheet, not a route (§1.0),
    * so it is opened by adding `SettleSheetHost`'s `?settle=` key to this URL.
    *
-   * BLOCKED: the key should be the viewer's own obligation id, and no Convex
-   * function returns it — `convex/obligations.ts` is a stub and no query reads
-   * the `obligations` table. The tab token stands in until an
-   * `obligations.forViewer(tabId)` query exists.
+   * The Payment Sheet is keyed on the viewer's own obligation id from
+   * `obligations.forTab`, never the tab public token.
    */
   const openSettleSheet = useCallback(() => {
-    router.push(`/tabs/${publicToken}${settleSearch(publicToken)}`);
-  }, [router, publicToken]);
+    const obligationId = tabObligations.data?.viewerObligationId;
+    if (!obligationId) {
+      return;
+    }
+    router.push(`/tabs/${publicToken}${settleSearch(obligationId)}`);
+  }, [router, publicToken, tabObligations.data?.viewerObligationId]);
 
   /** Claiming is additive: two people on one dish both succeed ("Split 2 ways"). */
   const handleToggleClaim = useCallback(
@@ -300,13 +337,21 @@ function DeepLinkedClaimBoard({
         onAssignItem={canWrite && organizerAssignItem ? handleAssignItem : undefined}
         onAddManual={addManualItem}
         onScanReceipt={scanEnabled ? scanReceipt : undefined}
-        onInvite={board.isOrganizer ? () => setInviteOpen(true) : undefined}
+        onInvite={
+          board.isOrganizer
+            ? () => {
+                setInviteMode("manage");
+                setInviteOpen(true);
+              }
+            : undefined
+        }
       />
       {board.isOrganizer ? (
         <InviteSheet
           open={inviteOpen}
           tabId={tabId}
-          onDismiss={() => setInviteOpen(false)}
+          mode={inviteMode}
+          onDismiss={dismissInvite}
         />
       ) : null}
       <SettleSheetHost />

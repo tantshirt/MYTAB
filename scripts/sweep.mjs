@@ -180,6 +180,9 @@ const VARIANTS = [
   { path: `/tabs/new?group=g_sweep`, label: "new tab (from group)" },
   { path: `/tabs/new`, label: "new tab (personal)" },
   { path: `/tips/new?to=maya&group=g_sweep`, label: "tip composer (recipient)" },
+  { path: "/wallet/callback", label: "wallet callback" },
+  // No query: refused HTML. A valid hop assigns phantom:// and leaves the page.
+  { path: "/wallet/open", label: "wallet open hop (refused)" },
 ];
 
 /* ───────────────────────────────── server ────────────────────────────────── */
@@ -274,6 +277,8 @@ function fixtureEnv() {
 const POPULATED_MIN = {
   "/": 10,
   "/activity": 5,
+  /* Three debts, each with a reserved amount column. */
+  "/owe": 3,
   "/tips/new": 4,
   [`/groups/${PARAM}`]: 6,
   [`/pay/${PARAM}`]: 1,
@@ -290,6 +295,7 @@ const POPULATED_MIN = {
    */
   "/you": 0,
   "/wallet/callback": 0,
+  "/wallet/open": 0,
 };
 
 /*

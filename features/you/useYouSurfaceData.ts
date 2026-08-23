@@ -54,6 +54,7 @@ export function useYouSurfaceData(): YouSurfaceData {
   const { initDataUnsafe } = useTelegramRuntime();
   const subject = useViewer();
   const wallet = useLiveQuery(api.wallets.defaultReceivingWallet, {});
+  const roster = useLiveQuery(api.wallets.walletRoster, {});
   const liveInvites = useLiveQuery(api.tabInvite.listOrganizerLiveInvites, {});
   const groups = useLiveQuery(api.groups.listForViewer, {});
 
@@ -68,6 +69,7 @@ export function useYouSurfaceData(): YouSurfaceData {
       wallet: { kind: "failed" },
       liveInvites: [],
       groups: [],
+      moveReceived: { visible: false },
     };
   }
 
@@ -79,6 +81,7 @@ export function useYouSurfaceData(): YouSurfaceData {
       wallet: { kind: "provisioning" },
       liveInvites: [],
       groups: [],
+      moveReceived: { visible: false },
     };
   }
 
@@ -88,7 +91,13 @@ export function useYouSurfaceData(): YouSurfaceData {
     viewer: subject === null ? null : viewerFromTelegram(initDataUnsafe, subject),
     // Not an error and never a warning colour: Privy provisions on first login.
     wallet: wallet.data
-      ? { kind: "ready", publicKey: wallet.data.solanaAddress }
+      ? {
+          kind: "ready",
+          publicKey: wallet.data.solanaAddress,
+          walletKind: wallet.data.kind,
+          provider: wallet.data.provider ?? null,
+          hasEmbedded: roster.data?.hasEmbedded === true,
+        }
       : { kind: "none" },
     liveInvites: (liveInvites.data ?? []).map((row) => ({
       tabId: row.tabId,
@@ -102,5 +111,6 @@ export function useYouSurfaceData(): YouSurfaceData {
       name: group.displayName,
       memberCount: group.memberCount,
     })),
+    moveReceived: { visible: false },
   };
 }
