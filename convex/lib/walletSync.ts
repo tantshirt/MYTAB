@@ -55,6 +55,7 @@ export async function setDefaultReceivingWallet(
   for (const wallet of otherDefaults) {
     await ctx.db.patch(wallet._id, {
       isDefaultReceiving: false,
+      lastDefaultAt: now,
       updatedAt: now,
     });
   }
@@ -100,17 +101,19 @@ export async function upsertEmbeddedWallet(
     return { walletId: existing._id, created: false };
   }
 
-  const isDefaultReceiving = shouldNewEmbeddedWalletBeDefault(existingWallets);
   const walletId = await ctx.db.insert("wallets", {
     userId,
     kind: "embedded",
     privyWalletId,
     solanaAddress,
     isEmbedded: true,
-    isDefaultReceiving,
+    isDefaultReceiving: false,
     createdAt: now,
     updatedAt: now,
   });
+
+  const wallets = await listUserWallets(ctx, userId);
+  await setDefaultReceivingWallet(ctx, userId, walletId, wallets);
 
   return { walletId, created: true };
 }
@@ -137,20 +140,24 @@ export async function upsertExternalWallet(
       isEmbedded: false,
       updatedAt: now,
     });
+    const wallets = await listUserWallets(ctx, userId);
+    await setDefaultReceivingWallet(ctx, userId, existing._id, wallets);
     return { walletId: existing._id, created: false };
   }
 
-  const isDefaultReceiving = shouldNewEmbeddedWalletBeDefault(existingWallets);
   const walletId = await ctx.db.insert("wallets", {
     userId,
     kind: "external",
     provider,
     solanaAddress,
     isEmbedded: false,
-    isDefaultReceiving,
+    isDefaultReceiving: false,
     createdAt: now,
     updatedAt: now,
   });
+
+  const wallets = await listUserWallets(ctx, userId);
+  await setDefaultReceivingWallet(ctx, userId, walletId, wallets);
 
   return { walletId, created: true };
 }
@@ -184,4 +191,24 @@ export async function getDefaultReceivingWalletForUser(
   }
 
   return wallets[0] ?? null;
+}
+
+/** The row that last lost default — source for "send what you received". */
+export function findPreviousReceivingWallet<
+  T extends {
+    _id: Id<"wallets">;
+    isDefaultReceiving: boolean;
+    lastDefaultAt?: number;
+    createdAt: number;
+  },
+>(wallets: readonly T[]): T | null {
+  const previous = wallets.filter((wallet) => !wallet.isDefaultReceiving);
+  if (previous.length === 0) {
+    return null;
+  }
+  return previous.reduce((best, row) => {
+    const bestKey = best.lastDefaultAt ?? best.createdAt;
+    const rowKey = row.lastDefaultAt ?? row.createdAt;
+    return rowKey > bestKey ? row : best;
+  });
 }

@@ -11,10 +11,24 @@ export type YouViewer = {
 };
 
 export type YouWallet =
-  | { kind: "ready"; publicKey: string }
+  | {
+      kind: "ready";
+      publicKey: string;
+      walletKind: "embedded" | "external";
+      provider: string | null;
+      hasEmbedded: boolean;
+    }
   | { kind: "provisioning" }
   | { kind: "failed" }
   | { kind: "none" };
+
+export type YouMoveReceived =
+  | {
+      visible: true;
+      amountLabel: string;
+      destinationLabel: string;
+    }
+  | { visible: false };
 
 export type YouSurfaceData = {
   status: "loading" | "ready" | "error";
@@ -34,6 +48,7 @@ export type YouSurfaceData = {
    * acted on sitting above sections people did.
    */
   groups?: YouGroup[];
+  moveReceived?: YouMoveReceived;
 };
 
 export type YouGroup = {

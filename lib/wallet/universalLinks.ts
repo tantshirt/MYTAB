@@ -51,7 +51,7 @@ const UL_PEER_KEY = `${UL_SECRET_KEY}:peer`;
 
 export type UniversalLinkPending = {
   provider: NamedWalletProvider;
-  step: "connect" | "sign";
+  step: "connect" | "sign" | "signTx";
   challengeId: string;
   messagePrefix: string;
   userId: string;
@@ -61,6 +61,7 @@ export type UniversalLinkPending = {
   dappPublicKey: string;
   session?: string;
   publicKey?: string;
+  walletEncryptionPublicKey?: string;
 };
 
 export type UniversalLinkCallback =
@@ -174,6 +175,30 @@ export function readUniversalLinkSecret(): string | null {
   return storeGet(UL_SECRET_KEY);
 }
 
+export function writeUniversalLinkSecret(secret: string): void {
+  storeSet(UL_SECRET_KEY, secret);
+}
+
+export function hydratePendingUniversalLink(raw: string): UniversalLinkPending | null {
+  try {
+    const pending = JSON.parse(raw) as UniversalLinkPending;
+    if (!pending.challengeId || !pending.provider) {
+      return null;
+    }
+    writePendingUniversalLink(pending);
+    if (pending.walletEncryptionPublicKey) {
+      storeSet(UL_PEER_KEY, pending.walletEncryptionPublicKey);
+    }
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+export function readUniversalLinkPeer(): string | null {
+  return storeGet(UL_PEER_KEY);
+}
+
 export function resolveWalletCallbackUrl(origin = "", challengeId?: string): string {
   const base =
     origin || (typeof window !== "undefined" ? window.location.origin : "");
@@ -281,6 +306,62 @@ export function beginUniversalLinkSign(input: {
   };
 }
 
+/**
+ * Phantom-compatible `/signTransaction` (same hosts as connect).
+ * `transaction` is the server-prepared bytes, base58-encoded per vendor docs.
+ */
+export function beginUniversalLinkSignTransaction(input: {
+  pending: UniversalLinkPending;
+  session: string;
+  transactionBase58: string;
+  appUrl: string;
+}): { url: string } {
+  const secretRaw = storeGet(UL_SECRET_KEY);
+  const theirPub = input.pending.dappPublicKey;
+  if (!secretRaw) {
+    throw new Error("UL_SECRET_MISSING");
+  }
+
+  const walletPub = storeGet(UL_PEER_KEY) ?? input.pending.walletEncryptionPublicKey;
+  if (!walletPub) {
+    throw new Error("UL_PEER_MISSING");
+  }
+
+  const shared = boxBefore(decodeKeyBase58(walletPub), decodeKeyBase58(secretRaw));
+  const nonce = randomNonce24();
+  const payload = boxAfter(
+    new TextEncoder().encode(
+      JSON.stringify({
+        session: input.session,
+        transaction: input.transactionBase58,
+      }),
+    ),
+    nonce,
+    shared,
+  );
+
+  writePendingUniversalLink({
+    ...input.pending,
+    step: "signTx",
+    session: input.session,
+    walletEncryptionPublicKey: walletPub,
+  });
+
+  const params = new URLSearchParams({
+    dapp_encryption_public_key: theirPub,
+    nonce: bytesToBase58(nonce),
+    redirect_link: resolveWalletCallbackUrl(
+      new URL(input.appUrl).origin,
+      input.pending.challengeId,
+    ),
+    payload: bytesToBase58(payload),
+  });
+
+  return {
+    url: `${UNIVERSAL_LINK_HOSTS[input.pending.provider]}/signTransaction?${params.toString()}`,
+  };
+}
+
 export type DecryptedConnectPayload = {
   public_key: string;
   session: string;
@@ -313,6 +394,13 @@ export function decryptUniversalLinkData(input: {
       return null;
     }
     storeSet(UL_PEER_KEY, input.phantomEncryptionPublicKey);
+    const pending = readPendingUniversalLink();
+    if (pending) {
+      writePendingUniversalLink({
+        ...pending,
+        walletEncryptionPublicKey: input.phantomEncryptionPublicKey,
+      });
+    }
     return JSON.parse(new TextDecoder().decode(opened)) as Record<string, unknown>;
   } catch {
     return null;
@@ -359,6 +447,19 @@ export function parseUniversalLinkSearch(search: string): UniversalLinkCallback 
   }
 
   const signature = typeof decrypted.signature === "string" ? decrypted.signature : undefined;
+  const signedTransaction =
+    typeof decrypted.transaction === "string" ? decrypted.transaction : undefined;
+  if (pending.step === "signTx") {
+    if (!signedTransaction) {
+      return { ok: false, errorCode: "UL_CALLBACK_MISSING" };
+    }
+    return {
+      ok: true,
+      provider: pending.provider,
+      signature: signedTransaction,
+      publicKey: pending.publicKey,
+    };
+  }
   if (!signature) {
     return { ok: false, errorCode: "UL_CALLBACK_MISSING" };
   }

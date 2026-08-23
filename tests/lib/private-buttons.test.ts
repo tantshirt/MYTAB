@@ -12,7 +12,7 @@ const base = {
 };
 
 describe("private-chat Mini App doors", () => {
-  it("opens /tabs/new and /you via web_app when an HTTPS origin is set", () => {
+  it("opens /tabs/new and /owe via web_app when an HTTPS origin is set", () => {
     const start = resolvePrivateButton("start_tab", {
       ...base,
       httpsOrigin: "https://app.example.com",
@@ -27,7 +27,7 @@ describe("private-chat Mini App doors", () => {
     });
     expect(owe).toEqual({
       text: WHAT_I_OWE_BUTTON_LABEL,
-      web_app: { url: "https://app.example.com/you" },
+      web_app: { url: "https://app.example.com/owe" },
     });
   });
 

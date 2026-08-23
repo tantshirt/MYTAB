@@ -15,6 +15,9 @@ export const FIXTURE_YOU_SURFACE: YouSurfaceData = {
   wallet: {
     kind: "ready",
     publicKey: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJos9mPq",
+    walletKind: "embedded",
+    provider: null,
+    hasEmbedded: true,
   },
   buildLabel: "2026.08.22",
   supportUrl: "https://t.me/mytabsupport",

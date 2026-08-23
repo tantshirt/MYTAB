@@ -11,6 +11,8 @@ import { useTipComposerData } from "@/features/tips/useTipComposerData";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TipComposer, type TipComposerSubmitPayload } from "@/features/tips";
+import { WalletConnectHost } from "@/features/auth/WalletConnectHost";
+import { writePendingWalletAction } from "@/features/auth/pendingWalletAction";
 
 function TipComposerSurface() {
   const router = useRouter();
@@ -26,6 +28,8 @@ function TipComposerSurface() {
   // §4.3 — "Couldn't send the tip. Try again.", rendered above the footer, and the
   // footer action re-submits.
   const [sendFailed, setSendFailed] = useState(false);
+  const [needsWallet, setNeedsWallet] = useState(false);
+  const [pendingTip, setPendingTip] = useState<TipComposerSubmitPayload | null>(null);
 
   /**
    * `api.settlements.createTipIntent` is idempotent on `idempotencyKey`, which
@@ -51,7 +55,16 @@ function TipComposerSurface() {
         idempotencyKey: payload.idempotencyKey,
       })
         .then((intent) => router.push(`/pay/${intent.intentId}`))
-        .catch(() => setSendFailed(true));
+        .catch((error: unknown) => {
+          const code = error instanceof Error ? error.message : "";
+          if (code.includes("PAYER_WALLET_REQUIRED")) {
+            writePendingWalletAction({ kind: "tip" });
+            setPendingTip(payload);
+            setNeedsWallet(true);
+            return;
+          }
+          setSendFailed(true);
+        });
     },
     [createTipIntent, groupId, router],
   );
@@ -77,6 +90,18 @@ function TipComposerSurface() {
         offline={offline}
         inTelegram={isTelegramWebApp}
       />
+      {needsWallet ? (
+        <WalletConnectHost
+          reason="pay"
+          onLinked={() => {
+            setNeedsWallet(false);
+            if (pendingTip) {
+              handleSubmit(pendingTip);
+            }
+          }}
+          onSkip={() => setNeedsWallet(false)}
+        />
+      ) : null}
     </AppShell>
   );
 }

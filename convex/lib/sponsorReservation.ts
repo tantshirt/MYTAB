@@ -82,7 +82,7 @@ export async function readSponsorUsageSnapshot(
   args: {
     userId: Id<"users">;
     walletId: Id<"wallets">;
-    groupId: Id<"groups">;
+    groupId: string;
     now?: number;
   },
 ): Promise<SponsorUsageSnapshot> {
@@ -130,7 +130,7 @@ export type ReserveSponsorBudgetArgs = {
   intentId: Id<"settlementIntents">;
   userId: Id<"users">;
   walletId: Id<"wallets">;
-  groupId: Id<"groups">;
+  groupId: string;
   environment: SponsorEnvironment;
   reservedLamports?: bigint;
   recipientAddress: string;
@@ -243,7 +243,7 @@ export async function releaseSponsorReservation(
   const keys: BucketKey[] = [
     { dimension: "user_day", scopeKey: intent.userId, windowKey: day },
     { dimension: "wallet_day", scopeKey: intent.walletId, windowKey: day },
-    { dimension: "group_day", scopeKey: intent.groupId, windowKey: day },
+    { dimension: "group_day", scopeKey: intent.groupId ?? intent.userId, windowKey: day },
     { dimension: "daily_aggregate", scopeKey: "_aggregate", windowKey: day },
     { dimension: "global_epoch", scopeKey: "_global", windowKey: "epoch" },
   ];

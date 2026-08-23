@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { useLiveQuery } from "@/features/convex/useConvexData";
 import { isConvexAuthFixtureMode } from "@/lib/privy/config";
-import type { NamedWalletProvider } from "@/lib/wallet/providers";
-import { ConnectSheet, type ConnectSheetStatus } from "./ConnectSheet";
+import { ConnectSheet } from "./ConnectSheet";
 import {
   hasSkippedConnectGate,
   markConnectGateSkipped,
@@ -13,8 +12,11 @@ import {
 } from "./connectGateState";
 import { CONNECT_COPY } from "./connectCopy";
 import { LaunchSurface } from "./LaunchSurface";
-import { useCreateMyTabWallet } from "./useCreateMyTabWallet";
-import { useLinkExternalWallet, WalletLinkClientError } from "./useLinkExternalWallet";
+import { useWalletConnectFlow } from "./useWalletConnectFlow";
+import {
+  readWalletUlResumeStatus,
+  WALLET_UL_RESUME_EVENT,
+} from "./walletUlResumeStatus";
 
 export { ConnectGateView, shouldShowConnectGate } from "./ConnectGateView";
 
@@ -25,10 +27,19 @@ type ConnectGateProps = {
 function LiveConnectGate({ children }: ConnectGateProps) {
   const linked = useLiveQuery(api.wallets.hasLinkedWallet, {});
   const [skipped, setSkipped] = useState(hasSkippedConnectGate);
-  const [status, setStatus] = useState<ConnectSheetStatus>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const { linkNamed } = useLinkExternalWallet();
-  const createMyTabWallet = useCreateMyTabWallet();
+  const [resumeFailed, setResumeFailed] = useState(
+    () => readWalletUlResumeStatus() === "failed",
+  );
+  const { status, errorMessage, connectNamed, useMyTabWallet } = useWalletConnectFlow();
+
+  useEffect(() => {
+    const onResume = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      setResumeFailed(detail === "failed");
+    };
+    window.addEventListener(WALLET_UL_RESUME_EVENT, onResume);
+    return () => window.removeEventListener(WALLET_UL_RESUME_EVENT, onResume);
+  }, []);
 
   const showGate = shouldShowConnectGate({
     linked: linked.data?.linked === true,
@@ -39,35 +50,6 @@ function LiveConnectGate({ children }: ConnectGateProps) {
     markConnectGateSkipped();
     setSkipped(true);
   }, []);
-
-  const onConnectNamed = useCallback(
-    async (provider: NamedWalletProvider) => {
-      setStatus("linking");
-      setErrorMessage(undefined);
-      try {
-        await linkNamed(provider);
-        setStatus("idle");
-      } catch (error) {
-        setStatus("failed");
-        setErrorMessage(
-          error instanceof WalletLinkClientError ? error.message : CONNECT_COPY.failed,
-        );
-      }
-    },
-    [linkNamed],
-  );
-
-  const onUseMyTabWallet = useCallback(async () => {
-    setStatus("linking");
-    setErrorMessage(undefined);
-    try {
-      await createMyTabWallet();
-      setStatus("idle");
-    } catch {
-      setStatus("failed");
-      setErrorMessage(CONNECT_COPY.failed);
-    }
-  }, [createMyTabWallet]);
 
   if (linked.error) {
     return <>{children}</>;
@@ -83,13 +65,15 @@ function LiveConnectGate({ children }: ConnectGateProps) {
 
   return (
     <ConnectSheet
-      status={status}
-      errorMessage={errorMessage}
+      status={status === "idle" && resumeFailed ? "failed" : status}
+      errorMessage={
+        status === "failed" ? errorMessage : resumeFailed ? CONNECT_COPY.resumeFailed : undefined
+      }
       onConnectNamed={(provider) => {
-        void onConnectNamed(provider);
+        void connectNamed(provider);
       }}
       onUseMyTabWallet={() => {
-        void onUseMyTabWallet();
+        void useMyTabWallet();
       }}
       onSkip={onSkip}
     />
@@ -108,4 +92,3 @@ export function ConnectGate({ children }: ConnectGateProps) {
   }
   return <LiveConnectGate>{children}</LiveConnectGate>;
 }
-

@@ -93,7 +93,9 @@ export function useStartParamRoute(): void {
       return;
     }
     if (destination.kind === "owe") {
-      router.replace("/you");
+      // `/owe`, not `/you` — the fallback carrier must land where the
+      // `web_app` button lands, or the two doors disagree.
+      router.replace("/owe");
       return;
     }
     router.replace(`/tabs/${encodeURIComponent(destination.token)}`);

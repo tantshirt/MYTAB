@@ -11,7 +11,8 @@ import { YOU_COPY } from "./copy";
 import { IdentityBlock, IdentityError } from "./IdentityBlock";
 import { ManageWalletSheet } from "./ManageWalletSheet";
 import { PROVISIONING_SWEEP_KEYFRAMES, ProvisioningSweep } from "./ProvisioningSweep";
-import type { YouSurfaceData } from "./types";
+import type { YouMoveReceived, YouSurfaceData } from "./types";
+import { WalletConnectHost } from "@/features/auth/WalletConnectHost";
 import { elideWalletKey } from "./useCopyKey";
 import { WalletKeyRow } from "./WalletKeyRow";
 import { YouSkeleton } from "./YouSkeleton";
@@ -25,6 +26,11 @@ export type YouSurfaceProps = {
   /** Privy `exportWallet()`. Privy renders its own modal; we render nothing over it. */
   onExportWallet?: () => void;
   onConnectExternalWallet?: () => void;
+  onLinked?: () => void;
+  onMoveReceived?: () => void;
+  moveReceived?: YouMoveReceived;
+  moveBusy?: boolean;
+  moveFailed?: boolean;
   onRevokeInvite?: (tokenId: string) => void;
 };
 
@@ -55,9 +61,15 @@ export function YouSurface({
   onRetryViewer,
   onExportWallet,
   onConnectExternalWallet,
+  onLinked,
+  onMoveReceived,
+  moveReceived,
+  moveBusy = false,
+  moveFailed = false,
   onRevokeInvite,
 }: YouSurfaceProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
 
   // Tab root — a stale BackButton from a previous surface must never survive here.
   useEffect(() => {
@@ -82,7 +94,12 @@ export function YouSurface({
           ? YOU_COPY.noneSub
           : undefined);
 
-  const exportDisabled = !walletReady || blockedReason !== undefined;
+  const exportExternal =
+    data.wallet.kind === "ready" && data.wallet.walletKind === "external";
+  const exportDisabled = !walletReady || blockedReason !== undefined || exportExternal;
+  const exportReason = exportExternal
+    ? YOU_COPY.exportExternalReason
+    : walletReasonSub;
   const manageDisabled =
     (data.wallet.kind !== "ready" && data.wallet.kind !== "none") ||
     blockedReason !== undefined;
@@ -194,7 +211,7 @@ export function YouSurface({
               </DisclosureRow>
               <ListRow
                 label={YOU_COPY.exportLabel}
-                sub={exportDisabled ? walletReasonSub : YOU_COPY.exportSub}
+                sub={exportDisabled ? exportReason : YOU_COPY.exportSub}
                 disabled={exportDisabled}
                 onPress={onExportWallet}
                 trailing={<ChevronGlyph />}
@@ -202,12 +219,40 @@ export function YouSurface({
             </ListCard>
           </div>
 
+          {moveReceived?.visible ? (
+            <div style={{ marginTop: "12px" }}>
+              <ListCard>
+                <ListRow
+                  label={YOU_COPY.moveReceived(moveReceived.destinationLabel)}
+                  sub={moveBusy ? YOU_COPY.moveReceivedBusy : YOU_COPY.moveReceivedSub}
+                  onPress={blockedReason || moveBusy ? undefined : onMoveReceived}
+                  trailing={
+                    <span className="mytab-tabular" style={{ flex: "none" }}>
+                      {moveReceived.amountLabel}
+                    </span>
+                  }
+                />
+                {moveFailed ? (
+                  <p role="alert" style={{ margin: "8px 16px 12px", color: MYTAB_COLORS.owed }}>
+                    {YOU_COPY.moveReceivedFailed}
+                  </p>
+                ) : null}
+              </ListCard>
+            </div>
+          ) : null}
+
           <button
             type="button"
             className="mytab-button-secondary"
             style={{ marginTop: "12px" }}
             disabled={manageDisabled}
-            onClick={() => setSheetOpen(true)}
+            onClick={() => {
+              if (data.wallet.kind === "none") {
+                setConnectOpen(true);
+                return;
+              }
+              setSheetOpen(true);
+            }}
           >
             {data.wallet.kind === "none" ? YOU_COPY.addWallet : YOU_COPY.manageWallet}
           </button>
@@ -313,8 +358,24 @@ export function YouSurface({
           onDismiss={() => setSheetOpen(false)}
           onExportWallet={onExportWallet}
           exportDisabled={exportDisabled}
-          exportDisabledReason={walletReasonSub}
-          onConnectExternalWallet={onConnectExternalWallet}
+          exportDisabledReason={exportReason}
+          onConnectExternalWallet={() => {
+            setSheetOpen(false);
+            setConnectOpen(true);
+            onConnectExternalWallet?.();
+          }}
+        />
+      ) : null}
+      {connectOpen ? (
+        <WalletConnectHost
+          reason="you"
+          showEmbedded={data.wallet.kind === "none" || data.wallet.kind !== "ready" || !data.wallet.hasEmbedded}
+          onLinked={() => {
+            setConnectOpen(false);
+            setSheetOpen(false);
+            onLinked?.();
+          }}
+          onSkip={() => setConnectOpen(false)}
         />
       ) : null}
     </main>

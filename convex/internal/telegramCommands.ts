@@ -19,10 +19,12 @@ import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import {
   sendMessage,
+  sendPhoto,
   setChatMenuButton,
   setMyCommands,
   type InlineKeyboardMarkup,
 } from "../../lib/telegram/api";
+import { houseWelcomeUrl } from "../../lib/telegram/tabCard";
 import {
   GROUP_BOT_COMMANDS,
   PRIVATE_BOT_COMMANDS,
@@ -298,10 +300,41 @@ export const runPrivateReply = internalAction({
       ? args.commandArg
       : undefined;
 
+    const replyMarkup = privateKeyboard(plan.buttons, openTabToken);
+
+    /*
+     * The welcome leads with the house still, and only the welcome does.
+     *
+     * `plan.photo` is set for a bare `/start` — the one reply that is somebody
+     * meeting this product for the first time. Every other private reply stays
+     * text, because a photograph on top of "Who are you tipping?" is noise.
+     *
+     * Sent by URL, not by a stored `file_id`: this fires once per person, so
+     * the reuse machinery D-31 built for the tab card would be a schema row
+     * earning nothing. With no HTTPS origin there is no URL, and the reply
+     * falls back to the same words as plain text rather than not arriving.
+     */
+    const photoUrl = plan.photo ? houseWelcomeUrl(getTelegramMiniAppHttpsUrl()) : undefined;
+
+    if (photoUrl) {
+      const sent = await sendPhoto(getTelegramBotToken(), {
+        chatId: args.chatId,
+        photo: photoUrl,
+        caption: plan.text,
+        replyMarkup,
+        disableNotification: true,
+      });
+      if (sent.ok) {
+        return { handled: true };
+      }
+      // Telegram refused the photo — a bad URL, a fetch it could not complete.
+      // The words still have to arrive, so fall through to the text send.
+    }
+
     await sendMessage(getTelegramBotToken(), {
       chatId: args.chatId,
       text: plan.text,
-      replyMarkup: privateKeyboard(plan.buttons, openTabToken),
+      replyMarkup,
       disableNotification: true,
     });
 

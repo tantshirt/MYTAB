@@ -53,6 +53,7 @@ const SWEEP_DIST_DIR = ".next-sweep";
 const SWEEP_SEAM_ALIASES: Record<string, string> = {
   "@/features/balances/useTabsHomeData": "tests/sweep/useTabsHomeData.ts",
   "@/features/balances/useActivityData": "tests/sweep/useActivityData.ts",
+  "@/features/balances/useOweData": "tests/sweep/useOweData.ts",
   "@/features/bills/useNewTabData": "tests/sweep/useNewTabData.ts",
   "@/features/claims/useBillReviewData": "tests/sweep/useBillReviewData.ts",
   "@/features/claims/useClaimBoardData": "tests/sweep/useClaimBoardData.ts",

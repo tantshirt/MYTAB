@@ -50,7 +50,12 @@ export function resolvePrivateButton(
     case "start_tab":
       return miniAppDoor(START_TAB_BUTTON_LABEL, input, "/tabs/new", "tab");
     case "what_i_owe":
-      return miniAppDoor(WHAT_I_OWE_BUTTON_LABEL, input, "/you", "owe");
+      /*
+       * `/owe`, not `/you`. The button asks a money question and `/you` is
+       * identity and wallet settings — landing there answered a question
+       * nobody asked, and buried the answer they wanted.
+       */
+      return miniAppDoor(WHAT_I_OWE_BUTTON_LABEL, input, "/owe", "owe");
     case "add_to_group":
       return { text: ADD_TO_GROUP_BUTTON_LABEL, url: input.startGroupUrl };
     case "open_tab":

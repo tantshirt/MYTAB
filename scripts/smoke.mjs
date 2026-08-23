@@ -438,7 +438,18 @@ async function main() {
   } finally {
     browser.close();
     chrome.proc.kill("SIGKILL");
-    rmSync(chrome.profile, { recursive: true, force: true });
+    /*
+     * Chrome keeps writing to its profile for a moment after SIGKILL, so an
+     * immediate remove races it and throws ENOTEMPTY — `force` does not cover
+     * that, it only covers a missing path. Retry, then give up quietly: this is
+     * a temp directory, and letting its cleanup fail the run reports a red gate
+     * over eleven green routes, which is worse than leaving a folder behind.
+     */
+    try {
+      rmSync(chrome.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch {
+      console.log(`▸ left behind ${chrome.profile} (Chrome still had it open)`);
+    }
     if (server && !arg("keep-open")) server.kill("SIGTERM");
   }
 

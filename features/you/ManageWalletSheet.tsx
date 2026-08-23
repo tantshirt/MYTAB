@@ -97,7 +97,7 @@ export function ManageWalletSheet({
         </ListCard>
       ) : null}
 
-      {showConnect ? (
+      {showConnect && !onConnectExternalWallet ? (
         <div style={{ marginTop: "16px" }}>
           <ExternalWalletConnect onConnect={onConnectExternalWallet} />
         </div>

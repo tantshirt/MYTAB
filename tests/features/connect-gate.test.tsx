@@ -47,6 +47,7 @@ describe("D-25 / D-27 — connect gate", () => {
     expect(html).toContain(CONNECT_COPY.backpack);
     expect(html).toContain(CONNECT_COPY.embedded);
     expect(html).toContain(CONNECT_COPY.skip);
+    expect(html).toContain(CONNECT_COPY.twoApprove);
     expect(html).not.toContain("Claim Board");
     expect(html.toLowerCase()).not.toContain("connect wallet");
     expect(html).toContain("font-size:28px");

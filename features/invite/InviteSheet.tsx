@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import { useCopyKey } from "@/features/you/useCopyKey";
 import { useShareMessage } from "@/features/telegram/useShareMessage";
@@ -11,9 +11,20 @@ import { QrSvg } from "@/lib/qr/svg";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_SPACING, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 import { INVITE_COPY } from "./copy";
 
+/**
+ * `manage` is the sheet reached from the Claim Board: share, copy, code, stop.
+ *
+ * `handoff` is the one moment the tab has just been started and the table is
+ * still sitting there — the code leads, nothing is behind a toggle, and there
+ * is no "Stop this link" beside it, because revoking a link one second after
+ * minting it is not a thing anyone means to do.
+ */
+export type InviteSheetMode = "manage" | "handoff";
+
 export type InviteSheetProps = {
   open: boolean;
   tabId: string;
+  mode?: InviteSheetMode;
   onDismiss: () => void;
 };
 
@@ -21,7 +32,7 @@ export type InviteSheetProps = {
  * Share + QR + revoke, on the same token (U-9, D-24).
  * Prepared messages are minted fresh on every tap — never cached.
  */
-export function InviteSheet({ open, tabId, onDismiss }: InviteSheetProps) {
+export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteSheetProps) {
   const share = useShareMessage();
   const prepare = useLiveAction(api.tabInvite.prepareTabInvite);
   const ensure = useLiveMutation(api.tabInvite.ensureInvite);
@@ -80,6 +91,20 @@ export function InviteSheet({ open, tabId, onDismiss }: InviteSheetProps) {
     }
   }, [copy, deepLinkUrl, loadInvite]);
 
+  /*
+   * Handoff opens straight onto the code. A toggle here would mean the table
+   * waits while the organizer finds a button, which is the whole friction this
+   * mode exists to delete.
+   */
+  const handoff = mode === "handoff";
+  useEffect(() => {
+    if (!open || !handoff || deepLinkUrl) {
+      return;
+    }
+    setShowQr(true);
+    void loadInvite();
+  }, [open, handoff, deepLinkUrl, loadInvite]);
+
   const handleQr = useCallback(async () => {
     if (!deepLinkUrl) {
       await loadInvite();
@@ -127,6 +152,89 @@ export function InviteSheet({ open, tabId, onDismiss }: InviteSheetProps) {
       : copyStatus === "failed"
         ? INVITE_COPY.copyFailed
         : INVITE_COPY.copyLink;
+
+  const qrPanel =
+    deepLinkUrl && !stopped ? (
+      <div
+        style={{
+          marginTop: MYTAB_SPACING["5"],
+          padding: MYTAB_SPACING["5"],
+          background: MYTAB_COLORS.surface,
+          border: `1px solid ${MYTAB_COLORS.border}`,
+          borderRadius: MYTAB_RADIUS.md,
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
+        {/* The code has to survive a phone held across a table, so handoff
+            gets every pixel the 320px floor allows. */}
+        <QrSvg value={deepLinkUrl} label={INVITE_COPY.qrLabel} size={handoff ? 240 : 196} />
+      </div>
+    ) : null;
+
+  if (handoff) {
+    return (
+      <SheetContainer label={INVITE_COPY.handoffTitle} onDismiss={onDismiss}>
+        <p className="mytab-type-micro-label" style={{ margin: 0 }}>
+          {INVITE_COPY.handoffTitle}
+        </p>
+
+        {qrPanel}
+
+        <p
+          className="mytab-type-body"
+          style={{ margin: `${MYTAB_SPACING["4"]} 0 0`, textAlign: "center" }}
+        >
+          {INVITE_COPY.handoffInstruction}
+        </p>
+
+        {seats !== null ? (
+          <p
+            className="mytab-type-meta"
+            style={{ margin: `${MYTAB_SPACING["3"]} 0 0`, textAlign: "center" }}
+          >
+            {INVITE_COPY.seatsLeft(seats)}
+          </p>
+        ) : null}
+
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: MYTAB_SPACING["3"],
+            marginTop: MYTAB_SPACING["5"],
+          }}
+        >
+          <button
+            type="button"
+            className="mytab-button-secondary"
+            style={{ minHeight: 44, flex: "1 1 0" }}
+            onClick={() => void handleCopy()}
+          >
+            {copyLabel}
+          </button>
+          {share.available && prepare ? (
+            <button
+              type="button"
+              className="mytab-button-secondary"
+              style={{ minHeight: 44, flex: "1 1 0" }}
+              onClick={() => void handleShare()}
+              disabled={busy}
+            >
+              {shareLabel}
+            </button>
+          ) : null}
+        </div>
+
+        <p
+          className="mytab-type-meta"
+          style={{ margin: `${MYTAB_SPACING["4"]} 0 0`, textAlign: "center" }}
+        >
+          {INVITE_COPY.handoffAside}
+        </p>
+      </SheetContainer>
+    );
+  }
 
   return (
     <SheetContainer label={INVITE_COPY.sheetTitle} onDismiss={onDismiss}>
@@ -192,21 +300,7 @@ export function InviteSheet({ open, tabId, onDismiss }: InviteSheetProps) {
         </button>
       </div>
 
-      {showQr && deepLinkUrl && !stopped ? (
-        <div
-          style={{
-            marginTop: MYTAB_SPACING["5"],
-            padding: MYTAB_SPACING["5"],
-            background: MYTAB_COLORS.surface,
-            border: `1px solid ${MYTAB_COLORS.border}`,
-            borderRadius: MYTAB_RADIUS.md,
-            display: "flex",
-            justifyContent: "center",
-          }}
-        >
-          <QrSvg value={deepLinkUrl} label={INVITE_COPY.qrLabel} />
-        </div>
-      ) : null}
+      {showQr ? qrPanel : null}
 
       {revoke ? (
         <button

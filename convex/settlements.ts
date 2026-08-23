@@ -65,6 +65,7 @@ import {
   formatUsdcLabel,
   type ObligationQuoteResult,
 } from "../lib/settlement/obligationQuote";
+import { getDefaultReceivingWalletForUser } from "./lib/walletSync";
 
 export {
   SETTLEMENT_FAILURE,
@@ -143,6 +144,8 @@ export const getIntent = query({
       }
     }
 
+    const payerWallet = intent.walletId ? await ctx.db.get(intent.walletId) : null;
+
     return {
       intentId: intent._id,
       status: intent.status,
@@ -154,6 +157,10 @@ export const getIntent = query({
       billName,
       tabHref,
       recipientReceivesLabel,
+      walletKind: payerWallet?.kind ?? null,
+      walletProvider: payerWallet?.provider ?? null,
+      preparedTxBase64: intent.serializedMessage ?? null,
+      targetKind: intent.targetKind,
     };
   },
 });
@@ -346,7 +353,7 @@ export const markReadyForSignatureInternal = internalMutation({
       intentId: intent._id,
       userId: intent.userId,
       walletId: intent.walletId,
-      groupId: intent.groupId,
+      groupId: intent.groupId ?? intent.userId,
       environment: resolveSponsorEnvironment(),
       recipientAddress: intent.recipientAddress,
       outputMint: intent.outputMint,
@@ -695,7 +702,12 @@ export const applyConfirmedInternal = internalMutation({
       }
     }
 
-    if (intent.targetKind === "obligation" && intent.obligationId && intent.tabId) {
+    if (
+      intent.targetKind === "obligation" &&
+      intent.obligationId &&
+      intent.tabId &&
+      intent.groupId
+    ) {
       await emitObligationSettlementActivity(ctx, {
         groupId: intent.groupId,
         tabId: intent.tabId,
@@ -785,7 +797,7 @@ export const applyDflowQuoteInternal = internalMutation({
       intentId: intent._id,
       userId: intent.userId,
       walletId: intent.walletId,
-      groupId: intent.groupId,
+      groupId: intent.groupId ?? intent.userId,
       environment: resolveSponsorEnvironment(),
       recipientAddress: intent.recipientAddress,
       outputMint: intent.outputMint,
@@ -878,7 +890,7 @@ export const applyQuotedTransactionInternal = internalMutation({
       intentId: intent._id,
       userId: intent.userId,
       walletId: intent.walletId,
-      groupId: intent.groupId,
+      groupId: intent.groupId ?? intent.userId,
       environment: resolveSponsorEnvironment(),
       recipientAddress: intent.recipientAddress,
       outputMint: intent.outputMint,
@@ -942,7 +954,7 @@ export const ensureSponsorReservationInternal = internalMutation({
       intentId: intent._id,
       userId: intent.userId,
       walletId: intent.walletId,
-      groupId: intent.groupId,
+      groupId: intent.groupId ?? intent.userId,
       environment: resolveSponsorEnvironment(),
       recipientAddress: intent.recipientAddress,
       outputMint: intent.outputMint,
@@ -1101,10 +1113,7 @@ export const getObligationQuoteBaseInternal = internalQuery({
       throw new AuthError(OBLIGATION_NOT_FOUND);
     }
 
-    const payerWallet = await ctx.db
-      .query("wallets")
-      .withIndex("by_user_id", (q) => q.eq("userId", user._id))
-      .first();
+    const payerWallet = await getDefaultReceivingWalletForUser(ctx, user._id);
 
     // Prefer the intent the obligation points at; fall back to the live
     // non-terminal one, then to the most recent attempt so a failed quote can

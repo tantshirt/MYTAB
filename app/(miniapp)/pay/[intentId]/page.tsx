@@ -1,12 +1,13 @@
 "use client";
 
-import { use, useCallback } from "react";
+import { use, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
 import { PaymentProgress } from "@/components/settlement-sheet";
 import { useHiddenTelegramBackButton } from "@/features/telegram/useBackAffordance";
 import { usePaymentProgressData } from "@/features/settlement/usePaymentProgressData";
+import { usePayObligation } from "@/features/settlement/usePayObligation";
 import { formatAmountLabelForA11y } from "@/lib/domain/a11yAmount";
 
 type PayPageProps = {
@@ -16,6 +17,25 @@ type PayPageProps = {
 function PaymentProgressSurface({ intentId }: { intentId: string }) {
   const router = useRouter();
   const intent = usePaymentProgressData(intentId);
+  const { pay } = usePayObligation();
+  const signing = useRef(false);
+
+  useEffect(() => {
+    if (intent.status !== "ready_for_signature" || !intent.preparedTxBase64 || signing.current) {
+      return;
+    }
+    signing.current = true;
+    void pay({
+      intentId,
+      walletKind: intent.walletKind,
+      walletProvider: intent.walletProvider,
+      preparedTxBase64: intent.preparedTxBase64,
+    }).then((result) => {
+      if (!result.ok) {
+        signing.current = false;
+      }
+    });
+  }, [intent, intentId, pay]);
 
   // The surface is forward-only: no in-app chevron, and Telegram's BackButton
   // is hidden rather than wired (POLISH-SPEC §1.9, §2.4).

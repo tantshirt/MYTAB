@@ -161,6 +161,10 @@ export const buildDflowSettlementAction = internalAction({
       return { ok: false as const, failureCode: "INVALID_ROUTING_KIND" };
     }
 
+    if (!intent.groupId) {
+      return { ok: false as const, failureCode: "GROUP_REQUIRED" };
+    }
+
     // Cluster gate first: no budget is spent and no order is sent on a cluster
     // DFlow cannot route.
     if (!isDflowRoutingAvailable()) {

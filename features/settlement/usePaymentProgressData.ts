@@ -20,6 +20,9 @@ export type PaymentProgressData = {
   recipientReceivesLabel: string | null;
   /** Where "Back to tab" lands. */
   tabHref: string;
+  walletKind: "embedded" | "external" | null;
+  walletProvider: string | null;
+  preparedTxBase64: string | null;
 };
 
 /**
@@ -43,6 +46,9 @@ export function usePaymentProgressData(intentId: string): PaymentProgressData {
       billName: result.data?.billName ?? null,
       recipientReceivesLabel: result.data?.recipientReceivesLabel ?? null,
       tabHref: result.data?.tabHref ?? "/",
+      walletKind: result.data?.walletKind ?? null,
+      walletProvider: result.data?.walletProvider ?? null,
+      preparedTxBase64: result.data?.preparedTxBase64 ?? null,
     }),
     [result.data],
   );

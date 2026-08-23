@@ -14,6 +14,9 @@ export type ConnectSheetProps = {
   onConnectNamed: (provider: NamedWalletProvider) => void;
   onUseMyTabWallet: () => void;
   onSkip: () => void;
+  skipLabel?: string;
+  skipHint?: string;
+  showEmbedded?: boolean;
 };
 
 const NAMED: Array<{ provider: NamedWalletProvider; label: string; primary?: boolean }> = [
@@ -31,6 +34,9 @@ export function ConnectSheet({
   onConnectNamed,
   onUseMyTabWallet,
   onSkip,
+  skipLabel = CONNECT_COPY.skip,
+  skipHint = CONNECT_COPY.skipHint,
+  showEmbedded = true,
 }: ConnectSheetProps) {
   const busy = status === "linking";
 
@@ -123,7 +129,7 @@ export function ConnectSheet({
             WebkitTextFillColor: "rgba(255,255,255,0.78)",
           }}
         >
-          {CONNECT_COPY.body}
+          {CONNECT_COPY.body} {CONNECT_COPY.twoApprove}
         </p>
 
         {status === "failed" ? (
@@ -177,6 +183,7 @@ export function ConnectSheet({
           </button>
         ))}
 
+        {showEmbedded ? (
         <button
           type="button"
           disabled={busy}
@@ -197,6 +204,7 @@ export function ConnectSheet({
         >
           {CONNECT_COPY.embedded}
         </button>
+        ) : null}
 
         <button
           type="button"
@@ -215,7 +223,7 @@ export function ConnectSheet({
             cursor: busy ? "wait" : "pointer",
           }}
         >
-          {CONNECT_COPY.skip}
+          {skipLabel}
         </button>
         <p
           style={{
@@ -227,7 +235,7 @@ export function ConnectSheet({
             WebkitTextFillColor: "rgba(255,255,255,0.56)",
           }}
         >
-          {CONNECT_COPY.skipHint}
+          {skipHint}
         </p>
       </div>
     </div>

@@ -15,6 +15,8 @@ import {
 } from "@/lib/wallet/universalLinks";
 import { waitForUniversalLinkCallback } from "@/lib/wallet/waitForUniversalLinkCallback";
 import { CONNECT_COPY } from "./connectCopy";
+import { openWalletUrl } from "./openWalletUrl";
+import { persistWalletUlSession } from "./persistWalletUlSession";
 import { WalletLinkClientError } from "./walletLinkError";
 import {
   completeUniversalLinkAfterConnect,
@@ -23,15 +25,6 @@ import {
 } from "./walletUlHandoff";
 
 export { WalletLinkClientError } from "./walletLinkError";
-
-function openExternalUrl(url: string): void {
-  const webApp = window.Telegram?.WebApp as { openLink?: (href: string) => void } | undefined;
-  if (typeof webApp?.openLink === "function") {
-    webApp.openLink(url);
-    return;
-  }
-  window.location.assign(url);
-}
 
 /**
  * Issue a challenge, get a signature from wallet-standard or a universal
@@ -46,6 +39,8 @@ export function useLinkExternalWallet(): {
   const issue = useMutation(api.wallets.issueWalletLinkChallenge);
   const link = useMutation(api.wallets.linkExternalWallet);
   const consume = useMutation(api.wallets.consumeWalletUlCallback);
+  const storeSession = useMutation(api.wallets.storeWalletUlSession);
+  const storePaySession = useMutation(api.wallets.storeWalletPaySession);
 
   const submitSigned = useCallback(
     async (input: {
@@ -66,9 +61,12 @@ export function useLinkExternalWallet(): {
         await consume({ challengeId });
       },
       submitSigned,
-      openUrl: openExternalUrl,
+      openUrl: openWalletUrl,
+      persistSession: (challengeId, secret, pending) =>
+        storeSession({ challengeId, secret, pending }),
+      storePaySession: (input) => storePaySession(input).then(() => undefined),
     };
-  }, [convex, consume, submitSigned]);
+  }, [convex, consume, submitSigned, storeSession, storePaySession]);
 
   const linkViaStandard = useCallback(
     async (provider: NamedWalletProvider | "standard") => {
@@ -112,7 +110,11 @@ export function useLinkExternalWallet(): {
         expiresAt: challenge.expiresAt,
         appUrl: window.location.origin,
       });
-      openExternalUrl(url);
+      await persistWalletUlSession({
+        challengeId: challenge.challengeId,
+        store: (args) => storeSession(args),
+      });
+      openWalletUrl(url);
 
       try {
         const first = await waitForUniversalLinkCallback({
@@ -135,7 +137,7 @@ export function useLinkExternalWallet(): {
         throw error;
       }
     },
-    [issue, handoffDeps],
+    [issue, handoffDeps, storeSession],
   );
 
   const linkNamed = useCallback(
