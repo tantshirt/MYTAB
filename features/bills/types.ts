@@ -33,17 +33,20 @@ export type BillAdjustmentView = {
  * yet." rather than a cast of invented diners.
  */
 export type BillAuthoringData = {
+  /** False until every server-owned setup dependency has resolved. */
+  setupReady?: boolean;
+  /** Named terminal read failure; retrySetup re-subscribes all setup reads. */
+  setupError?: string;
+  retrySetup?: () => void;
   tabId: string;
+  groupId?: string;
   title: string;
   merchantName: string;
   displayCurrency: string;
-  /**
-   * Group defaults that New Tab deliberately does **not** render. The recipient
-   * is the payer and the receiving asset is always USDC, stated on the You
-   * surface — POLISH-SPEC §1.4 deletes both controls from this screen. They stay
-   * on the shape because they are part of `getGroupDefaults`, not of the form.
-   */
+  /** Display label for the last/default verified receive asset. */
   recipientAsset: string;
+  receiveMint?: string;
+  receiveAssetOptions?: Array<{ mint: string; symbol: string; name: string }>;
   organizerDisplayName: string;
   organizerUserId: string;
   payerUserId: string;

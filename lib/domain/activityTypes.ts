@@ -4,7 +4,6 @@ export const ACTIVITY_EVENT_TYPE = {
   CLAIM_RELEASE: "claim_release",
   ITEM_EDIT: "item_edit",
   TAB_LOCK: "tab_lock",
-  TIP: "tip",
   PAYMENT: "payment",
   WAIVER: "waiver",
   CASH_PROPOSED: "cash_proposed",
@@ -18,6 +17,9 @@ export type ActivityEventType =
 
 export type ActivityEventPayload = {
   summary: string;
+  /** Exact persisted fiat minor units; string avoids bigint/JSON loss. */
+  amountMinor?: string;
+  currency?: string;
   amountLabel?: string;
   tabId?: string;
   billId?: string;
@@ -29,7 +31,6 @@ export type ActivityEventPayload = {
 export function activityIconTint(type: ActivityEventType): string {
   switch (type) {
     case ACTIVITY_EVENT_TYPE.PAYMENT:
-    case ACTIVITY_EVENT_TYPE.TIP:
       return "#0B7561";
     case ACTIVITY_EVENT_TYPE.WAIVER:
     case ACTIVITY_EVENT_TYPE.CASH_ACKNOWLEDGED:

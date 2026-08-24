@@ -9,7 +9,8 @@ export type DflowInputMint = (typeof DFLOW_INPUT_MINTS)[number];
 
 export const DFLOW_SOLVER_MAX_REQUESTS = 4;
 export const DFLOW_SOLVER_DEADLINE_MS = 3_000;
-export const DFLOW_SOLVER_RESERVED_ATTEMPTS = 4;
+/** Four solver probes plus one stable-reference→receive pricing probe. */
+export const DFLOW_SOLVER_RESERVED_ATTEMPTS = 5;
 
 /**
  * Fixed `/order` parameters, every one of them deliberate.
@@ -71,19 +72,13 @@ export const DFLOW_ROUTING_BOUNDS = {
 /**
  * Positive slippage decision (deliberate, not a default).
  *
- * When a swap fills better than its quote, the excess output is the PAYER's
- * money — they funded the input. EXPERIENCE already models that excess as
- * `excessOutputAtomic` and offers it back as the round-up tip. Routing it to a
- * `positiveSlippageFeeAccount` would silently divert the payer's upside to an
- * account they never agreed to, and we have no funded account to divert it to.
+ * A `positiveSlippageFeeAccount` would silently divert favorable execution to
+ * a third party. My Tab omits it. The destination receives the route's actual
+ * output and confirmation records that actual independently from the minimum.
  *
- * So both parameters are omitted. DFlow does not take positive slippage itself,
- * which means the excess lands in the destination token account — the
- * RECIPIENT's USDC account, because we route output straight there. The payer
- * then sees it as the tip they already opted into, which is exactly the product
- * behaviour EXPERIENCE specifies.
+ * Both positive-slippage parameters are omitted.
  */
-export const DFLOW_POSITIVE_SLIPPAGE_DECISION = "payer-keeps-upside" as const;
+export const DFLOW_POSITIVE_SLIPPAGE_DECISION = "recipient-keeps-route-output" as const;
 
 export const DFLOW_FIXTURE_PROGRAM_ID =
   "DFlowFix1111111111111111111111111111111111111";

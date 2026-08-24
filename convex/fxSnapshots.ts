@@ -4,6 +4,7 @@ import { isFxSnapshotFresh } from "../lib/domain/fx";
 import {
   loadFxSnapshotForTabViewer,
   recordBotFxSnapshot,
+  recordGenericFxSnapshot,
 } from "./lib/fxSnapshotSync";
 
 export {
@@ -41,6 +42,16 @@ export const getFxSnapshot = query({
       isFresh: isFxSnapshotFresh(snapshot, Date.now()),
     };
   },
+});
+
+export const recordGenericSnapshot = internalMutation({
+  args: {
+    currency: v.string(),
+    providerDate: v.string(),
+    rateText: v.string(),
+  },
+  handler: async (ctx, args) =>
+    recordGenericFxSnapshot(ctx, args, Date.now()),
 });
 
 /** Persists a Bank of Thailand quote fetched by `internal.internal.fx.refreshFxSnapshot`. */

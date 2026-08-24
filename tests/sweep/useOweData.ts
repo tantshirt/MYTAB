@@ -51,5 +51,5 @@ const ROWS: OweRow[] = [
 
 export function useOweData(): OweData {
   const { retry } = useRetryNonce();
-  return { status: "ready", rows: ROWS, retry };
+  return { status: "ready", rows: ROWS, owedRows: [], retry };
 }

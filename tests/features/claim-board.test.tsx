@@ -10,7 +10,7 @@ import {
 import { ClaimRow, claimRowAriaLabel, claimRowCaption, claimRowStateTag } from "@/components/claim-row";
 import { quantityAfterStep, quantityClaimedCaption } from "@/lib/domain";
 import { FIXTURE_BILL_REVIEW, FIXTURE_CLAIM_BOARD } from "@/tests/fixtures/claims";
-import { WhoHasThisSheet } from "@/features/claims/WhoHasThisSheet";
+import { proportionalMinorFloor, WhoHasThisSheet } from "@/features/claims/WhoHasThisSheet";
 import { formatFiatMinorThb, perHeadDisplayMinor, thbMinorFromInteger } from "@/lib/domain";
 
 function board(overrides: Partial<ClaimBoardProps> = {}): ClaimBoardProps {
@@ -306,7 +306,7 @@ describe("P1-20 — the row announces the other claimants", () => {
         claimants: [andre],
         viewerUserId: viewer,
       }),
-    ).toBe("Green Curry, 180 baht, claimed by you");
+    ).toBe("Green Curry, 180 Thai baht, claimed by you");
   });
 
   it("names who else is on it, not just the viewer", () => {
@@ -317,7 +317,7 @@ describe("P1-20 — the row announces the other claimants", () => {
         claimants: [andre, noi],
         viewerUserId: viewer,
       }),
-    ).toBe("Green Curry, 180 baht, claimed by you and Noi, split 2 ways, 90 baht each");
+    ).toBe("Green Curry, 180 Thai baht, claimed by you and Noi, split 2 ways, 90 Thai baht each");
   });
 
   it("names the claimants when the viewer holds nothing", () => {
@@ -328,7 +328,7 @@ describe("P1-20 — the row announces the other claimants", () => {
         claimants: [noi, { userId: "user_ploy", displayName: "Ploy" }],
         viewerUserId: viewer,
       }),
-    ).toBe("Som Tam, 120 baht, claimed by Noi and Ploy, split 2 ways, 60 baht each");
+    ).toBe("Som Tam, 120 Thai baht, claimed by Noi and Ploy, split 2 ways, 60 Thai baht each");
   });
 
   it("says an orphan needs an owner", () => {
@@ -339,7 +339,7 @@ describe("P1-20 — the row announces the other claimants", () => {
         claimants: [],
         viewerUserId: viewer,
       }),
-    ).toBe("Mango Sticky Rice, 180 baht, needs an owner");
+    ).toBe("Mango Sticky Rice, 180 Thai baht, needs an owner");
   });
 });
 
@@ -408,6 +408,13 @@ describe("P1-20 — the who-has-this sheet", () => {
     { userId: "user_tim", displayName: "Tim" },
   ];
 
+  it("floors proportional claimant amounts with bigint-safe intermediates", () => {
+    const large = Number.MAX_SAFE_INTEGER - 1;
+    expect(proportionalMinorFloor(large, 2, 3)).toBe(
+      Number((BigInt(large) * 2n) / 3n),
+    );
+  });
+
   it("names everyone on the dish and their per-head amount", () => {
     const html = renderToStaticMarkup(
       <WhoHasThisSheet
@@ -426,7 +433,53 @@ describe("P1-20 — the who-has-this sheet", () => {
     expect(html).toContain("Noi");
     expect(html).toContain("Ploy");
     // No override for a participant.
-    expect(html).not.toContain("Assign to");
+    expect(html).not.toContain("Resolve before lock");
+  });
+
+  it("discloses quantity-mode claimant amounts proportionally", () => {
+    const html = renderToStaticMarkup(
+      <WhoHasThisSheet
+        itemName="Skewers"
+        lineTotalMinor={12000}
+        quantity={3}
+        claimedCount={3}
+        allocationMode="quantity"
+        claimants={people.slice(0, 2)}
+        claimantQuantities={[
+          { userId: "user_noi", quantity: 2 },
+          { userId: "user_ploy", quantity: 1 },
+        ]}
+        assignable={[]}
+        viewerUserId="user_andre"
+        isOrganizer={false}
+        locked={false}
+        onClose={() => {}}
+      />,
+    );
+    expect(html).toContain("฿80.00");
+    expect(html).toContain("฿40.00");
+  });
+
+  it("prices a partial quantity claim against the receipt's full quantity", () => {
+    const html = renderToStaticMarkup(
+      <WhoHasThisSheet
+        itemName="Skewers"
+        lineTotalMinor={12000}
+        quantity={3}
+        claimedCount={1}
+        allocationMode="quantity"
+        claimants={people.slice(0, 1)}
+        claimantQuantities={[{ userId: "user_noi", quantity: 1 }]}
+        assignable={people.slice(1)}
+        viewerUserId="user_andre"
+        isOrganizer={false}
+        locked={false}
+        onClose={() => {}}
+      />,
+    );
+    expect(html).toContain("1 of 3 claimed");
+    expect(html).toContain("฿40.00");
+    expect(html).not.toContain("฿120.00</span></li>");
   });
 
   it("is the organizer's override surface on an orphan row", () => {
@@ -444,7 +497,8 @@ describe("P1-20 — the who-has-this sheet", () => {
       />,
     );
     expect(html).toContain("Nobody has claimed this yet.");
-    expect(html).toContain("Assign to");
+    expect(html).toContain("Resolve before lock");
+    expect(html).toContain("Assign remaining to selected");
     expect(html).toContain("Tim");
   });
 
@@ -462,7 +516,46 @@ describe("P1-20 — the who-has-this sheet", () => {
         onClose={() => {}}
       />,
     );
-    expect(html).not.toContain("Assign to");
+    expect(html).not.toContain("Resolve before lock");
+  });
+
+  it("offers explicit multi-person, share-all, organizer-remainder, remove and reassign controls", () => {
+    const html = renderToStaticMarkup(
+      <WhoHasThisSheet
+        itemName="Skewers"
+        lineTotalMinor={40000}
+        quantity={4}
+        claimedCount={1}
+        allocationMode="quantity"
+        claimants={people.slice(0, 1)}
+        assignable={people.slice(1)}
+        viewerUserId="user_maya"
+        organizerUserId="user_maya"
+        isOrganizer
+        locked={false}
+        onAssignRemaining={() => {}}
+        onShareEveryone={() => {}}
+        onOrganizerCoversRemainder={() => {}}
+        onRemoveClaimant={() => {}}
+        onReassignClaimant={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(html).toContain("3 portions remain");
+    expect(html).toContain("Share with everyone");
+    expect(html).toContain("Organizer covers remainder");
+    expect(html).toContain("Remove");
+    expect(html).toContain("Reassign to…");
+    expect((html.match(/role="checkbox"/g) ?? [])).toHaveLength(3);
+  });
+});
+
+describe("frozen-spec pre-lock resolution summary", () => {
+  it("names every unresolved item and its remaining quantity before lock", () => {
+    const html = render(board({ onResolveItem: () => {} }));
+    expect(html).toContain("Before locking");
+    expect(html).toContain("Mango Sticky Rice");
+    expect(html).toContain("portion remains");
   });
 });
 

@@ -40,7 +40,8 @@ describe("Story 4.1 — New Tab surface", () => {
     );
 
     expect(html).toContain("THB");
-    expect(html).toContain("USDC");
+    expect(html).toContain("USD");
+    expect(html).toContain("KWD");
     expect(html).toContain("Fixture rate");
     // Selection is a radio, not a native select (POLISH-SPEC §1.4, §6.1).
     expect(html).toContain('role="radiogroup"');
@@ -173,7 +174,7 @@ describe("Story 4.2 — item list and empty states", () => {
       <ItemEditor
         name=""
         quantity={1}
-        unitPriceBaht={0}
+        unitPriceInput=""
         onChange={() => undefined}
         onSave={() => undefined}
         onCancel={() => undefined}
@@ -218,6 +219,25 @@ describe("Story 4.4 — loading and offline", () => {
  * roster never arrived. Both are §4.4 failures — a control that goes silent.
  */
 describe("New Tab — the primary action always states its reason", () => {
+  it("replaces setup skeletons with a named retryable error", () => {
+    const html = renderBill(
+      <BillAuthoringSurface
+        tabId="tabs:new"
+        viewerUserId="users:andre"
+        data={{
+          ...FIXTURE_EMPTY_BILL,
+          setupReady: false,
+          setupError: "Couldn't load the tab setup. Try again.",
+          retrySetup: () => undefined,
+        }}
+      />,
+    );
+
+    expect(html).toContain("Couldn&#x27;t load the tab setup. Try again.");
+    expect(html).toContain("Try again");
+    expect(html).not.toContain('aria-busy="true"');
+  });
+
   it("names the write lock rather than sitting mute on a personal draft", () => {
     const html = renderBill(
       <BillAuthoringSurface
@@ -292,7 +312,7 @@ describe("New Tab — the primary action always states its reason", () => {
     expect(html).not.toContain("Where");
     expect(html).not.toContain("Currency");
     expect(html).not.toContain("Who paid?");
-    // The settlement token never appears on a screen about a restaurant bill.
-    expect(html).not.toContain("USDC");
+    expect(html).toContain("You receive");
+    expect(html).toContain("Only verified receiving assets are shown");
   });
 });

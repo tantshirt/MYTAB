@@ -240,8 +240,8 @@ export const FIXTURE_ACTIVITY: ActivityRowData[] = [
   },
   {
     id: "act-3",
-    type: ACTIVITY_EVENT_TYPE.TIP,
-    summary: "Noi sent a tip to Ploy",
+    type: ACTIVITY_EVENT_TYPE.CASH_ACKNOWLEDGED,
+    summary: "Ploy confirmed Noi's outside payment",
     amountLabel: "฿50.00",
     createdAt: Date.now() - 2 * 60 * 60_000,
   },

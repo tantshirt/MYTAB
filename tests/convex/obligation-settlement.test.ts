@@ -7,11 +7,13 @@ import {
   FIXTURE_RECIPIENT_WALLET_ADDRESS,
   FIXTURE_SPONSOR_WALLET_ADDRESS,
   USDC_MINT,
+  WRAPPED_SOL_MINT,
 } from "../../lib/solana/constants";
 import { applySettlementOffset, isTargetAlreadySettled } from "../../convex/lib/settlementLedger";
 import { SETTLEMENT_FAILURE } from "../../convex/lib/settlementState";
 import {
   createObligationIntentCore,
+  refreshObligationIntentCore,
   OBLIGATION_FAILURE,
 } from "../../convex/lib/settlementObligationSync";
 import { computeBillSnapshotForObligation } from "../../convex/lib/billSnapshot";
@@ -110,13 +112,20 @@ function createObligationStore() {
                 ? obligations.filter((row) =>
                     Object.entries(filters).every(([field, value]) => row[field as keyof typeof row] === value),
                   )
+                : table === "tabParticipants"
+                  ? [
+                      { tabId: TAB_ID, userId: PAYER._id, telegramUserId: PAYER.telegramUserId },
+                      { tabId: TAB_ID, userId: CREDITOR._id, telegramUserId: CREDITOR.telegramUserId },
+                    ].filter((row) =>
+                      Object.entries(filters).every(([field, value]) => row[field as keyof typeof row] === value),
+                    )
                 : table === "groupMembers"
                     ? [
                         { groupId: GROUP_ID, telegramUserId: PAYER.telegramUserId, membershipStatus: "active" },
                         { groupId: GROUP_ID, telegramUserId: CREDITOR.telegramUserId, membershipStatus: "active" },
-                      ].filter((row) =>
-                        Object.entries(filters).every(([field, value]) => row[field as keyof typeof row] === value),
-                      )
+                    ].filter((row) =>
+                      Object.entries(filters).every(([field, value]) => row[field as keyof typeof row] === value),
+                    )
                     : table === "wallets"
                       ? [
                           {
@@ -152,6 +161,11 @@ function createObligationStore() {
       patch: async (id: string, patch: Record<string, unknown>) => {
         if (id === OBLIGATION_ID) {
           obligations[0] = { ...obligations[0]!, ...patch };
+          return;
+        }
+        const intentIndex = settlementIntents.findIndex((row) => row._id === id);
+        if (intentIndex >= 0) {
+          settlementIntents[intentIndex] = { ...settlementIntents[intentIndex]!, ...patch };
         }
       },
     },
@@ -227,17 +241,80 @@ describe("Story 6.1 — obligation settlement intent", () => {
     ).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("includes round-up in the same intent minimum output", async () => {
+  it("does not expose standalone round-up in an obligation intent", async () => {
     const { ctx, settlementIntents } = createObligationStore();
     await createObligationIntentCore(ctx, {
       obligationId: OBLIGATION_ID as never,
       inputMint: USDC_MINT,
-      idempotencyKey: "obligation-key-roundup",
-      roundUpAtomic: 500_000n,
+      idempotencyKey: "obligation-key-no-roundup",
     });
 
-    expect(settlementIntents[0]?.minimumOutputAtomic).toBe(10_500_000n);
-    expect(settlementIntents[0]?.roundUpAtomic).toBe(500_000n);
+    expect(settlementIntents[0]?.minimumOutputAtomic).toBe(10_000_000n);
+    expect(settlementIntents[0]?.roundUpAtomic).toBeUndefined();
+  });
+
+  it("refuses native SOL before intent creation while confirmation cannot prove its debit", async () => {
+    const { ctx, settlementIntents } = createObligationStore();
+    await expect(
+      createObligationIntentCore(ctx, {
+        obligationId: OBLIGATION_ID as never,
+        inputMint: WRAPPED_SOL_MINT,
+        idempotencyKey: "native-refused",
+      }),
+    ).rejects.toMatchObject({ code: OBLIGATION_FAILURE.INVALID_INPUT_MINT });
+    expect(settlementIntents).toHaveLength(0);
+  });
+
+  it("replaces only pre-signature intents for token switches and quote refresh", async () => {
+    const { ctx, settlementIntents } = createObligationStore();
+    const first = await createObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "first-quote",
+    });
+    const refreshed = await refreshObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "refreshed-quote",
+    });
+    expect(refreshed.created).toBe(true);
+    expect(refreshed.intentId).not.toBe(first.intentId);
+    expect(settlementIntents.find((row) => row._id === first.intentId)?.status).toBe("superseded");
+
+    const active = settlementIntents.find((row) => row._id === refreshed.intentId)!;
+    active.status = "user_signed";
+    await expect(refreshObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "blocked-after-sign",
+    })).rejects.toMatchObject({ code: OBLIGATION_FAILURE.DUPLICATE_NONTERMINAL_INTENT });
+  });
+
+  it("binds replay to replacement semantics and every frozen request fact", async () => {
+    const { ctx, settlementIntents } = createObligationStore();
+    const created = await createObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "exact-replay",
+    });
+    await expect(createObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "exact-replay",
+    })).resolves.toMatchObject({ intentId: created.intentId, created: false });
+    await expect(createObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "exact-replay",
+      replaceExisting: true,
+    })).rejects.toMatchObject({ code: OBLIGATION_FAILURE.IDEMPOTENCY_CONFLICT });
+
+    settlementIntents[0]!.outputMint = "frozen-output-was-altered";
+    await expect(createObligationIntentCore(ctx, {
+      obligationId: OBLIGATION_ID as never,
+      inputMint: USDC_MINT,
+      idempotencyKey: "exact-replay",
+    })).rejects.toMatchObject({ code: OBLIGATION_FAILURE.IDEMPOTENCY_CONFLICT });
   });
 });
 

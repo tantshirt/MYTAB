@@ -59,6 +59,17 @@ describe("Story 8.3 — deterministic re-parse", () => {
 
     expect(fixed.reconciled).toBe(true);
   });
+
+  it("rejects amount overflow before narrowing through Number", () => {
+    expect(() => parseReceiptAmount("90071992547409.93")).toThrow(/safe integer|range/i);
+  });
+
+  it("rejects quantities above the backend item limit", () => {
+    expect(() => parseExtractedReceipt({
+      lines: [{ name: "A", quantity: 1000, unitPriceRaw: "1.00" }],
+      totalRaw: "1000.00",
+    })).toThrow("between 1 and 999");
+  });
 });
 
 describe("Story 8.7 — Thai/English receipt subset", () => {

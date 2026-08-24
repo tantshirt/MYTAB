@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import { useReceiptUpload } from "./useReceiptUpload";
+import { receiptFailureMessage } from "./receiptErrors";
 
 export type ReceiptCaptureProps = {
   /** When set, capture uploads through Convex storage and finalizes the ticket. */
@@ -33,21 +34,32 @@ export function ReceiptCapture({
   const libraryRef = useRef<HTMLInputElement>(null);
   const { upload } = useReceiptUpload();
   const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   if (!enabled) {
     return null;
   }
 
-  const handleFile = async (file: File | undefined) => {
-    if (!file || !tabId || !upload) {
+  const handleFiles = async (files: readonly File[]) => {
+    if (files.length === 0) {
       return;
     }
+    if (files.length > 8) {
+      const message = receiptFailureMessage(new Error("RECEIPT_PAGE_LIMIT_EXCEEDED"));
+      setLocalError(message);
+      onFailure?.(message);
+      return;
+    }
+    if (!tabId || !upload) return;
+    setLocalError(null);
     setBusy(true);
     try {
-      const importId = await upload(tabId, file);
+      const importId = await upload(tabId, files);
       onUploaded?.(importId);
-    } catch {
-      onFailure?.("Could not read photo");
+    } catch (error) {
+      const message = receiptFailureMessage(error);
+      setLocalError(message);
+      onFailure?.(message);
     } finally {
       setBusy(false);
     }
@@ -57,6 +69,11 @@ export function ReceiptCapture({
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      {localError ? (
+        <p role="alert" className="mytab-type-meta" style={{ margin: 0, color: MYTAB_COLORS.owed }}>
+          {localError}
+        </p>
+      ) : null}
       <input
         ref={cameraRef}
         type="file"
@@ -66,18 +83,19 @@ export function ReceiptCapture({
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.target.value = "";
-          void handleFile(file);
+          void handleFiles(file ? [file] : []);
         }}
       />
       <input
         ref={libraryRef}
         type="file"
         accept="image/*"
+        multiple
         hidden
         onChange={(event) => {
-          const file = event.target.files?.[0];
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
-          void handleFile(file);
+          void handleFiles(files);
         }}
       />
       <button
@@ -106,7 +124,7 @@ export function ReceiptCapture({
         }}
         disabled={locked}
       >
-        Choose from photos
+        Choose up to 8 photos
       </button>
     </div>
   );

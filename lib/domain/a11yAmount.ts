@@ -1,19 +1,14 @@
 import type { FiatMinor } from "./money";
+import { formatCurrencyMinorForA11y } from "./currency";
 
 const THB_MINOR_FACTOR = 100;
 
 /** Reads THB minor units aloud — "291 baht 73" (Story 7.7 AC4). */
 export function formatThbMinorForA11y(amountMinor: FiatMinor): string {
-  const isNegative = amountMinor < 0;
-  const absolute = Math.abs(amountMinor);
-  const wholeBaht = Math.floor(absolute / THB_MINOR_FACTOR);
-  const satang = absolute % THB_MINOR_FACTOR;
-  const prefix = isNegative ? "negative " : "";
-  if (satang === 0) {
-    return `${prefix}${wholeBaht} baht`;
-  }
-  return `${prefix}${wholeBaht} baht ${satang}`;
+  return formatCurrencyMinorForA11y(amountMinor, "THB").replace("Thai baht", "baht");
 }
+
+export { formatCurrencyMinorForA11y } from "./currency";
 
 /** Reads USDC atomic units as whole and fractional parts for screen readers. */
 export function formatUsdcAtomicForA11y(amountAtomic: bigint, decimals = 6): string {

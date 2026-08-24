@@ -1,24 +1,27 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { STATE_COPY } from "@/components/primitives/state-copy";
+import { ErrorState } from "@/components/primitives/error-state";
 import { useOffline } from "@/components/primitives/use-offline";
 import { api } from "@/convex/_generated/api";
-import { useLiveMutation } from "@/features/convex/useConvexData";
+import { useLiveAction, useLiveMutation } from "@/features/convex/useConvexData";
 import { computeBillBreakdown } from "@/lib/domain/bill";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import { SEAT_DEFAULT } from "@/convex/lib/tabOrigin";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
+import { USDC_MINT } from "@/lib/solana/constants";
 import { AdjustmentsPanel } from "./AdjustmentsPanel";
 import { BillEmptyState } from "./BillEmptyState";
 import { BillSkeleton } from "./BillSkeleton";
 import { BillTotals } from "./BillTotals";
-import { bahtToMinor, ItemEditor, minorToBaht } from "./ItemEditor";
+import { currencyUnitToMinor, ItemEditor, minorToCurrencyUnit, safeLineTotalMinor } from "./ItemEditor";
 import { ItemRow } from "./ItemRow";
 import { NewTabForm, type CaptureMethod, type NewTabFormPatch } from "./NewTabForm";
 import { OfflineBar } from "./OfflineBar";
+import { submitTabCreation } from "./tabCreationSubmission";
 import type { BillAuthoringData, BillItemView } from "./types";
 
 export type BillAuthoringSurfaceProps = {
@@ -39,6 +42,8 @@ export type BillAuthoringSurfaceProps = {
    * that does nothing is worse than an absent one (§1.4).
    */
   onScanReceipt?: () => void;
+  /** Enables scan-first creation even before an existing-tab callback exists. */
+  receiptScanAvailable?: boolean;
 };
 
 type AuthorPhase = "setup" | "items";
@@ -85,15 +90,19 @@ export function BillAuthoringSurface({
   viewerUserId,
   data,
   onScanReceipt,
+  receiptScanAvailable = false,
 }: BillAuthoringSurfaceProps) {
   const resolved = data ?? null;
   const router = useRouter();
   const createPersonalTab = useLiveMutation(api.tabs.createPersonalTab);
+  const createChatTab = useLiveAction(api.tabCreation.createChatTab);
   const [phase, setPhase] = useState<AuthorPhase>(() =>
     resolved?.items.length ? "items" : "setup",
   );
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const creationAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const creationRequestRef = useRef(0);
   const offline = useOffline();
   const [showEditor, setShowEditor] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -116,6 +125,7 @@ export function BillAuthoringSurface({
     title?: string;
     merchantName?: string;
     displayCurrency?: string;
+    receiveMint?: string;
     payerUserId?: string;
     captureMethod?: CaptureMethod;
     seats?: number;
@@ -125,6 +135,7 @@ export function BillAuthoringSurface({
     title: edits.title ?? resolved?.title ?? tabTitle ?? "",
     merchantName: edits.merchantName ?? resolved?.merchantName ?? "",
     displayCurrency: edits.displayCurrency ?? resolved?.displayCurrency ?? "THB",
+    receiveMint: edits.receiveMint ?? resolved?.receiveMint ?? USDC_MINT,
     payerUserId: edits.payerUserId ?? resolved?.payerUserId ?? viewerUserId ?? "",
     captureMethod: edits.captureMethod ?? ("manual" as CaptureMethod),
     members: resolved?.members ?? [],
@@ -139,7 +150,7 @@ export function BillAuthoringSurface({
   const [editorDraft, setEditorDraft] = useState({
     name: "",
     quantity: 1,
-    unitPriceBaht: 0,
+    unitPriceInput: "",
   });
 
   /**
@@ -158,9 +169,10 @@ export function BillAuthoringSurface({
    * "subsequent" load and no spinner over correct data (§4.1; EXPERIENCE,
    * *State Patterns*).
    */
-  const showSkeleton = resolved == null;
+  const showSetupError = Boolean(resolved?.setupError);
+  const showSkeleton = resolved == null || (resolved.setupReady === false && !showSetupError);
 
-  const scanAvailable = onScanReceipt != null;
+  const scanAvailable = receiptScanAvailable || onScanReceipt != null;
 
   const breakdown = useMemo(() => {
     if (items.length === 0) {
@@ -186,7 +198,7 @@ export function BillAuthoringSurface({
 
   const openNewItemEditor = useCallback(() => {
     setEditingItemId(null);
-    setEditorDraft({ name: "", quantity: 1, unitPriceBaht: 0 });
+    setEditorDraft({ name: "", quantity: 1, unitPriceInput: "" });
     setShowEditor(true);
   }, []);
 
@@ -200,16 +212,16 @@ export function BillAuthoringSurface({
       setEditorDraft({
         name: item.name,
         quantity: item.quantity,
-        unitPriceBaht: minorToBaht(item.unitPriceMinor),
+        unitPriceInput: minorToCurrencyUnit(item.unitPriceMinor, form.displayCurrency),
       });
       setShowEditor(true);
     },
-    [items],
+    [form.displayCurrency, items],
   );
 
   const saveItem = useCallback(() => {
     const name = editorDraft.name.trim();
-    const unitPriceMinor = bahtToMinor(editorDraft.unitPriceBaht);
+    const unitPriceMinor = currencyUnitToMinor(editorDraft.unitPriceInput, form.displayCurrency);
 
     // The editor will not call this while invalid; the guard keeps a
     // `name: ""` at ฿0.00 out of the list if it ever does.
@@ -217,7 +229,8 @@ export function BillAuthoringSurface({
       return;
     }
 
-    const lineTotalMinor = unitPriceMinor * editorDraft.quantity;
+    const lineTotalMinor = safeLineTotalMinor(unitPriceMinor, editorDraft.quantity);
+    if (lineTotalMinor === null) return;
 
     if (editingItemId) {
       setItems((current) =>
@@ -243,7 +256,7 @@ export function BillAuthoringSurface({
 
     setShowEditor(false);
     setPhase("items");
-  }, [editorDraft, editingItemId]);
+  }, [editorDraft, editingItemId, form.displayCurrency]);
 
   const duplicateItem = useCallback((itemId: string) => {
     setItems((current) => {
@@ -260,58 +273,92 @@ export function BillAuthoringSurface({
   }, []);
 
   const startCapture = useCallback(() => {
-    if (form.origin === "personal") {
-      if (!createPersonalTab || creating) {
+    if (phase === "setup") {
+      const createUnavailable = form.origin === "personal" ? !createPersonalTab : !createChatTab;
+      if (createUnavailable || creating) {
         return;
       }
       setCreating(true);
       setCreateError(null);
+      const fingerprint = JSON.stringify({
+        origin: form.origin,
+        title: form.title.trim(),
+        merchantName: form.merchantName.trim(),
+        displayCurrency: form.displayCurrency,
+        receiveMint: form.receiveMint,
+        seats: form.seats,
+        groupId: resolved?.groupId ?? null,
+        payerUserId: form.payerUserId,
+      });
+      if (creationAttemptRef.current?.fingerprint !== fingerprint) {
+        creationAttemptRef.current = {
+          fingerprint,
+          key: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+        };
+      }
+      const requestId = creationRequestRef.current + 1;
+      creationRequestRef.current = requestId;
       const stalled = setTimeout(() => {
+        if (creationRequestRef.current !== requestId) return;
+        creationRequestRef.current += 1;
         setCreateError(CREATE_STALLED);
         setCreating(false);
       }, CREATE_TIMEOUT_MS);
-      void createPersonalTab({
-        name: form.title.trim(),
-        seats: form.seats,
-        merchantName: form.merchantName.trim() || undefined,
+      void submitTabCreation({
+        origin: form.origin,
+        title: form.title,
+        merchantName: form.merchantName,
         displayCurrency: form.displayCurrency,
+        receiveMint: form.receiveMint,
+        payerUserId: form.payerUserId,
+        seats: form.seats,
+        groupId: resolved?.groupId,
+        captureMethod: form.captureMethod,
+        scanAvailable,
+        idempotencyKey: creationAttemptRef.current.key,
+      }, {
+        createPersonal: (args) => {
+          if (!createPersonalTab) throw new Error("TAB_CREATE_UNAVAILABLE");
+          return createPersonalTab(args as never);
+        },
+        createChat: (args) => {
+          if (!createChatTab) throw new Error("TAB_CREATE_UNAVAILABLE");
+          return createChatTab(args as never);
+        },
       })
-        .then((created) => {
+        .then(({ destination }) => {
           clearTimeout(stalled);
-          /*
-           * Straight onto the invite code. A tab is started with the table
-           * still sitting there, so the next thing on screen is the thing
-           * four other people need to point a camera at — not a board they
-           * are not on yet (D-24).
-           */
-          router.push(`/tabs/${created.token}?invite=1`);
+          if (creationRequestRef.current !== requestId) return;
+          router.push(destination);
         })
         .catch((error: unknown) => {
           clearTimeout(stalled);
+          if (creationRequestRef.current !== requestId) return;
           setCreateError(createFailureMessage(error));
           setCreating(false);
         });
-      return;
-    }
-
-    if (form.captureMethod === "scan" && onScanReceipt) {
-      onScanReceipt();
       return;
     }
     setPhase("items");
     openNewItemEditor();
   }, [
     createPersonalTab,
+    createChatTab,
     creating,
     form.captureMethod,
     form.displayCurrency,
+    form.receiveMint,
     form.merchantName,
     form.origin,
+    form.payerUserId,
     form.seats,
     form.title,
     onScanReceipt,
     openNewItemEditor,
     router,
+    resolved,
+    phase,
+    scanAvailable,
   ]);
 
   /*
@@ -320,13 +367,17 @@ export function BillAuthoringSurface({
    * exists to prevent — and on this route it was the whole failure: the tap
    * went nowhere and the screen said nothing about why.
    */
-  const cannotWrite = form.origin === "personal" && !createPersonalTab;
-  const setupBlockedReason = offline
+  const cannotWrite = form.origin === "personal" ? !createPersonalTab : !createChatTab;
+  const setupBlockedReason = resolved?.setupReady === false
+    ? "Getting the people and payment details ready…"
+    : offline
     ? STATE_COPY.needsConnection
-    : cannotWrite
-      ? STATE_COPY.outsideTelegram
-      : form.title.trim().length === 0
-        ? "Give this tab a name first."
+    : form.title.trim().length === 0
+      ? "Give this tab a name first."
+      : form.title.trim().length > 120
+        ? "Keep the tab name to 120 characters."
+      : cannotWrite
+        ? STATE_COPY.outsideTelegram
         : null;
 
   const primaryAction = (
@@ -381,7 +432,7 @@ export function BillAuthoringSurface({
     </>
   );
 
-  const showFooter = isOrganizer && !showSkeleton && !showEditor;
+  const showFooter = isOrganizer && !showSkeleton && !showSetupError && !showEditor;
   const hairline = `1px solid ${MYTAB_COLORS.border}`;
 
   return (
@@ -403,31 +454,41 @@ export function BillAuthoringSurface({
 
         {showSkeleton ? <BillSkeleton /> : null}
 
-        {!showSkeleton && phase === "setup" && isOrganizer ? (
+        {showSetupError ? (
+          <ErrorState
+            headline={resolved?.setupError ?? "Couldn't load tab setup."}
+            actions={resolved?.retrySetup ? [{ label: STATE_COPY.retry, onPress: resolved.retrySetup }] : []}
+          />
+        ) : null}
+
+        {!showSkeleton && !showSetupError && phase === "setup" && isOrganizer ? (
           <NewTabForm
             title={form.title}
             merchantName={form.merchantName}
             displayCurrency={form.displayCurrency}
+            receiveMint={form.receiveMint}
+            receiveAssetOptions={resolved?.receiveAssetOptions}
             payerUserId={form.payerUserId}
             members={form.members}
             viewerUserId={viewerUserId}
             captureMethod={scanAvailable ? form.captureMethod : "manual"}
-            scanAvailable={scanAvailable && form.origin !== "personal"}
+            scanAvailable={scanAvailable}
             seats={form.origin === "personal" ? form.seats : undefined}
-            showCapture={form.origin !== "personal"}
+            showCapture
             variant={form.origin === "personal" ? "quick" : "full"}
             fxFixtureBadge={form.fxFixtureBadge}
             onChange={handleFormChange}
           />
         ) : null}
 
-        {!showSkeleton && phase === "items" ? (
+        {!showSkeleton && !showSetupError && phase === "items" ? (
           <>
             {showEditor && isOrganizer ? (
               <ItemEditor
                 name={editorDraft.name}
                 quantity={editorDraft.quantity}
-                unitPriceBaht={editorDraft.unitPriceBaht}
+                unitPriceInput={editorDraft.unitPriceInput}
+                displayCurrency={form.displayCurrency}
                 onChange={(patch) => setEditorDraft((current) => ({ ...current, ...patch }))}
                 onSave={saveItem}
                 onCancel={() => setShowEditor(false)}
@@ -455,6 +516,7 @@ export function BillAuthoringSurface({
                     <ItemRow
                       key={item._id}
                       item={item}
+                      displayCurrency={form.displayCurrency}
                       editable={isOrganizer}
                       divider={index > 0}
                       onEdit={openEditItem}
@@ -470,7 +532,7 @@ export function BillAuthoringSurface({
 
                 {breakdown ? (
                   <div style={{ borderTop: hairline, padding: 20 }}>
-                    <BillTotals lines={breakdown.lines} />
+                    <BillTotals lines={breakdown.lines} displayCurrency={form.displayCurrency} />
                   </div>
                 ) : null}
               </section>
@@ -478,7 +540,7 @@ export function BillAuthoringSurface({
           </>
         ) : null}
 
-        {!showSkeleton && !isOrganizer && phase === "setup" ? (
+        {!showSkeleton && !showSetupError && !isOrganizer && phase === "setup" ? (
           <BillEmptyState
             isOrganizer={false}
             organizerDisplayName={form.organizerDisplayName}

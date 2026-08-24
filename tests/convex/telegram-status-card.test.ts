@@ -10,7 +10,6 @@ import {
   renderNotAMemberMessage,
   renderTabInvite,
   renderTabStatusCard,
-  renderTipConfirmation,
   type TelegramStatusEvent,
 } from "@/lib/telegram/messages";
 import {
@@ -150,16 +149,6 @@ describe("the group card — exact copy", () => {
     ).toBe("🍜 Sukhumvit Dinner is all square\n5 people · ฿1,840.00 total\nAll 5 shares settled.");
   });
 
-  it("renders the tip confirmation — the one message that names people", () => {
-    expect(
-      renderTipConfirmation({
-        senderDisplayName: "Andre",
-        recipientDisplayName: "Maya",
-        displayAmountThbMinor: 10_000,
-      }),
-    ).toBe("Andre tipped Maya ฿100.00");
-  });
-
   it("never rounds an amount", () => {
     expect(
       renderTabStatusCard({ ...base, event: "bill_ready", billTotalMinor: 29_174 }),
@@ -231,14 +220,13 @@ describe("INVITE-FLOW §5.3 — the invite share carries no amounts", () => {
   });
 });
 
-describe("exactly five events may post", () => {
-  it("names five and only five", () => {
+describe("only tab-status events may post", () => {
+  it("contains no standalone-tip event", () => {
     expect(TELEGRAM_POSTING_EVENTS).toEqual([
       "tab_opened",
       "bill_ready",
       "payment_confirmed",
       "bill_completed",
-      "tip_confirmed",
     ]);
   });
 

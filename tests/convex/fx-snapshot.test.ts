@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FX_DIRECTION,
   FX_PROVIDER_FRANKFURTER_BOT,
@@ -19,6 +19,8 @@ import {
   FxProviderErrorCode,
   fetchBotUsdThbQuote,
   parseFrankfurterBotBody,
+  parseFrankfurterUsdSeries,
+  refreshFxSnapshot,
 } from "@/convex/internal/fx";
 import { FX_FRESHNESS_WEEKDAY_MS, providerDateToAsOfMs } from "@/lib/domain/fx";
 import { FIXTURE_MODE_NOT_PERMITTED } from "@/lib/solana/runtimeGuard";
@@ -111,6 +113,7 @@ function ctxOf(db: ReturnType<typeof createFakeDb>) {
 const savedEnv = { ...process.env };
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const key of Object.keys(process.env)) {
     if (!(key in savedEnv)) {
       delete process.env[key];
@@ -208,6 +211,50 @@ describe("Frankfurter Bank of Thailand parsing", () => {
         }),
     );
     expect(quote).toEqual({ providerDate: "2026-08-21", rateText: "32.8152" });
+  });
+});
+
+describe("provider-driven ISO FX parsing", () => {
+  it("refreshes generic pairs even when the BOT lane is unavailable", async () => {
+    const recorded: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href.includes("providers=BOT")) return new Response("down", { status: 503 });
+      return new Response(
+        '[{"date":"2026-08-21","base":"USD","quote":"EUR","rate":0.91}]',
+        { status: 200 },
+      );
+    }));
+    const result = await (refreshFxSnapshot as unknown as {
+      _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+    })._handler({
+      runMutation: async (_ref: unknown, args: Record<string, unknown>) => {
+        recorded.push(args);
+        return { created: true };
+      },
+    }, {});
+    expect(result).toMatchObject({ botCreated: false, genericCreated: 1 });
+    expect(recorded).toContainEqual(expect.objectContaining({ currency: "EUR" }));
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves raw JPY and KWD rate text from the USD series", () => {
+    const rows = parseFrankfurterUsdSeries(
+      '[{"date":"2026-08-21","base":"USD","quote":"JPY","rate":147.123456789012},' +
+      '{"date":"2026-08-21","base":"USD","quote":"KWD","rate":0.30675}]',
+    );
+    expect(rows).toEqual([
+      { currency: "JPY", quote: { providerDate: "2026-08-21", rateText: "147.123456789012" } },
+      { currency: "KWD", quote: { providerDate: "2026-08-21", rateText: "0.30675" } },
+    ]);
+  });
+
+  it("fails closed when no provider row has an admitted ISO scale", () => {
+    expect(() =>
+      parseFrankfurterUsdSeries(
+        '[{"date":"2026-08-21","base":"EUR","quote":"ZZZ","rate":1.2}]',
+      ),
+    ).toThrowError(expect.objectContaining({ code: FxProviderErrorCode.EMPTY_SERIES }));
   });
 });
 

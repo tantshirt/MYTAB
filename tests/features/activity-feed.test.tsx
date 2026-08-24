@@ -9,7 +9,7 @@ import { MYTAB_ELEVATION } from "@/lib/theme/tokens";
 describe("Story 7.3 — Activity feed", () => {
   it("AC5 — empty state copy", () => {
     const html = renderToStaticMarkup(<ActivityFeed events={[]} />);
-    expect(html).toContain("Nothing yet. Claims, tips and payments show up here.");
+    expect(html).toContain("Nothing yet. Claims and payments show up here.");
   });
 
   it("AC4 — rows include summary and amounts", () => {

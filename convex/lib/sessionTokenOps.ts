@@ -497,6 +497,7 @@ export async function admitToTabSession(
       tabId: tab._id,
       user: input.user,
       now,
+      origin: tabOrigin(tab),
     });
   }
 
@@ -658,8 +659,15 @@ export async function mintTabInviteToken(
  */
 export async function ensureTabParticipant(
   ctx: MutationCtx,
-  input: { tabId: Id<"tabs">; user: Doc<"users">; now: number },
+  input: {
+    tabId: Id<"tabs">;
+    user: Doc<"users">;
+    now: number;
+    origin?: "chat" | "personal" | "qr";
+  },
 ): Promise<{ inserted: boolean }> {
+  const tab = input.origin ? null : await ctx.db.get(input.tabId);
+  const origin = input.origin ?? (tab ? tabOrigin(tab) : undefined);
   const existing = await ctx.db
     .query("tabParticipants")
     .withIndex("by_tab_and_user", (q) =>
@@ -667,6 +675,9 @@ export async function ensureTabParticipant(
     )
     .unique();
   if (existing) {
+    if (!existing.origin && origin) {
+      await ctx.db.patch(existing._id, { origin });
+    }
     return { inserted: false };
   }
 
@@ -675,6 +686,7 @@ export async function ensureTabParticipant(
     userId: input.user._id,
     telegramUserId: input.user.telegramUserId,
     joinedAt: input.now,
+    origin,
   });
   return { inserted: true };
 }

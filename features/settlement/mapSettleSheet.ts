@@ -1,11 +1,10 @@
 import type { PaymentTokenOption } from "@/components/settlement-sheet/PaymentTokenSelector";
 import type { SettleSheetData } from "./types";
-import { WRAPPED_SOL_MINT } from "@/lib/solana/constants";
+import { USDC_MINT, WRAPPED_SOL_MINT } from "@/lib/solana/constants";
 import {
   formatAtomicLabel,
   formatRateLabel,
-  formatThbLabel,
-  formatUsdcLabel,
+  formatFiatLabel,
   type AssembledQuoteToken,
   type ObligationQuoteResult,
 } from "@/lib/settlement/obligationQuote";
@@ -13,6 +12,7 @@ import {
 export const EMPTY_SETTLE_SHEET: SettleSheetData = {
   status: "unavailable",
   intentId: "",
+  activeInputMint: "",
   billAmountLabel: "",
   billAmount: "",
   recipientName: "",
@@ -24,9 +24,11 @@ export const EMPTY_SETTLE_SHEET: SettleSheetData = {
   rateLabel: "",
   quoteRemainingMs: 0,
   quoteExpired: false,
+  recoveryRequired: false,
   quoteResolving: false,
   staleRevision: false,
   held: false,
+  payable: false,
   roundUpLabel: "",
   roundUpAmountLabel: "",
   tokens: [],
@@ -54,7 +56,7 @@ function tokenByMint(
   if (!mint) {
     return tokens[0];
   }
-  return tokens.find((token) => token.mint === mint) ?? tokens[0];
+  return tokens.find((token) => token.mint === mint);
 }
 
 export function mapObligationQuoteToSheet(
@@ -67,13 +69,33 @@ export function mapObligationQuoteToSheet(
     };
   }
 
-  const billAmount = formatThbLabel(quote.displayAmountThbMinor);
-  const minimumReceiveAmount = formatUsdcLabel(quote.guaranteedOutputAtomic);
-  if (!billAmount || !minimumReceiveAmount || !quote.recipientName) {
+  const billAmount = formatFiatLabel(
+    quote.displayAmountMinor ?? quote.displayAmountThbMinor,
+    quote.displayCurrency,
+  );
+  // Before an intent exists, a legacy `obligationAmountAtomic` is the stable
+  // reference amount. It is already denominated in USDC atomic units and must
+  // never be formatted with a distinct frozen receive token's decimals/symbol.
+  const receiveAmountPriced =
+    quote.outputMint === USDC_MINT ||
+    (quote.intentId !== null &&
+      !quote.quoteResolving &&
+      quote.maximumInputAtomic !== null &&
+      BigInt(quote.guaranteedOutputAtomic) > 0n);
+  const minimumReceiveAmount = receiveAmountPriced
+    ? formatAtomicLabel(quote.guaranteedOutputAtomic, quote.outputDecimals, quote.outputSymbol)
+    : "";
+  if (!billAmount || !quote.recipientName) {
     return EMPTY_SETTLE_SHEET;
   }
 
   const selected = tokenByMint(quote.tokens, quote.inputMint);
+  if (quote.inputMint && !selected) {
+    return {
+      ...EMPTY_SETTLE_SHEET,
+      unavailableReason: "TOKEN_METADATA_UNAVAILABLE",
+    };
+  }
   const spendAtomic = quote.maximumInputAtomic;
   let spendLabel = "";
   let maximumSpend = "";
@@ -90,23 +112,34 @@ export function mapObligationQuoteToSheet(
   return {
     status: "ready",
     intentId: quote.intentId ?? "",
+    activeInputMint: quote.inputMint ?? "",
     billAmountLabel: quote.tabName ? `your share of ${quote.tabName}` : "your share",
     billAmount,
     recipientName: quote.recipientName,
     recipientId: quote.recipientId,
-    destinationAsset: "USDC",
+    destinationAsset: quote.outputSymbol,
     spendLabel,
     maximumSpend,
     minimumReceiveAmount,
     rateLabel:
       quote.rateNumeratorAtomic && quote.rateDenominatorMinor
-        ? (formatRateLabel(quote.rateNumeratorAtomic, quote.rateDenominatorMinor) ?? "")
+        ? (formatRateLabel(
+            quote.rateNumeratorAtomic,
+            quote.rateDenominatorMinor,
+            quote.displayCurrency,
+          ) ?? "")
         : "",
     quoteRemainingMs: quote.quoteRemainingMs,
     quoteExpired: quote.quoteExpired,
+    recoveryRequired: quote.status === "failed" || quote.status === "expired",
     quoteResolving: quote.quoteResolving,
     staleRevision: quote.staleRevision,
     held: quote.status === "unknown",
+    payable:
+      quote.status === "ready_for_signature" &&
+      Boolean(quote.intentId && selected && quote.preparedTxBase64) &&
+      !quote.quoteExpired &&
+      !quote.staleRevision,
     roundUpLabel: "",
     roundUpAmountLabel: "",
     tokens: quote.tokens.map(toPaymentTokenOption),

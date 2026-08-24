@@ -10,6 +10,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   FX_DIRECTION,
+  FX_GENERIC_DIRECTION,
   FX_POLICY_VERSION,
   FX_PROVIDER_FRANKFURTER_BOT,
   FX_PROVIDER_MANUAL,
@@ -22,7 +23,10 @@ import {
   thbMinorToUsdcAtomic,
   type FxRateQuote,
   type FxRational,
+  usdFiatRateTextToRational,
 } from "../../lib/domain/fx";
+import { assertSupportedCurrency, currencyMinorDigits } from "../../lib/domain/currency";
+import { USDC_DECIMALS, USDC_MINT } from "../../lib/solana/constants";
 import { MANUAL_FX_RATIONAL, MANUAL_USD_THB_RATE_TEXT } from "../../lib/domain/fxFixture";
 import { assertFixturePathAllowed } from "../../lib/solana/runtimeGuard";
 import { requireGroupMember } from "./auth";
@@ -55,6 +59,11 @@ export class FxUnavailableError extends Error {
 type AnyCtx = QueryCtx | MutationCtx;
 
 export type FxSnapshotInsert = {
+  baseCurrency?: string;
+  baseCurrencyMinorDigits?: number;
+  quoteMint?: string;
+  quoteDecimals?: number;
+  direction?: string;
   numeratorAtomic: bigint;
   denominatorMinor: bigint;
   provider: string;
@@ -78,9 +87,11 @@ export async function insertFxSnapshot(
   }
 
   return ctx.db.insert("fxSnapshots", {
-    baseCurrency: FX_BASE_CURRENCY_THB,
-    quoteMint: FX_QUOTE_MINT_USDC,
-    direction: FX_DIRECTION,
+    baseCurrency: fields.baseCurrency ?? FX_BASE_CURRENCY_THB,
+    baseCurrencyMinorDigits: fields.baseCurrencyMinorDigits ?? 2,
+    quoteMint: fields.quoteMint ?? FX_QUOTE_MINT_USDC,
+    quoteDecimals: fields.quoteDecimals ?? USDC_DECIMALS,
+    direction: fields.direction ?? FX_DIRECTION,
     numeratorAtomic: fields.numeratorAtomic,
     denominatorMinor: fields.denominatorMinor,
     provider: fields.provider,
@@ -90,6 +101,66 @@ export async function insertFxSnapshot(
     policyVersion: fields.policyVersion,
     isFixture: fields.isFixture,
   });
+}
+
+const genericProvider = (currency: string) => `frankfurter:${currency}:USD`;
+
+/** Append-only generic fiat→stable snapshot, including USD's exact identity. */
+export async function recordGenericFxSnapshot(
+  ctx: MutationCtx,
+  input: { currency: string; providerDate: string; rateText: string },
+  now: number,
+): Promise<{ fxSnapshotId: Id<"fxSnapshots">; created: boolean }> {
+  const currency = assertSupportedCurrency(input.currency);
+  const provider = genericProvider(currency);
+  const providerAsOf = new Date(`${input.providerDate}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(providerAsOf)) throw new FxUnavailableError("FX_INVALID_PROVIDER_DATE", input.providerDate);
+  const existing = await ctx.db
+    .query("fxSnapshots")
+    .withIndex("by_provider_as_of", (q) => q.eq("provider", provider).eq("providerAsOf", providerAsOf))
+    .first();
+  if (existing) return { fxSnapshotId: existing._id, created: false };
+
+  const rational = usdFiatRateTextToRational(
+    input.rateText,
+    currencyMinorDigits(currency),
+    USDC_DECIMALS,
+  );
+  const fxSnapshotId = await insertFxSnapshot(ctx, {
+    baseCurrency: currency,
+    baseCurrencyMinorDigits: currencyMinorDigits(currency),
+    quoteMint: USDC_MINT,
+    quoteDecimals: USDC_DECIMALS,
+    direction: FX_GENERIC_DIRECTION,
+    ...rational,
+    provider,
+    providerAsOf,
+    fetchedAt: now,
+    expiresAt: providerAsOf + 96 * 60 * 60 * 1000,
+    policyVersion: "frankfurter-fiat-stable-v2",
+    isFixture: false,
+  });
+  return { fxSnapshotId, created: true };
+}
+
+/** Fresh snapshot for the tab's own currency; only true absence/staleness refuses. */
+export async function resolveFxSnapshotIdForCurrency(
+  ctx: MutationCtx,
+  currencyInput: string,
+  now: number,
+): Promise<Id<"fxSnapshots">> {
+  const currency = assertSupportedCurrency(currencyInput);
+  if (currency === "THB") return resolveFxSnapshotIdForTab(ctx, now);
+  const latest = await findLatestFxSnapshot(ctx, genericProvider(currency));
+  if (latest && isFxSnapshotFresh(latest, now)) return latest._id;
+  if (currency === "USD") {
+    const date = new Date(now).toISOString().slice(0, 10);
+    return (await recordGenericFxSnapshot(ctx, { currency, providerDate: date, rateText: "1" }, now)).fxSnapshotId;
+  }
+  throw new FxUnavailableError(
+    latest ? FxErrorCode.STALE_SNAPSHOT : FX_SNAPSHOT_UNAVAILABLE,
+    `No fresh ${currency}/USD stable-reference quote is available`,
+  );
 }
 
 /** Most recent snapshot for a provider, by provider business date. */

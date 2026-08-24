@@ -13,7 +13,6 @@ export const PRIVATE_FALLBACK_WINDOW_MS = 60_000;
 export const START_TAB_BUTTON_LABEL = "Start a tab";
 export const WHAT_I_OWE_BUTTON_LABEL = "What I owe";
 export const ADD_TO_GROUP_BUTTON_LABEL = "Add me to a group";
-export const SEND_TIP_BUTTON_LABEL = "Send a tip";
 export const OPEN_MY_TAB_BUTTON_LABEL = "Open My Tab";
 
 /**
@@ -40,7 +39,6 @@ const HOW_IT_WORKS = [
 const COMMAND_LIST = [
   "/tab — start a tab",
   "/balance — where you stand",
-  "/tip — send someone a tip",
   "/help — how this works",
 ];
 
@@ -82,7 +80,6 @@ export const FALLBACK_MESSAGE = [
 ].join("\n");
 
 export const START_TAB_REPLY = "Let's do it.";
-export const TIP_REPLY = "Who are you tipping?";
 export const BALANCE_REPLY = "Open My Tab to see where you stand.";
 
 export const GROUP_WELCOME_ADMIN =
@@ -99,7 +96,6 @@ export type PrivateButtonKind =
   | "what_i_owe"
   | "add_to_group"
   | "open_tab"
-  | "send_tip"
   | "open_my_tab";
 
 export type PrivateReplyPlan =
@@ -188,10 +184,6 @@ export function planPrivateReply(input: {
 
   if (command === "tab" || command === "splitbill") {
     return { kind: "reply", text: START_TAB_REPLY, buttons: ["start_tab"] };
-  }
-
-  if (command === "tip") {
-    return { kind: "reply", text: TIP_REPLY, buttons: ["send_tip"] };
   }
 
   if (command === "balance") {

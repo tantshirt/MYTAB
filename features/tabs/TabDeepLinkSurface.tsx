@@ -25,7 +25,7 @@ import {
 } from "@/features/tabs/useTabData";
 import { InviteSheet, type InviteSheetMode } from "@/features/invite/InviteSheet";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
-import { bahtToMinor, ItemEditor } from "@/features/bills/ItemEditor";
+import { currencyUnitToMinor, ItemEditor, safeLineTotalMinor } from "@/features/bills/ItemEditor";
 
 /**
  * A text action that is still a 44px target.
@@ -159,6 +159,7 @@ function DeepLinkedClaimBoard({
   const toggleOwnClaim = useLiveMutation(api.allocations.toggleOwnClaim);
   const setOwnClaimQuantity = useLiveMutation(api.allocations.setOwnClaimQuantity);
   const organizerAssignItem = useLiveMutation(api.allocations.organizerAssignItem);
+  const organizerResolveItem = useLiveMutation(api.allocations.organizerResolveItem);
   const tabObligations = useLiveQuery(api.obligations.forTab, {
     tabId: tabId as Id<"tabs">,
   });
@@ -284,6 +285,28 @@ function DeepLinkedClaimBoard({
     [organizerAssignItem, tabId, board.revision],
   );
 
+  const handleResolveItem = useCallback(
+    (itemId: string, request: {
+      operation: "assign_remaining" | "share_with_everyone" | "remove_claimant" | "reassign_claimant" | "organizer_covers_remainder";
+      targetUserIds?: string[];
+      sourceUserId?: string;
+      targetUserId?: string;
+    }) => {
+      if (!organizerResolveItem) return;
+      setStaleNotice(null);
+      void organizerResolveItem({
+        tabId: tabId as Id<"tabs">,
+        itemId: itemId as Id<"items">,
+        clientRevision: board.revision,
+        operation: request.operation,
+        targetUserIds: request.targetUserIds?.map((id) => id as Id<"users">),
+        sourceUserId: request.sourceUserId as Id<"users"> | undefined,
+        targetUserId: request.targetUserId as Id<"users"> | undefined,
+      }).catch(() => setStaleNotice(STALE_NOTICE));
+    },
+    [organizerResolveItem, tabId, board.revision],
+  );
+
   /*
    * The organizer empty state's "Type an item".
    *
@@ -299,10 +322,10 @@ function DeepLinkedClaimBoard({
   const [editorOpen, setEditorOpen] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
   const [itemError, setItemError] = useState<string | null>(null);
-  const [itemDraft, setItemDraft] = useState({ name: "", quantity: 1, unitPriceBaht: 0 });
+  const [itemDraft, setItemDraft] = useState({ name: "", quantity: 1, unitPriceInput: "" });
 
   const openItemEditor = useCallback(() => {
-    setItemDraft({ name: "", quantity: 1, unitPriceBaht: 0 });
+    setItemDraft({ name: "", quantity: 1, unitPriceInput: "" });
     setItemError(null);
     setEditorOpen(true);
   }, []);
@@ -323,8 +346,9 @@ function DeepLinkedClaimBoard({
       return;
     }
     const name = itemDraft.name.trim();
-    const unitPriceMinor = bahtToMinor(itemDraft.unitPriceBaht);
-    if (name.length === 0 || unitPriceMinor <= 0) {
+    const unitPriceMinor = currencyUnitToMinor(itemDraft.unitPriceInput, board.displayCurrency ?? "THB");
+    if (name.length === 0 || unitPriceMinor <= 0 ||
+        safeLineTotalMinor(unitPriceMinor, itemDraft.quantity) === null) {
       return;
     }
     setSavingItem(true);
@@ -338,7 +362,7 @@ function DeepLinkedClaimBoard({
     })
       .then(() => {
         setSavingItem(false);
-        setItemDraft({ name: "", quantity: 1, unitPriceBaht: 0 });
+        setItemDraft({ name: "", quantity: 1, unitPriceInput: "" });
       })
       .catch((error: unknown) => {
         setSavingItem(false);
@@ -353,7 +377,7 @@ function DeepLinkedClaimBoard({
               : "Couldn't add that item. Try again.",
         );
       });
-  }, [addItem, savingItem, itemDraft, tabId]);
+  }, [addItem, savingItem, itemDraft, tabId, board.displayCurrency]);
 
   const scanEnabled = useReceiptScanEnabled();
 
@@ -397,6 +421,7 @@ function DeepLinkedClaimBoard({
         onOpenBillReview={openBillReview}
         onSettleUp={openSettleSheet}
         onAssignItem={canWrite && organizerAssignItem ? handleAssignItem : undefined}
+        onResolveItem={canWrite && organizerResolveItem ? handleResolveItem : undefined}
         onAddManual={
           board.isOrganizer && canWrite && addItem ? openItemEditor : undefined
         }
@@ -418,7 +443,8 @@ function DeepLinkedClaimBoard({
           <ItemEditor
             name={itemDraft.name}
             quantity={itemDraft.quantity}
-            unitPriceBaht={itemDraft.unitPriceBaht}
+            unitPriceInput={itemDraft.unitPriceInput}
+            displayCurrency={board.displayCurrency}
             onChange={(patch) => setItemDraft((current) => ({ ...current, ...patch }))}
             onSave={saveItem}
             onCancel={closeItemEditor}

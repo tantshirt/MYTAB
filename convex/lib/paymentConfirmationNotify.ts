@@ -73,7 +73,9 @@ export async function countTabSettlementProgress(
   const active = obligations.filter((row) => row.status !== "superseded");
   const settledCount = active.filter((row) => row.status === "settled").length;
   const totalCount = active.length;
-  const billCompleted = totalCount > 0 && settledCount === totalCount;
+  const tab = await ctx.db.get(tabId);
+  const billCompleted =
+    settledCount === totalCount && (totalCount > 0 || tab?.status === "settled");
 
   return { settledCount, totalCount, billCompleted };
 }

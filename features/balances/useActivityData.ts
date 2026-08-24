@@ -30,7 +30,7 @@ export type ActivityData = {
  * which is the designed §4.2 empty state rather than a permanent spinner.
  *
  * With no Convex client at all there is nothing to read, and this resolves the
- * same way: `ready`, no events, "Nothing yet. Claims, tips and payments show up
+ * same way: `ready`, no events, "Nothing yet. Claims and payments show up
  * here." An empty feed is the truth; a seeded one is not.
  */
 export function useActivityData(): ActivityData {

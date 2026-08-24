@@ -3,6 +3,7 @@ import { parseExtractedReceipt, type ExtractedReceipt } from "./receiptParse";
 /** Seeded sample receipt for demo mode (Story 8.6, UX protagonists). */
 export const FIXTURE_SAMPLE_EXTRACTION: ExtractedReceipt = {
   merchant: "Sukhumvit Kitchen",
+  currency: "THB",
   lines: [
     { name: "Green Curry", quantity: 1, unitPriceRaw: "180" },
     { name: "Pad Thai", quantity: 2, unitPriceRaw: "120" },
@@ -14,6 +15,7 @@ export const FIXTURE_SAMPLE_EXTRACTION: ExtractedReceipt = {
       priceConfidence: "low",
     },
   ],
+  adjustments: [],
   totalRaw: "1840.00",
 };
 
@@ -21,17 +23,23 @@ export const FIXTURE_SAMPLE_EXTRACTION: ExtractedReceipt = {
 export const RECEIPT_FORMAT_FIXTURES = {
   thaiWholeBaht: {
     merchant: "ร้านอาหาร",
+    currency: "THB",
     lines: [{ name: "ข้าวผัด", quantity: 1, unitPriceRaw: "120" }],
+    adjustments: [],
     totalRaw: "120",
   },
   englishTwoDecimal: {
     merchant: "Bangkok Bistro",
+    currency: "THB",
     lines: [{ name: "Spring Rolls", quantity: 2, unitPriceRaw: "85.50" }],
+    adjustments: [],
     totalRaw: "171.00",
   },
   vatAndService: {
     merchant: "VAT Demo",
+    currency: "THB",
     lines: [{ name: "Subtotal item", quantity: 1, unitPriceRaw: "100" }],
+    adjustments: [],
     totalRaw: "100",
   },
 } as const satisfies Record<string, ExtractedReceipt>;

@@ -1,7 +1,7 @@
 "use client";
 
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
-import { formatFiatMinorThb } from "@/lib/domain/format";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinor } from "@/lib/domain/format";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 import type { BillItemView } from "./types";
@@ -9,6 +9,7 @@ import type { BillItemView } from "./types";
 type ItemRowProps = {
   item: BillItemView;
   editable: boolean;
+  displayCurrency?: string;
   /** Hairline above the row. Rows live inside one card, not one card each. */
   divider?: boolean;
   onEdit?: (itemId: string) => void;
@@ -20,6 +21,7 @@ type ItemRowProps = {
 export function ItemRow({
   item,
   editable,
+  displayCurrency = "THB",
   divider = false,
   onEdit,
   onDuplicate,
@@ -57,10 +59,10 @@ export function ItemRow({
         <p
           className="mytab-row__amount mytab-type-amount-row mytab-tabular"
           data-mytab-amount
-          aria-label={formatThbMinorForA11y(lineTotalMinor)}
+          aria-label={formatCurrencyMinorForA11y(lineTotalMinor, displayCurrency)}
           style={{ margin: 0 }}
         >
-          {formatFiatMinorThb(lineTotalMinor)}
+          {formatCurrencyMinor(lineTotalMinor, displayCurrency)}
         </p>
       </div>
 

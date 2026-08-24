@@ -206,6 +206,22 @@ describe("manifest audit", () => {
     );
   });
 
+  it("binds a routed manifest to the exact server-owned input/output mint pair", () => {
+    const inputMint = actors.attacker.publicKey.toBase58();
+    const outputMint = actors.recipient.publicKey.toBase58();
+    const manifest = buildSponsorPolicyManifest({
+      cluster: "mainnet-beta",
+      routingKind: "dflow_sync",
+      inputMint,
+      outputMint,
+    });
+
+    expect(manifest.allowedMints).toEqual([inputMint, outputMint]);
+    expect(manifest.outputMint).toBe(outputMint);
+    expect(manifest.allowedMints).not.toContain(MAINNET.wrappedSolMint);
+    expect(manifest.allowedMints).not.toContain(MAINNET.usdcMint);
+  });
+
   it("keeps the platform fee at zero", () => {
     expect(SPONSOR_POLICY_V1.platformFeeBps).toBe(0);
   });

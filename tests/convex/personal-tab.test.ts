@@ -59,6 +59,29 @@ function userFrom(store: Record<string, Row[]>, id: string): Doc<"users"> {
 }
 
 describe("createPersonalTabForUser", () => {
+  it("replays an exact committed create before the daily gate and rejects divergent reuse", async () => {
+    const { ctx, store } = seed();
+    const input = {
+      user: userFrom(store, "users:1"),
+      name: "Replay Dinner",
+      seats: 4,
+      idempotencyKey: "exact-create",
+      now: NOW,
+    };
+    const first = await createPersonalTabForUser(ctx, input);
+    store.tabs![0]!.status = "open";
+    store.tabCreationCounts![0]!.count = 10;
+
+    await expect(createPersonalTabForUser(ctx, input)).resolves.toMatchObject({
+      tabId: first.tabId,
+      token: first.token,
+      duplicate: true,
+    });
+    await expect(createPersonalTabForUser(ctx, { ...input, seats: 5 }))
+      .rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect(store.tabs).toHaveLength(1);
+  });
+
   it("writes personal origin, fixed seats, organizer on the roster, one token", async () => {
     const { ctx, store } = seed();
 
@@ -66,6 +89,7 @@ describe("createPersonalTabForUser", () => {
       user: userFrom(store, "users:1"),
       name: "Sukhumvit Dinner",
       seats: 5,
+      idempotencyKey: "personal-1",
       now: NOW,
     });
 
@@ -99,10 +123,34 @@ describe("createPersonalTabForUser", () => {
         user: userFrom(store, "users:1"),
         name: "Dinner",
         seats: 1,
+        idempotencyKey: "invalid-seats",
         now: NOW,
       }),
     ).rejects.toMatchObject({ code: "INVALID_SEATS" });
     expect(store.tabs).toHaveLength(0);
+  });
+
+  it("enforces the per-user daily ceiling before inserting anything", async () => {
+    const { ctx, store } = seed();
+    store.tabCreationCounts!.push({
+      _id: "tabCreationCounts:limit",
+      scopeKind: "user",
+      scopeKey: "100",
+      dayKey: "2027-01-15",
+      count: 10,
+      updatedAt: NOW,
+    });
+    await expect(
+      createPersonalTabForUser(ctx, {
+        user: userFrom(store, "users:1"),
+        name: "Dinner",
+        seats: 2,
+        idempotencyKey: "rate-limited",
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: "TAB_RATE_LIMITED" });
+    expect(store.tabs).toHaveLength(0);
+    expect(store.groups).toHaveLength(0);
   });
 
   it("the invite token admits a second person and consumes a seat", async () => {
@@ -111,6 +159,7 @@ describe("createPersonalTabForUser", () => {
       user: userFrom(store, "users:1"),
       name: "Dinner",
       seats: 2,
+      idempotencyKey: "personal-admission",
       now: NOW,
     });
 

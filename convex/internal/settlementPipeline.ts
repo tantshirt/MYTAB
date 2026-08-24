@@ -23,7 +23,10 @@ import {
   parseFinalizedConfirmation,
 } from "./confirmations";
 import { SponsorCoSignError, coSignAndBroadcast } from "./privy";
-import { loadLookupTablesForTransaction } from "./dflow";
+import {
+  loadLookupTablesForTransaction,
+  resolvedLoadedAddressIdentities,
+} from "./dflow";
 import { decodeTransactionBase64 } from "../../lib/solana/decodeTransaction";
 import type { AddressLookupTableAccount } from "../../lib/solana/addressLookupTable";
 import {
@@ -335,9 +338,21 @@ async function buildPreSponsorContext(
       const loaded = await loadLookupTablesForTransaction({
         rpc: createSolanaRpcClient(),
         tableAddresses,
+        contextSlot: intent.dflowContextSlot ?? 0,
       });
       if (loaded.ok) {
-        resolvedAddressTables = loaded.tables;
+        const message = decodeTransactionBase64(
+          intent.partialSignedTx ?? intent.serializedMessage ?? "",
+        ).message;
+        const identities = resolvedLoadedAddressIdentities(message, loaded.tables);
+        const same =
+          JSON.stringify(identities.writable) ===
+            JSON.stringify(intent.resolvedAltWritableAddresses ?? []) &&
+          JSON.stringify(identities.readonly) ===
+            JSON.stringify(intent.resolvedAltReadonlyAddresses ?? []);
+        if (same) {
+          resolvedAddressTables = loaded.tables;
+        }
       }
     }
   }
@@ -420,6 +435,9 @@ export const processConfirmationPipeline = internalAction({
         intentId: args.intentId,
         transactionSignature: parsed.transactionSignature,
         sponsorDebitLamports: parsed.sponsorDebitLamports,
+        actualInputAtomic: parsed.payerDebitAtomic,
+        actualOutputAtomic: parsed.recipientDeltaAtomic,
+        recipientTokenAccount: parsed.recipientTokenAccount,
       });
     }
 
@@ -528,6 +546,9 @@ async function reconcileOnce(
         intentId,
         transactionSignature: parsed.transactionSignature,
         sponsorDebitLamports: parsed.sponsorDebitLamports,
+        actualInputAtomic: parsed.payerDebitAtomic,
+        actualOutputAtomic: parsed.recipientDeltaAtomic,
+        recipientTokenAccount: parsed.recipientTokenAccount,
       });
       logSettlementEvent({
         intentId: intentId as string,

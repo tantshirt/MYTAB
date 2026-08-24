@@ -3,8 +3,8 @@
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import { useLiveQuery, useRetryNonce } from "@/features/convex/useConvexData";
-import { formatFiatMinorThb } from "@/lib/domain/format";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinor } from "@/lib/domain/format";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 
 export type OweRow = {
@@ -18,13 +18,48 @@ export type OweRow = {
   amountA11yLabel: string;
   /** Sorts and greys a row whose bill moved under it. */
   staleRevision: boolean;
+  pendingCashProposalId?: string | null;
+  canAcknowledgeCash?: boolean;
 };
 
 export type OweData = {
   status: "loading" | "ready" | "error";
   rows: OweRow[];
+  owedRows: OwedRow[];
   retry: () => void;
 };
+
+export type OwedRow = {
+  obligationId: string;
+  tabName: string;
+  debtorUserId: string;
+  debtorDisplayName: string;
+  amount: string;
+  amountA11yLabel: string;
+  pendingCashProposalId?: string | null;
+  canAcknowledgeCash?: boolean;
+  reminderStatus?: "queued" | "claimed" | "sent" | "failed" | "unknown" | null;
+};
+
+export function coordinateReciprocalReads<T, U>(input: {
+  owingData?: readonly T[];
+  owedData?: readonly U[];
+  owingResolved: boolean;
+  owedResolved: boolean;
+  owingError: unknown;
+  owedError: unknown;
+}): { status: OweData["status"]; owingData: readonly T[]; owedData: readonly U[] } {
+  const owingData = input.owingData ?? [];
+  const owedData = input.owedData ?? [];
+  if (input.owingError || input.owedError) {
+    return { status: "error", owingData, owedData };
+  }
+  return {
+    status: input.owingResolved && input.owedResolved ? "ready" : "loading",
+    owingData,
+    owedData,
+  };
+}
 
 /**
  * The single prop-resolution seam for "What I owe".
@@ -45,18 +80,21 @@ export function useOweData(): OweData {
     { status: "open" as const },
     nonce,
   );
+  const owed = useLiveQuery(api.obligations.listOwedToViewer, { status: "open" as const }, nonce);
 
   return useMemo<OweData>(() => {
-    if (obligations.error) {
-      return { status: "error", rows: [], retry };
-    }
-    if (obligations.data === undefined) {
-      // `fixture: true` means there is nothing to read, not "still reading" —
-      // the surface owes that case an empty state, never a spinner.
-      return { status: obligations.fixture ? "ready" : "loading", rows: [], retry };
-    }
+    const obligationsResolved = obligations.data !== undefined || obligations.fixture;
+    const owedResolved = owed.data !== undefined || owed.fixture;
+    const coordinated = coordinateReciprocalReads({
+      owingData: obligations.data,
+      owedData: owed.data,
+      owingResolved: obligationsResolved,
+      owedResolved,
+      owingError: obligations.error,
+      owedError: owed.error,
+    });
 
-    const rows = obligations.data
+    const rows = coordinated.owingData
       .filter((row) => row.remainingMinor > 0)
       .map<OweRow>((row) => {
         const remaining = fiatMinorFromInteger(row.remainingMinor);
@@ -66,12 +104,30 @@ export function useOweData(): OweData {
           tabName: row.tabName,
           creditorUserId: row.creditorUserId,
           creditorDisplayName: row.creditorDisplayName,
-          amount: formatFiatMinorThb(remaining),
-          amountA11yLabel: formatThbMinorForA11y(remaining),
+          amount: formatCurrencyMinor(remaining, row.currency),
+          amountA11yLabel: formatCurrencyMinorForA11y(remaining, row.currency),
           staleRevision: row.staleRevision,
+          pendingCashProposalId: row.pendingCashProposalId,
+          canAcknowledgeCash: row.canAcknowledgeCash,
         };
       });
 
-    return { status: "ready", rows, retry };
-  }, [obligations.data, obligations.error, obligations.fixture, retry]);
+    const owedRows = coordinated.owedData
+      .filter((row) => row.remainingMinor > 0)
+      .map<OwedRow>((row) => {
+        const remaining = fiatMinorFromInteger(row.remainingMinor);
+        return {
+          obligationId: row._id,
+          tabName: row.tabName,
+          debtorUserId: row.debtorUserId,
+          debtorDisplayName: row.debtorDisplayName,
+          amount: formatCurrencyMinor(remaining, row.currency),
+          amountA11yLabel: formatCurrencyMinorForA11y(remaining, row.currency),
+          pendingCashProposalId: row.pendingCashProposalId,
+          canAcknowledgeCash: row.canAcknowledgeCash,
+          reminderStatus: row.reminderStatus,
+        };
+      });
+    return { status: coordinated.status, rows, owedRows, retry };
+  }, [obligations.data, obligations.error, obligations.fixture, owed.data, owed.error, owed.fixture, retry]);
 }

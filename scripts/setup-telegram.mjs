@@ -196,7 +196,6 @@ await telegramApi("setMyCommands", {
   commands: [
     { command: "tab", description: "Start a tab" },
     { command: "balance", description: "Where you stand" },
-    { command: "tip", description: "Send someone a tip" },
     { command: "help", description: "What My Tab does" },
   ],
   scope: { type: "all_private_chats" },
@@ -205,7 +204,6 @@ await telegramApi("setMyCommands", {
   commands: [
     { command: "tab", description: "Start a tab for this group" },
     { command: "balance", description: "Where you stand" },
-    { command: "tip", description: "Send someone a tip" },
   ],
   scope: { type: "all_group_chats" },
 });

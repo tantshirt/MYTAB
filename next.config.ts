@@ -63,7 +63,6 @@ const SWEEP_SEAM_ALIASES: Record<string, string> = {
   "@/features/settlement/usePaymentProgressData": "tests/sweep/usePaymentProgressData.ts",
   "@/features/settlement/useSettleSheetData": "tests/sweep/useSettleSheetData.ts",
   "@/features/tabs/useTabData": "tests/sweep/useTabData.ts",
-  "@/features/tips/useTipComposerData": "tests/sweep/useTipComposerData.ts",
   "@/features/you/useYouSurfaceData": "tests/sweep/useYouSurfaceData.ts",
 };
 

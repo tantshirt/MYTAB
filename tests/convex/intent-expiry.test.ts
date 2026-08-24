@@ -35,6 +35,9 @@ function createExpiryStore(initialIntents: IntentDoc[] = []) {
             }),
           };
         }
+        if (table === "providerConcurrencyLeases") {
+          return { withIndex: () => ({ unique: async () => null }) };
+        }
 
         if (table !== "settlementIntents") {
           throw new Error(`unexpected table ${table}`);

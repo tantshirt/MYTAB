@@ -20,7 +20,12 @@ export default function OwePage() {
   return (
     <AuthGate>
       <AppShell>
-        <OweSurface status={data.status} rows={data.rows} retry={data.retry} />
+        <OweSurface
+          status={data.status}
+          rows={data.rows}
+          owedRows={data.owedRows}
+          retry={data.retry}
+        />
         <SettleSheetHost />
       </AppShell>
     </AuthGate>

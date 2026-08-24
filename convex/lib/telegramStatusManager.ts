@@ -56,6 +56,7 @@ import { houseTabCardUrl } from "../../lib/telegram/tabCard";
 import { loadItemClaimRows } from "./allocationSync";
 import { mintSessionToken } from "./sessionTokenOps";
 import { buildTelegramDeepLink, getTelegramMiniAppHttpsUrl } from "./telegramDeepLink";
+import { isPersonalOrigin } from "./tabOrigin";
 
 /**
  * How long one worker owns the card. Longer than the worst-case delivery
@@ -142,6 +143,7 @@ export async function deriveTabStatusFacts(
     event,
     peopleCount: participants.length,
     billTotalMinor: tab.billTotalMinor === undefined ? null : Number(tab.billTotalMinor),
+    displayCurrency: tab.defaultCurrency ?? "THB",
     claimedItemCount,
     totalItemCount: itemRows.length,
     settledShareCount: activeObligations.filter((row) => row.status === "settled").length,
@@ -158,7 +160,7 @@ async function resolveChatId(
 }
 
 export type RecordTabStatusEventResult =
-  | { recorded: false; reason: "TAB_NOT_FOUND" | "CHAT_UNKNOWN" | "UNCHANGED" }
+  | { recorded: false; reason: "TAB_NOT_FOUND" | "CHAT_UNKNOWN" | "UNCHANGED" | "PERSONAL_TAB" }
   | { recorded: true; statusMessageId: Id<"telegramStatusMessages">; eventVersion: number };
 
 /**
@@ -181,13 +183,18 @@ export async function recordTabStatusEvent(
   assertStatusEvent(input.event);
   const now = input.now ?? Date.now();
 
-  const facts = await deriveTabStatusFacts(ctx, input.tabId, input.event);
-  if (!facts) {
-    return { recorded: false, reason: "TAB_NOT_FOUND" };
-  }
-
   const tab = await ctx.db.get(input.tabId);
   if (!tab) {
+    return { recorded: false, reason: "TAB_NOT_FOUND" };
+  }
+  // A personal group's Telegram id is the organizer's private chat. Treating
+  // that row like a group would leak every status-card event into DMs.
+  if (isPersonalOrigin(tab)) {
+    return { recorded: false, reason: "PERSONAL_TAB" };
+  }
+
+  const facts = await deriveTabStatusFacts(ctx, input.tabId, input.event);
+  if (!facts) {
     return { recorded: false, reason: "TAB_NOT_FOUND" };
   }
 
@@ -337,6 +344,7 @@ export async function claimStatusDelivery(
         event: row.event ?? "tab_opened",
         peopleCount: row.peopleCount ?? 1,
         billTotalMinor: row.billTotalMinor === undefined ? null : Number(row.billTotalMinor),
+        displayCurrency: tab.defaultCurrency ?? "THB",
         claimedItemCount: row.claimedItemCount ?? 0,
         totalItemCount: row.totalItemCount ?? 0,
         settledShareCount: row.settledObligationCount ?? 0,

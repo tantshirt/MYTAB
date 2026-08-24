@@ -96,10 +96,9 @@ describe("scoped command menus", () => {
     expect(PRIVATE_BOT_COMMANDS.map((row) => row.command)).toEqual([
       "tab",
       "balance",
-      "tip",
       "help",
     ]);
-    expect(GROUP_BOT_COMMANDS.map((row) => row.command)).toEqual(["tab", "balance", "tip"]);
+    expect(GROUP_BOT_COMMANDS.map((row) => row.command)).toEqual(["tab", "balance"]);
     expect(PRIVATE_BOT_COMMANDS.some((row) => row.command === "splitbill")).toBe(false);
     expect(GROUP_BOT_COMMANDS.some((row) => row.command === "splitbill")).toBe(false);
   });

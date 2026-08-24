@@ -8,8 +8,8 @@ import { StickyFooter } from "@/components/sticky-claim-footer";
 import { useReducedMotion } from "@/components/primitives/use-reduced-motion";
 import { AlertTriangleIcon, CheckIcon, ChevronRightIcon } from "@/components/icons";
 import { useHaptics } from "@/features/telegram/useHaptics";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
-import { formatFiatMinorThb, thbMinorFromInteger } from "@/lib/domain";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
+import { fiatMinorFromInteger, formatCurrencyMinor } from "@/lib/domain";
 import {
   avatarTintsForGroup,
   MYTAB_COLORS,
@@ -33,6 +33,7 @@ export type BillReviewBreakdown = {
 
 export type BillReviewProps = {
   tabName: string;
+  displayCurrency?: string;
   isOrganizer: boolean;
   isLocked: boolean;
   viewerUserId?: string;
@@ -50,13 +51,16 @@ export type BillReviewProps = {
   onBack?: () => void;
 };
 
-const fmtAbs = (minor: number) => formatFiatMinorThb(thbMinorFromInteger(Math.abs(minor)));
+const fmtAbs = (minor: number, currency = "THB") =>
+  formatCurrencyMinor(fiatMinorFromInteger(Math.abs(minor)), currency);
 
 /** Unsigned unless the value is negative, in which case the minus is shown. */
-const fmtPlain = (minor: number) => (minor < 0 ? `−${fmtAbs(minor)}` : fmtAbs(minor));
+const fmtPlain = (minor: number, currency = "THB") =>
+  minor < 0 ? `−${fmtAbs(minor, currency)}` : fmtAbs(minor, currency);
 
 /** Always carries its sign — rounding and discount lines must read as adjustments. */
-const fmtSigned = (minor: number) => `${minor < 0 ? "−" : "+"}${fmtAbs(minor)}`;
+const fmtSigned = (minor: number, currency = "THB") =>
+  `${minor < 0 ? "−" : "+"}${fmtAbs(minor, currency)}`;
 
 export type BillReviewLine = {
   key: string;
@@ -84,12 +88,13 @@ const taxLabel = (rates: BillReviewRates) =>
 export function buildBillReviewLines(
   row: BillReviewBreakdown,
   rates: BillReviewRates = {},
+  currency = "THB",
 ): BillReviewLine[] {
   const lines: BillReviewLine[] = [
     {
       key: "items",
       label: "Items",
-      amount: fmtPlain(row.itemShareMinor),
+      amount: fmtPlain(row.itemShareMinor, currency),
       minor: row.itemShareMinor,
       tone: "muted",
     },
@@ -99,7 +104,7 @@ export function buildBillReviewLines(
     lines.push({
       key: "service",
       label: serviceLabel(rates),
-      amount: fmtPlain(row.serviceMinor),
+      amount: fmtPlain(row.serviceMinor, currency),
       minor: row.serviceMinor,
       tone: "muted",
     });
@@ -108,7 +113,7 @@ export function buildBillReviewLines(
     lines.push({
       key: "tax",
       label: taxLabel(rates),
-      amount: fmtPlain(row.taxMinor),
+      amount: fmtPlain(row.taxMinor, currency),
       minor: row.taxMinor,
       tone: "muted",
     });
@@ -117,7 +122,7 @@ export function buildBillReviewLines(
     lines.push({
       key: "tip",
       label: "Group tip",
-      amount: fmtPlain(row.tipMinor),
+      amount: fmtPlain(row.tipMinor, currency),
       minor: row.tipMinor,
       tone: "muted",
     });
@@ -127,7 +132,7 @@ export function buildBillReviewLines(
     lines.push({
       key: "discount",
       label: "Discount",
-      amount: fmtSigned(-row.discountMinor),
+      amount: fmtSigned(-row.discountMinor, currency),
       minor: -row.discountMinor,
       tone: "muted",
     });
@@ -136,7 +141,7 @@ export function buildBillReviewLines(
     lines.push({
       key: "rounding",
       label: "Rounding",
-      amount: fmtSigned(row.roundingMinor),
+      amount: fmtSigned(row.roundingMinor, currency),
       minor: row.roundingMinor,
       tone: "warning",
     });
@@ -161,12 +166,13 @@ export type BillTotalsLine = {
 export function buildBillTotalsLines(
   breakdowns: BillReviewBreakdown[],
   rates: BillReviewRates = {},
+  currency = "THB",
 ): BillTotalsLine[] {
   const sum = (pick: (row: BillReviewBreakdown) => number) =>
     breakdowns.reduce((total, row) => total + pick(row), 0);
 
   const lines: BillTotalsLine[] = [
-    { key: "subtotal", label: "Subtotal", amount: fmtPlain(sum((row) => row.itemShareMinor)) },
+    { key: "subtotal", label: "Subtotal", amount: fmtPlain(sum((row) => row.itemShareMinor), currency) },
   ];
 
   const service = sum((row) => row.serviceMinor);
@@ -175,31 +181,31 @@ export function buildBillTotalsLines(
       key: "service",
       label: serviceLabel(rates),
       annotation: "proportional",
-      amount: fmtPlain(service),
+      amount: fmtPlain(service, currency),
     });
   }
   const tax = sum((row) => row.taxMinor);
   if (tax !== 0) {
-    lines.push({ key: "tax", label: taxLabel(rates), annotation: "proportional", amount: fmtPlain(tax) });
+    lines.push({ key: "tax", label: taxLabel(rates), annotation: "proportional", amount: fmtPlain(tax, currency) });
   }
   const tip = sum((row) => row.tipMinor);
   if (tip !== 0) {
-    lines.push({ key: "tip", label: "Group tip", annotation: "proportional", amount: fmtPlain(tip) });
+    lines.push({ key: "tip", label: "Group tip", annotation: "proportional", amount: fmtPlain(tip, currency) });
   }
   const discount = sum((row) => row.discountMinor);
   if (discount !== 0) {
-    lines.push({ key: "discount", label: "Discount", amount: fmtSigned(-discount) });
+    lines.push({ key: "discount", label: "Discount", amount: fmtSigned(-discount, currency) });
   }
   const rounding = sum((row) => row.roundingMinor);
   if (rounding !== 0) {
-    lines.push({ key: "rounding", label: "Rounding", amount: fmtSigned(rounding) });
+    lines.push({ key: "rounding", label: "Rounding", amount: fmtSigned(rounding, currency) });
   }
 
   return lines;
 }
 
 /** Rounding is disclosed in `colors/warning`, never folded into another line. */
-function BreakdownLine({ line }: { line: BillReviewLine }) {
+function BreakdownLine({ line, currency }: { line: BillReviewLine; currency: string }) {
   return (
     <BreakdownRow
       label={line.label}
@@ -207,7 +213,7 @@ function BreakdownLine({ line }: { line: BillReviewLine }) {
       size="meta"
       muted
       amountColor={line.tone === "warning" ? MYTAB_COLORS.warning : undefined}
-      amountA11yLabel={formatThbMinorForA11y(thbMinorFromInteger(line.minor))}
+      amountA11yLabel={formatCurrencyMinorForA11y(fiatMinorFromInteger(line.minor), currency)}
     />
   );
 }
@@ -222,6 +228,7 @@ const MICRO_LABEL: CSSProperties = { margin: "0 0 10px" };
  */
 export function BillReview({
   tabName,
+  displayCurrency = "THB",
   isOrganizer,
   isLocked,
   viewerUserId,
@@ -244,7 +251,7 @@ export function BillReview({
   const tints = avatarTintsForGroup(breakdowns.map((row) => row.participantId));
 
   const rates: BillReviewRates = { servicePercent, taxPercent };
-  const billTotalLabel = formatFiatMinorThb(thbMinorFromInteger(billTotalMinor));
+  const billTotalLabel = formatCurrencyMinor(fiatMinorFromInteger(billTotalMinor), displayCurrency);
   // FR-M6: when reconciliation fails the shortfall is named exactly. "Do not reconcile"
   // tells the organizer nothing they can act on.
   const sharesTotalMinor = breakdowns.reduce((sum, row) => sum + row.totalMinor, 0);
@@ -252,9 +259,9 @@ export function BillReview({
   const reconciliationMessage = reconciles
     ? `Everyone's shares add up to ${billTotalLabel}`
     : shortfallMinor > 0
-      ? `Shares are ${fmtAbs(shortfallMinor)} short of ${billTotalLabel}. Lock is blocked.`
+      ? `Shares are ${fmtAbs(shortfallMinor, displayCurrency)} short of ${billTotalLabel}. Lock is blocked.`
       : shortfallMinor < 0
-        ? `Shares are ${fmtAbs(shortfallMinor)} over ${billTotalLabel}. Lock is blocked.`
+        ? `Shares are ${fmtAbs(shortfallMinor, displayCurrency)} over ${billTotalLabel}. Lock is blocked.`
         : `Shares don't add up to ${billTotalLabel}. Lock is blocked.`;
 
   const action = isOrganizer
@@ -391,10 +398,10 @@ export function BillReview({
                       <span
                         className="mytab-row__amount mytab-tabular"
                         data-mytab-amount
-                        aria-label={formatThbMinorForA11y(thbMinorFromInteger(row.totalMinor))}
+                        aria-label={formatCurrencyMinorForA11y(fiatMinorFromInteger(row.totalMinor), displayCurrency)}
                         style={{ fontSize: MYTAB_TYPOGRAPHY.amountRow.size, fontWeight: 600 }}
                       >
-                        {formatFiatMinorThb(thbMinorFromInteger(row.totalMinor))}
+                        {formatCurrencyMinor(fiatMinorFromInteger(row.totalMinor), displayCurrency)}
                       </span>
                       <span
                         aria-hidden
@@ -419,14 +426,14 @@ export function BillReview({
                           gap: 8,
                         }}
                       >
-                        {buildBillReviewLines(row, rates).map((line) => (
-                          <BreakdownLine key={line.key} line={line} />
+                        {buildBillReviewLines(row, rates, displayCurrency).map((line) => (
+                          <BreakdownLine key={line.key} line={line} currency={displayCurrency} />
                         ))}
                         <AmountPair
                           label="Their share"
                           size="meta"
-                          amount={formatFiatMinorThb(thbMinorFromInteger(row.totalMinor))}
-                          amountA11yLabel={formatThbMinorForA11y(thbMinorFromInteger(row.totalMinor))}
+                          amount={formatCurrencyMinor(fiatMinorFromInteger(row.totalMinor), displayCurrency)}
+                          amountA11yLabel={formatCurrencyMinorForA11y(fiatMinorFromInteger(row.totalMinor), displayCurrency)}
                         />
                       </div>
                     ) : null}
@@ -442,7 +449,7 @@ export function BillReview({
               className="mytab-card"
               style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 13 }}
             >
-              {buildBillTotalsLines(breakdowns, rates).map((line) => (
+              {buildBillTotalsLines(breakdowns, rates, displayCurrency).map((line) => (
                 <BreakdownRow
                   key={line.key}
                   label={line.label}
@@ -456,7 +463,7 @@ export function BillReview({
               <BreakdownRow
                 label="Total"
                 amount={billTotalLabel}
-                amountA11yLabel={formatThbMinorForA11y(thbMinorFromInteger(billTotalMinor))}
+                amountA11yLabel={formatCurrencyMinorForA11y(fiatMinorFromInteger(billTotalMinor), displayCurrency)}
                 weight={600}
                 style={{
                   borderTop: `1px solid ${MYTAB_COLORS.border}`,

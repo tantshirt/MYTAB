@@ -1,5 +1,5 @@
 /**
- * Bot commands: `/tab`, `/splitbill`, `/tip`, `/balance`.
+ * Bot commands: `/tab`, `/splitbill`, `/balance`.
  *
  * The webhook mutation does not run commands. It records the update and
  * schedules this action, for two reasons that are really one reason:
@@ -265,7 +265,7 @@ export const runPrivateReply = internalAction({
   handler: async (ctx, args): Promise<{ handled: boolean }> => {
     const now = Date.now();
     let lastFallbackAt: number | null = null;
-    if (args.command === null || (args.command !== "start" && args.command !== "tab" && args.command !== "splitbill" && args.command !== "tip" && args.command !== "balance" && args.command !== "help")) {
+    if (args.command === null || (args.command !== "start" && args.command !== "tab" && args.command !== "splitbill" && args.command !== "balance" && args.command !== "help")) {
       const consumed = await ctx.runMutation(internal.internal.telegramCommands.consumePrivateFallback, {
         telegramUserId: args.fromId,
         now,
@@ -307,7 +307,7 @@ export const runPrivateReply = internalAction({
      *
      * `plan.photo` is set for a bare `/start` — the one reply that is somebody
      * meeting this product for the first time. Every other private reply stays
-     * text, because a photograph on top of "Who are you tipping?" is noise.
+     * text, because command replies are task-focused and do not need a hero.
      *
      * Sent by URL, not by a stored `file_id`: this fires once per person, so
      * the reuse machinery D-31 built for the tab card would be a schema row
@@ -401,5 +401,211 @@ export const registerBotSurface = internalAction({
       groupCommands: groupResult.ok,
       menuButton: menuOk,
     };
+  },
+});
+
+export const paymentReminderForDelivery = internalQuery({
+  args: { reminderId: v.id("paymentReminders") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.reminderId);
+    if (!row) return null;
+    if (row.status === "sent" || row.status === "unknown") return { alreadySent: true as const };
+    if (row.status !== "queued") return null;
+    const obligation = await ctx.db.get(row.obligationId);
+    if (!obligation || obligation.status !== "open") {
+      return { closed: true as const };
+    }
+    const debtor = await ctx.db.get(row.recipientUserId);
+    const creditor = await ctx.db.get(row.senderUserId);
+    const tab = await ctx.db.get(row.tabId);
+    if (!debtor || !tab) return null;
+    return {
+      telegramUserId: debtor.telegramUserId,
+      creditorName: creditor?.displayName ?? "Someone",
+      tabName: tab.name,
+    };
+  },
+});
+
+const REMINDER_CLAIM_TTL_MS = 60_000;
+
+/** Atomically owns delivery and re-checks every dependency at the send boundary. */
+export const claimPaymentReminderDelivery = internalMutation({
+  args: {
+    reminderId: v.id("paymentReminders"),
+    claimId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.reminderId);
+    if (!row) return null;
+    if (row.status === "sent") return { alreadySent: true as const };
+    const now = Date.now();
+    if (
+      row.status === "claimed" &&
+      row.claimExpiresAt !== undefined &&
+      row.claimExpiresAt > now
+    ) {
+      return { inFlight: true as const };
+    }
+    if (row.status !== "queued" && row.status !== "claimed") return null;
+
+    const [obligation, debtor, creditor, tab] = await Promise.all([
+      ctx.db.get(row.obligationId),
+      ctx.db.get(row.recipientUserId),
+      ctx.db.get(row.senderUserId),
+      ctx.db.get(row.tabId),
+    ]);
+    if (!obligation || obligation.status !== "open" || !debtor || !creditor || !tab) {
+      await ctx.db.patch(row._id, {
+        status: "failed",
+        claimId: undefined,
+        claimExpiresAt: undefined,
+        updatedAt: now,
+      });
+      return { closed: true as const };
+    }
+
+    await ctx.db.patch(row._id, {
+      status: "claimed",
+      claimId: args.claimId,
+      claimExpiresAt: now + REMINDER_CLAIM_TTL_MS,
+      updatedAt: now,
+    });
+    // A worker can disappear after owning the row but before recording the
+    // Telegram result. The durable wake-up runs after the ownership fence has
+    // expired and either takes over or observes the completed row as a no-op.
+    await ctx.scheduler.runAfter(
+      REMINDER_CLAIM_TTL_MS + 1,
+      internal.internal.telegramCommands.deliverPaymentReminder,
+      { reminderId: row._id },
+    );
+    return {
+      telegramUserId: debtor.telegramUserId,
+      creditorName: creditor.displayName,
+      tabName: tab.name,
+    };
+  },
+});
+
+export const markPaymentReminderDelivery = internalMutation({
+  args: {
+    reminderId: v.id("paymentReminders"),
+    claimId: v.string(),
+    status: v.union(v.literal("sent"), v.literal("failed"), v.literal("unknown")),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.reminderId);
+    // Delivery workers are replayable. A late failure must never regress a
+    // reminder that an earlier attempt already recorded as sent.
+    if (row?.status === "claimed" && row.claimId === args.claimId) {
+      await ctx.db.patch(row._id, {
+        status: args.status,
+        claimId: undefined,
+        claimExpiresAt: undefined,
+        updatedAt: Date.now(),
+      });
+    }
+  },
+});
+
+/** Keeps a Telegram-accepted reminder in a no-resend state until persistence recovers. */
+export const recoverAcceptedPaymentReminder = internalAction({
+  args: {
+    reminderId: v.id("paymentReminders"),
+    claimId: v.string(),
+    attempt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      await ctx.runMutation(internal.internal.telegramCommands.markPaymentReminderDelivery, {
+        reminderId: args.reminderId,
+        claimId: args.claimId,
+        status: "unknown",
+      });
+      return { ok: true as const };
+    } catch {
+      await ctx.scheduler.runAfter(
+        Math.min(60_000, 1_000 * 2 ** Math.min(args.attempt, 10)),
+        internal.internal.telegramCommands.recoverAcceptedPaymentReminder,
+        { ...args, attempt: args.attempt + 1 },
+      );
+      return { ok: false as const, retrying: true as const };
+    }
+  },
+});
+
+/** Private debt reminder; it never writes or sends to the tab's group chat. */
+export const deliverPaymentReminder = internalAction({
+  args: { reminderId: v.id("paymentReminders") },
+  handler: async (ctx, args) => {
+    const claimId = crypto.randomUUID();
+    const row = await ctx.runMutation(
+      internal.internal.telegramCommands.claimPaymentReminderDelivery,
+      { ...args, claimId },
+    );
+    if (!row) {
+      return { ok: false as const };
+    }
+    if ("alreadySent" in row) return { ok: true as const, replayed: true as const };
+    if ("inFlight" in row) return { ok: true as const, replayed: true as const };
+    if ("closed" in row) {
+      return { ok: false as const };
+    }
+    if (isTelegramFixtureMode()) {
+      await ctx.runMutation(internal.internal.telegramCommands.markPaymentReminderDelivery, {
+        reminderId: args.reminderId,
+        claimId,
+        status: "sent",
+      });
+      return { ok: true as const };
+    }
+    let telegramAccepted = false;
+    try {
+      const result = await sendMessage(getTelegramBotToken(), {
+        chatId: row.telegramUserId,
+        text: `${row.creditorName} sent a private reminder about ${row.tabName}. Open My Tab to review what you owe.`,
+      });
+      const status = result.ok
+        ? "sent" as const
+        : result.kind === "transient" && result.ambiguous === true
+          ? "unknown" as const
+          : "failed" as const;
+      telegramAccepted = result.ok;
+      try {
+        await ctx.runMutation(internal.internal.telegramCommands.markPaymentReminderDelivery, {
+          reminderId: args.reminderId,
+          claimId,
+          status,
+        });
+      } catch (error) {
+        if (!telegramAccepted) throw error;
+        // Telegram accepted the message. Never convert an accounting outage
+        // into `failed` (which would permit a duplicate send after cooldown).
+        try {
+          await ctx.runMutation(internal.internal.telegramCommands.markPaymentReminderDelivery, {
+            reminderId: args.reminderId,
+            claimId,
+            status: "unknown",
+          });
+        } catch {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.internal.telegramCommands.recoverAcceptedPaymentReminder,
+            { reminderId: args.reminderId, claimId, attempt: 1 },
+          );
+        }
+      }
+      return { ok: result.ok };
+    } catch {
+      if (telegramAccepted) {
+        return { ok: true as const, persistencePending: true as const };
+      }
+      await ctx.runMutation(internal.internal.telegramCommands.markPaymentReminderDelivery, {
+        reminderId: args.reminderId,
+        claimId,
+        status: "failed",
+      });
+      return { ok: false as const };
+    }
   },
 });

@@ -377,7 +377,10 @@ export function validateTransactionMessage(
 ): ValidationResult {
   const routingKind: RoutingKind = context.routingKind ?? "exact_usdc";
   const isDflow = routingKind === "dflow_sync";
-  const manifest = getSponsorPolicyManifest(routingKind, context.cluster);
+  const manifest = getSponsorPolicyManifest(routingKind, context.cluster, {
+    inputMint: context.intent.inputMint,
+    outputMint: context.intent.outputMint,
+  });
 
   // ---- Phase 0: intent state, independent of the bytes -------------------
 

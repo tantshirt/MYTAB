@@ -1,6 +1,6 @@
 import type { BalanceHeroState } from "@/lib/domain/balance";
 import { formatBalanceHeroParts, formatBalanceHeroText } from "@/lib/domain/balance";
-import { formatThbMinorForA11y, formatUsdcAtomicForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinorForA11y, formatUsdcAtomicForA11y } from "@/lib/domain/a11yAmount";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 
 export type BalanceHeroProps = {
@@ -26,7 +26,7 @@ export function BalanceHero({ state }: BalanceHeroProps) {
 
   const ariaLabel =
     state.kind === "owed"
-      ? `You owe ${formatThbMinorForA11y(state.amountMinor)}`
+      ? `You owe ${formatCurrencyMinorForA11y(state.amountMinor, state.currency ?? "THB")}`
       : state.kind === "settled"
         ? `You are owed ${formatUsdcAtomicForA11y(state.amountAtomic)}`
         : formatBalanceHeroText(state);

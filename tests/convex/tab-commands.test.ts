@@ -65,8 +65,8 @@ describe("Story 2.3 — deep link format (AC2)", () => {
 });
 
 describe("Story 2.5 — command routing (AC1)", () => {
-  it("registers all four bot commands", () => {
-    expect(BOT_COMMANDS).toEqual(["tab", "splitbill", "tip", "balance"]);
+  it("registers repayment commands without standalone tipping", () => {
+    expect(BOT_COMMANDS).toEqual(["tab", "splitbill", "balance"]);
   });
 
   it("routes /splitbill to the same handler key as /tab", () => {

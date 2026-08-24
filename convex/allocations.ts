@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
-  organizerAssignItemCore,
+  organizerResolveItemCore,
   setItemAllocationModeCore,
   setOwnClaimQuantityCore,
   toggleOwnClaimCore,
@@ -18,6 +18,22 @@ const allocationModeValidator = v.union(
   v.literal("percentage"),
   v.literal("fixed"),
 );
+
+const organizerResolutionValidator = v.union(
+  v.literal("assign_remaining"),
+  v.literal("share_with_everyone"),
+  v.literal("remove_claimant"),
+  v.literal("reassign_claimant"),
+  v.literal("organizer_covers_remainder"),
+);
+
+async function participantUserIds(ctx: Parameters<typeof organizerResolveItemCore>[0], tabId: Parameters<typeof organizerResolveItemCore>[1]["tabId"]) {
+  const rows = await ctx.db
+    .query("tabParticipants")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", tabId))
+    .collect();
+  return rows.map((row) => row.userId);
+}
 
 /** Toggles the viewer's own claim on an item (Story 5.4). */
 export const toggleOwnClaim = mutation({
@@ -86,14 +102,39 @@ export const organizerAssignItem = mutation({
     clientRevision: v.number(),
   },
   handler: async (ctx, args) => {
-    await requireBillOrganizer(ctx, args.tabId);
+    const { user } = await requireBillOrganizer(ctx, args.tabId);
     const now = Date.now();
-    return organizerAssignItemCore(ctx, {
+    return organizerResolveItemCore(ctx, {
       tabId: args.tabId,
       itemId: args.itemId,
-      targetUserId: args.targetUserId,
+      organizerUserId: user._id,
+      participantUserIds: await participantUserIds(ctx, args.tabId),
+      operation: "assign_remaining",
+      targetUserIds: [args.targetUserId],
       clientRevision: args.clientRevision,
       now,
+    });
+  },
+});
+
+/** Organizer's explicit fair-resolution controls before lock. */
+export const organizerResolveItem = mutation({
+  args: {
+    tabId: v.id("tabs"),
+    itemId: v.id("items"),
+    clientRevision: v.number(),
+    operation: organizerResolutionValidator,
+    targetUserIds: v.optional(v.array(v.id("users"))),
+    sourceUserId: v.optional(v.id("users")),
+    targetUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    const { user } = await requireBillOrganizer(ctx, args.tabId);
+    return organizerResolveItemCore(ctx, {
+      ...args,
+      organizerUserId: user._id,
+      participantUserIds: await participantUserIds(ctx, args.tabId),
+      now: Date.now(),
     });
   },
 });

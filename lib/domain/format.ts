@@ -1,6 +1,5 @@
 import { assertIntegerNumber, type FiatMinor } from "./money";
-
-const THB_MINOR_FACTOR = 100;
+import { formatCurrencyMinor } from "./currency";
 
 /**
  * Groups an integer string into thousands with `,` separators — "1840" → "1,840".
@@ -13,13 +12,7 @@ export function groupThousands(digits: string): string {
 
 export function formatFiatMinorThb(amountMinor: FiatMinor): string {
   assertIntegerNumber(amountMinor, "formatFiatMinorThb");
-
-  const isNegative = amountMinor < 0;
-  const absoluteMinor = Math.abs(amountMinor);
-  const wholeBaht = Math.floor(absoluteMinor / THB_MINOR_FACTOR);
-  const satang = absoluteMinor % THB_MINOR_FACTOR;
-  const satangText = String(satang).padStart(2, "0");
-
-  const sign = isNegative ? "-" : "";
-  return `${sign}฿${groupThousands(String(wholeBaht))}.${satangText}`;
+  return formatCurrencyMinor(amountMinor, "THB");
 }
+
+export { formatCurrencyMinor } from "./currency";

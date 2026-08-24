@@ -12,14 +12,12 @@ export const MENU_BUTTON_LABEL = "Open My Tab";
 export const PRIVATE_BOT_COMMANDS: readonly TelegramBotCommand[] = [
   { command: "tab", description: "Start a tab" },
   { command: "balance", description: "Where you stand" },
-  { command: "tip", description: "Send someone a tip" },
   { command: "help", description: "What My Tab does" },
 ];
 
 export const GROUP_BOT_COMMANDS: readonly TelegramBotCommand[] = [
   { command: "tab", description: "Start a tab for this group" },
   { command: "balance", description: "Where you stand" },
-  { command: "tip", description: "Send someone a tip" },
 ];
 
 export function menuButtonForMiniApp(miniAppHttpsUrl: string): TelegramMenuButton {

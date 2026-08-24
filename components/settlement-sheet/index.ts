@@ -3,4 +3,3 @@ export { SheetContainer } from "./SheetContainer";
 export { PaymentProgress } from "./PaymentProgress";
 export { SettlementStepper } from "./SettlementStepper";
 export { PaymentTokenSelector } from "./PaymentTokenSelector";
-export { RoundUpControl } from "./RoundUpControl";

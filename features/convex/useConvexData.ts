@@ -168,7 +168,7 @@ export function useLiveAction<Action extends FunctionReference<"action">>(
  * Every group-scoped Convex read (`activity.listForGroup`,
  * `tabs.listOpenTabsForGroup`, `groups.getGroup`) needs a `groupId`, and the
  * only viewer-level group signal in the client is the `?group=` key the rest of
- * the app already uses (`/tabs/new?group=`, `/tips/new?group=`).
+ * the app already uses (`/tabs/new?group=`).
  *
  * Read from `window.location` rather than `useSearchParams` on purpose: the tab
  * bar surfaces have no Suspense boundary, and `useSearchParams` would opt the

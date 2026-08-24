@@ -1,10 +1,10 @@
 import { addFiatMinor, fiatMinorFromInteger, mulFiatMinorByInt, subFiatMinor, type FiatMinor } from "./money";
-import { formatFiatMinorThb } from "./format";
+import { formatCurrencyMinor } from "./format";
 import { formatCryptoAmountDisplay, usdcAmountFromAtomicString } from "./crypto";
 
 /** Balance hero display state (Story 7.1 AC1). */
 export type BalanceHeroState =
-  | { kind: "owed"; amountMinor: FiatMinor }
+  | { kind: "owed"; amountMinor: FiatMinor; currency?: string }
   | { kind: "settled"; amountAtomic: bigint; tokenLabel: string }
   | { kind: "all_square" };
 
@@ -145,7 +145,7 @@ export type BalanceHeroParts = {
 export function formatBalanceHeroParts(state: BalanceHeroState): BalanceHeroParts {
   switch (state.kind) {
     case "owed":
-      return { label: "You owe", figure: formatFiatMinorThb(state.amountMinor) };
+      return { label: "You owe", figure: formatCurrencyMinor(state.amountMinor, state.currency ?? "THB") };
     case "settled": {
       const display = formatCryptoAmountDisplay(
         usdcAmountFromAtomicString(state.amountAtomic.toString()),

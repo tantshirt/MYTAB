@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createFakeCtx } from "../helpers/convexFakeDb";
 import * as settlements from "@/convex/settlements";
 import { USDC_MINT } from "@/lib/solana/constants";
+import bs58 from "bs58";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const run = (fn: unknown, ctx: unknown, args: unknown = {}) =>
@@ -95,6 +96,24 @@ describe("getObligationQuoteBaseInternal", () => {
     expect(result.intent.serializedMessage).toBe("prepared-tx");
   });
 
+  it("shows the active intent payment-time FX instead of the lock-time snapshot", async () => {
+    const seeded = store();
+    seeded.fxSnapshots!.push({
+      _id: "fxSnapshots:payment",
+      numeratorAtomic: 2_000_000n,
+      denominatorMinor: 7_000n,
+    });
+    Object.assign(seeded.settlementIntents![0]!, {
+      paymentFxSnapshotId: "fxSnapshots:payment",
+    });
+    const { ctx } = createFakeCtx(seeded, identity);
+    const result = await run(settlements.getObligationQuoteBaseInternal, ctx, {
+      obligationId: "obligations:1",
+    });
+    expect(result.rateNumeratorAtomic).toBe(2_000_000n);
+    expect(result.rateDenominatorMinor).toBe(7_000n);
+  });
+
   it("refuses anyone who is not the debtor", async () => {
     const { ctx } = createFakeCtx(store(), {
       subject: CREDITOR.privyDid,
@@ -116,6 +135,50 @@ describe("getObligationQuoteBaseInternal", () => {
       obligationId: "obligations:1",
     });
     expect(result.payerAddress).toBeNull();
+  });
+
+  it("projects v2 generic fiat and currency instead of the legacy THB lane", async () => {
+    const seeded = store();
+    Object.assign(seeded.obligations![0]!, {
+      displayAmountThbMinor: 1n,
+      displayAmountMinor: 12_345n,
+      displayCurrency: "KWD",
+      displayCurrencyMinorDigits: 3,
+    });
+    const { ctx } = createFakeCtx(seeded, identity);
+    const result = await run(settlements.getObligationQuoteBaseInternal, ctx, {
+      obligationId: "obligations:1",
+    });
+    expect(result).toMatchObject({
+      displayAmountMinor: 12_345n,
+      displayAmountThbMinor: 12_345n,
+      displayCurrency: "KWD",
+    });
+  });
+});
+
+describe("held-token account admission", () => {
+  function tokenAccountData(state: number): string {
+    const bytes = new Uint8Array(165);
+    bytes.set(bs58.decode(USDC_MINT), 0);
+    bytes.set(bs58.decode("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJos9mPq"), 32);
+    bytes[108] = state;
+    return Buffer.from(bytes).toString("base64");
+  }
+
+  it("admits only initialized accounts and excludes uninitialized/frozen balances", () => {
+    expect(settlements.initializedOwnedTokenAccount(
+      tokenAccountData(1),
+      "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJos9mPq",
+    )).not.toBeNull();
+    expect(settlements.initializedOwnedTokenAccount(
+      tokenAccountData(0),
+      "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJos9mPq",
+    )).toBeNull();
+    expect(settlements.initializedOwnedTokenAccount(
+      tokenAccountData(2),
+      "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJos9mPq",
+    )).toBeNull();
   });
 });
 

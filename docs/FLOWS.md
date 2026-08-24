@@ -228,7 +228,6 @@ flowchart TD
 | `/activity` | History | BUILT — needs the design pass |
 | `/you` | Wallet and settings | BUILT — needs the design pass and D-21 |
 | `/groups/[groupId]` | Group | BUILT |
-| `/tips/new` | Tip | BUILT |
 
 Bottom navigation is three roots — **Tabs · Activity · You** (`components/layout/AppShell.tsx:65-74`).
 
@@ -267,7 +266,7 @@ stateDiagram-v2
 
 Reopen is refused with `CONFIRMED_SETTLEMENT_EXISTS` or `IN_FLIGHT_INTENT`
 (`convex/lib/…:217-244`). Lock is refused with `UNASSIGNED_ITEMS`,
-`RECIPIENT_WALLET_REQUIRED`, `PAYER_IS_RECIPIENT`, `INVARIANT_FAILED`.
+`RECIPIENT_WALLET_REQUIRED`, `INVARIANT_FAILED`.
 
 ---
 

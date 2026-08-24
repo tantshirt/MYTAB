@@ -31,8 +31,17 @@ import {
 import { validateBeforeSponsorCoSign } from "@/lib/solana/validateTransactionMessage";
 import { sha256Hex } from "@/lib/crypto/convexCrypto";
 import { ed25519 } from "@noble/curves/ed25519.js";
-import type { Keypair } from "@solana/web3.js";
+import {
+  AddressLookupTableAccount,
+  PublicKey,
+  TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+  type Keypair,
+} from "@solana/web3.js";
 import { BLOCKHASH, ata, buildTx, makeActors, memoFor, signAs, toBase64 } from "../helpers/solanaTx";
+import { decodeTransactionBase64 } from "@/lib/solana/decodeTransaction";
+import dflowFixture from "../fixtures/dflow-order-mainnet.json";
 
 const actors = makeActors(31);
 const PAYER = actors.payer.publicKey.toBase58();
@@ -213,6 +222,33 @@ describe("SolanaRpcClient failure classification", () => {
   it("refuses a u64 that lost precision in JSON", () => {
     expect(() => safeU64FromJson(2 ** 53, "lamports")).toThrow(SolanaRpcError);
     expect(safeU64FromJson("18446744073709551615", "amount")).toBe(18_446_744_073_709_551_615n);
+  });
+
+  it("reads the wallet's complete SPL-token account inventory as base64 evidence", async () => {
+    const { impl, calls } = scriptedFetch(() => rpcOk({
+      context: { slot: 123 },
+      value: [{
+        pubkey: actors.attacker.publicKey.toBase58(),
+        account: {
+          data: ["AA==", "base64"],
+          owner: TOKEN_PROGRAM_ID,
+          lamports: "2039280",
+          executable: false,
+        },
+      }],
+    }));
+    const rpc = new SolanaRpcClient({ url: "https://api.devnet.solana.com", fetchImpl: impl });
+    await expect(rpc.getTokenAccountsByOwner(PAYER, TOKEN_PROGRAM_ID)).resolves.toEqual([{
+      address: actors.attacker.publicKey.toBase58(),
+      dataBase64: "AA==",
+      owner: TOKEN_PROGRAM_ID,
+      lamports: 2_039_280n,
+      executable: false,
+    }]);
+    expect(calls[0]?.body).toMatchObject({
+      method: "getTokenAccountsByOwner",
+      params: [PAYER, { programId: TOKEN_PROGRAM_ID }, { commitment: "confirmed", encoding: "base64" }],
+    });
   });
 });
 
@@ -659,6 +695,8 @@ describe("finalized confirmation parsing (AD-11)", () => {
       messageHash,
       recipientAddress: RECIPIENT,
       outputMint: USDC_MINT,
+      inputMint: USDC_MINT,
+      routingKind: "exact_usdc" as const,
       minimumOutputAtomic: AMOUNT,
       maximumInputAtomic: AMOUNT,
       reservedSponsorLamports: 3_000_000n,
@@ -706,6 +744,182 @@ describe("finalized confirmation parsing (AD-11)", () => {
     });
   });
 
+  it("binds confirmation to the exact RPC signature", () => {
+    const signed = fullySigned();
+    const parsed = parseFinalizedConfirmation(
+      bs58.encode(new Uint8Array(64).fill(7)),
+      finalizedResponse(),
+      expectation(signed.messageHash),
+    );
+    expect(parsed).toMatchObject({
+      success: false,
+      failureCode: CONFIRMATION_FAILURE.SIGNATURE_MISMATCH,
+    });
+  });
+
+  it("accepts and indexes resolved routed lookup tables before destination proof", () => {
+    const body = JSON.parse(
+      Buffer.from(dflowFixture.response.bodyBase64, "base64").toString("utf8"),
+    ) as {
+      transaction: string;
+      addressLookupTables: Array<{
+        address: string;
+        addresses: Record<string, string>;
+      }>;
+    };
+    const decoded = decodeTransactionBase64(body.transaction);
+    const tables = new Map(body.addressLookupTables.map((table) => [table.address, table.addresses]));
+    const writable: string[] = [];
+    const readonly: string[] = [];
+    for (const lookup of decoded.message.addressTableLookups) {
+      const table = tables.get(lookup.accountKey)!;
+      writable.push(...lookup.writableIndexes.map((index) => table[String(index)]!));
+      readonly.push(...lookup.readonlyIndexes.map((index) => table[String(index)]!));
+    }
+    const keys = [...decoded.message.staticAccountKeys, ...writable, ...readonly];
+    const recipient = dflowFixture.keys.recipient;
+    const outputMint = USDC_MINT;
+    const zeroBalances = keys.map(() => 1_000_000);
+    const signature = bs58.encode(decoded.signatures[0]!);
+    const minimumOutputAtomic = BigInt(dflowFixture.order.otherAmountThreshold);
+    const parsed = parseFinalizedConfirmation(
+      signature,
+      {
+        slot: dflowFixture.order.contextSlot,
+        blockTime: null,
+        transactionBase64: body.transaction,
+        meta: {
+          err: null,
+          preBalances: zeroBalances,
+          postBalances: zeroBalances,
+          preTokenBalances: [],
+          postTokenBalances: [],
+          loadedAddresses: { writable, readonly },
+        },
+      },
+      {
+        messageHash: sha256Hex(decoded.message.serialized),
+        recipientAddress: recipient,
+        outputMint,
+        inputMint: "So11111111111111111111111111111111111111112",
+        routingKind: "dflow_sync",
+        minimumOutputAtomic,
+        maximumInputAtomic: 100_000_000n,
+        reservedSponsorLamports: 3_000_000n,
+        payerAddress: dflowFixture.keys.user,
+        sponsorAddress: dflowFixture.keys.sponsor,
+        resolvedAltWritableAddresses: writable,
+        resolvedAltReadonlyAddresses: readonly,
+      },
+    );
+    // The parser has accepted and indexed the resolved ALTs; this fixture's
+    // order transaction does not itself carry the recipient ATA balance delta,
+    // so the next independent predicate is the expected failure.
+    expect(parsed).toMatchObject({
+      success: false,
+      failureCode: CONFIRMATION_FAILURE.RECIPIENT_ACCOUNT,
+    });
+  });
+
+  it("confirms a routed non-native settlement with exact resolved ALT keys and actual deltas", () => {
+    const inputMint = actors.attacker.publicKey.toBase58();
+    const payerInputAta = deriveRecipientUsdcAta(PAYER, inputMint);
+    const recipientOutputAta = deriveRecipientUsdcAta(RECIPIENT, USDC_MINT);
+    const lookupKey = makeActors(88).attacker.publicKey;
+    const lookup = new AddressLookupTableAccount({
+      key: lookupKey,
+      state: {
+        deactivationSlot: 0xffffffffffffffffn,
+        lastExtendedSlot: 1,
+        lastExtendedSlotStartIndex: 0,
+        authority: undefined,
+        addresses: [new PublicKey(payerInputAta), new PublicKey(recipientOutputAta)],
+      },
+    });
+    const routedIx = new TransactionInstruction({
+      programId: new PublicKey(TOKEN_PROGRAM_ID),
+      keys: [
+        { pubkey: new PublicKey(payerInputAta), isSigner: false, isWritable: true },
+        { pubkey: new PublicKey(recipientOutputAta), isSigner: false, isWritable: true },
+        { pubkey: actors.payer.publicKey, isSigner: true, isWritable: false },
+      ],
+      data: Buffer.from([3, 1, 0, 0, 0, 0, 0, 0, 0]),
+    });
+    const message = new TransactionMessage({
+      payerKey: actors.sponsor.publicKey,
+      recentBlockhash: BLOCKHASH,
+      instructions: [routedIx],
+    }).compileToV0Message([lookup]);
+    const tx = new VersionedTransaction(message);
+    signAs(tx, actors.payer);
+    signAs(tx, actors.sponsor);
+
+    const transactionBase64 = toBase64(tx);
+    const decoded = decodeTransactionBase64(transactionBase64);
+    const writable = decoded.message.addressTableLookups.flatMap((entry) =>
+      entry.writableIndexes.map((index) => lookup.state.addresses[index]!.toBase58()),
+    );
+    const readonly = decoded.message.addressTableLookups.flatMap((entry) =>
+      entry.readonlyIndexes.map((index) => lookup.state.addresses[index]!.toBase58()),
+    );
+    const keys = [...decoded.message.staticAccountKeys, ...writable, ...readonly];
+    const payerInputIndex = keys.indexOf(payerInputAta);
+    const recipientOutputIndex = keys.indexOf(recipientOutputAta);
+    expect(payerInputIndex).toBeGreaterThanOrEqual(0);
+    expect(recipientOutputIndex).toBeGreaterThanOrEqual(0);
+
+    const preBalances = keys.map(() => 1_000_000_000);
+    const postBalances = [...preBalances];
+    postBalances[0] = preBalances[0]! - 15_000;
+    const recipientOutput = 1_100_000n;
+    const payerInput = 875_000n;
+    const signature = bs58.encode(decoded.signatures[0]!);
+    const parsed = parseFinalizedConfirmation(
+      signature,
+      {
+        slot: 44_001,
+        blockTime: 1_777_777,
+        transactionBase64,
+        meta: {
+          err: null,
+          preBalances,
+          postBalances,
+          preTokenBalances: [
+            tokenBalance(payerInputIndex, inputMint, PAYER, 2_000_000n),
+            tokenBalance(recipientOutputIndex, USDC_MINT, RECIPIENT, 100_000n),
+          ],
+          postTokenBalances: [
+            tokenBalance(payerInputIndex, inputMint, PAYER, 2_000_000n - payerInput),
+            tokenBalance(recipientOutputIndex, USDC_MINT, RECIPIENT, 100_000n + recipientOutput),
+          ],
+          loadedAddresses: { writable, readonly },
+        },
+      },
+      {
+        messageHash: sha256Hex(decoded.message.serialized),
+        recipientAddress: RECIPIENT,
+        outputMint: USDC_MINT,
+        inputMint,
+        routingKind: "dflow_sync",
+        minimumOutputAtomic: 1_000_000n,
+        maximumInputAtomic: 900_000n,
+        reservedSponsorLamports: 3_000_000n,
+        payerAddress: PAYER,
+        sponsorAddress: SPONSOR,
+        resolvedAltWritableAddresses: writable,
+        resolvedAltReadonlyAddresses: readonly,
+      },
+    );
+
+    expect(parsed).toMatchObject({
+      success: true,
+      recipientDeltaAtomic: recipientOutput,
+      payerDebitAtomic: payerInput,
+      sponsorDebitLamports: 15_000n,
+      slot: 44_001,
+    });
+  });
+
   it("refuses a recipient credit that is off by one atomic unit", () => {
     const signed = fullySigned();
     for (const delta of [AMOUNT - 1n, AMOUNT + 1n]) {
@@ -719,6 +933,23 @@ describe("finalized confirmation parsing (AD-11)", () => {
         failureCode: CONFIRMATION_FAILURE.RECIPIENT_DELTA,
       });
     }
+  });
+
+  it("fails closed for native input until lamport attribution is implemented", () => {
+    const signed = fullySigned();
+    const parsed = parseFinalizedConfirmation(
+      signed.expectedSignature,
+      finalizedResponse(),
+      {
+        ...expectation(signed.messageHash),
+        routingKind: "dflow_sync",
+        inputMint: "So11111111111111111111111111111111111111112",
+      },
+    );
+    expect(parsed).toMatchObject({
+      success: false,
+      failureCode: CONFIRMATION_FAILURE.NATIVE_INPUT_UNPROVEN,
+    });
   });
 
   it("refuses a third account skimming the same mint — that is a platform fee", () => {

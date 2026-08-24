@@ -1,10 +1,8 @@
 /**
  * The one-shot message queue.
  *
- * Four of the five sanctioned events are the tab card, which is edited in
- * place and managed by `telegramStatusManager`. The fifth — the tip
- * confirmation — is its own message, so it gets its own row and the same
- * discipline: a stable `dedupeKey` decides whether a message exists at all,
+ * Durable one-shot Telegram messages use the same discipline as status cards:
+ * a stable `dedupeKey` decides whether a message exists at all,
  * and a claim lease decides who is allowed to post it.
  *
  * ## Why enqueueing twice cannot produce two rows
@@ -29,11 +27,6 @@ export type OutboundKind = Doc<"telegramOutboundMessages">["kind"];
 
 function newClaimId(): string {
   return randomBase64Url(12);
-}
-
-/** The stable delivery key for a tip confirmation. */
-export function tipConfirmationDedupeKey(tipId: Id<"tips">): string {
-  return `tip_confirmation:${tipId}`;
 }
 
 export type EnqueueOutboundResult = {

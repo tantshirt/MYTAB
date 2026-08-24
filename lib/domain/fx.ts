@@ -14,7 +14,8 @@
 import { DomainError, DomainErrorCode } from "./errors";
 
 export const FX_DIRECTION = "USDC_ATOMIC_PER_THB_MINOR" as const;
-export type FxDirection = typeof FX_DIRECTION;
+export const FX_GENERIC_DIRECTION = "STABLE_ATOMIC_PER_FIAT_MINOR" as const;
+export type FxDirection = typeof FX_DIRECTION | typeof FX_GENERIC_DIRECTION;
 
 /** USDC has 6 decimals; 1 USDC = 1_000_000 atomic. */
 export const USDC_DECIMALS = 6;
@@ -147,6 +148,21 @@ export function assertPositiveRational(rational: FxRational): void {
  * @param rateText - Decimal THB-per-USD as printed by the provider.
  */
 export function usdThbRateTextToRational(rateText: string): FxRational {
+  return usdFiatRateTextToRational(rateText, THB_MINOR_DIGITS, USDC_DECIMALS);
+}
+
+/** Exact stable-reference atomic units per fiat minor unit for any ISO scale. */
+export function usdFiatRateTextToRational(
+  rateText: string,
+  fiatMinorDigits: number,
+  stableAtomicDecimals: number = USDC_DECIMALS,
+): FxRational {
+  if (!Number.isInteger(fiatMinorDigits) || fiatMinorDigits < 0 || fiatMinorDigits > 3) {
+    throw new FxError(FxErrorCode.INVALID_RATE_FORMAT, `Unsupported fiat minor digits ${fiatMinorDigits}`);
+  }
+  if (!Number.isInteger(stableAtomicDecimals) || stableAtomicDecimals < fiatMinorDigits) {
+    throw new FxError(FxErrorCode.INVALID_RATE_FORMAT, `Invalid stable decimals ${stableAtomicDecimals}`);
+  }
   const trimmed = rateText.trim();
   const match = RATE_TEXT_PATTERN.exec(trimmed);
   if (!match) {
@@ -173,7 +189,7 @@ export function usdThbRateTextToRational(rateText: string): FxRational {
     );
   }
 
-  const exponent = USDC_DECIMALS - THB_MINOR_DIGITS + fractionPart.length;
+  const exponent = stableAtomicDecimals - fiatMinorDigits + fractionPart.length;
   return reduceFxRational({
     numeratorAtomic: pow10(exponent),
     denominatorMinor: scaledRate,
@@ -405,7 +421,11 @@ export function isFxSnapshotFresh(snapshot: FxFreshnessInput, nowMs: number): bo
 
 /** Fail-closed guard for any path that is about to price money off a snapshot. */
 export function assertFxSnapshotFresh(snapshot: FxFreshnessInput, nowMs: number): void {
-  if (snapshot.direction !== undefined && snapshot.direction !== FX_DIRECTION) {
+  if (
+    snapshot.direction !== undefined &&
+    snapshot.direction !== FX_DIRECTION &&
+    snapshot.direction !== FX_GENERIC_DIRECTION
+  ) {
     throw new FxError(
       FxErrorCode.DIRECTION_MISMATCH,
       `FX snapshot direction ${snapshot.direction} is not ${FX_DIRECTION}`,

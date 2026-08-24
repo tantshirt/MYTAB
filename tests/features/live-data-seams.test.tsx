@@ -26,7 +26,6 @@ import { toActivityRow } from "@/features/balances/activityRow";
 import { useGroupData } from "@/features/groups/useGroupData";
 import { useNewTabData } from "@/features/bills/useNewTabData";
 import { useReceiptData } from "@/features/receipts/useReceiptData";
-import { useTipComposerData } from "@/features/tips/useTipComposerData";
 import { useSettleSheetData } from "@/features/settlement/useSettleSheetData";
 import { refusalFor } from "@/features/tabs/useTabData";
 import { useYouSurfaceData } from "@/features/you/useYouSurfaceData";
@@ -133,15 +132,6 @@ describe("live-data seams — no Convex client means no data, never invented dat
     const data = renderHook(() => useReceiptData("tabs:none", null));
     expect(data.parsed.lines).toEqual([]);
     expect(Number(data.parsed.reconciliation.receiptTotalMinor)).toBe(0);
-  });
-
-  it("useTipComposerData has no eligible recipients", () => {
-    const data = renderHook(
-      () => useTipComposerData(null),
-      (node) => <TelegramRuntimeProvider>{node}</TelegramRuntimeProvider>,
-    );
-    expect(data.members).toEqual([]);
-    expect(data.viewerUserId).toBe("");
   });
 
   it("useSettleSheetData refuses to price a payment it cannot read", () => {

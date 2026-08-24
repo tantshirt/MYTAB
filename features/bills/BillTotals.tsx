@@ -1,12 +1,13 @@
 "use client";
 
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
 import type { BillLineBreakdown } from "@/lib/domain/bill";
-import { formatFiatMinorThb } from "@/lib/domain/format";
+import { formatCurrencyMinor } from "@/lib/domain/format";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 
 type BillTotalsProps = {
   lines: BillLineBreakdown[];
+  displayCurrency?: string;
 };
 
 /**
@@ -16,7 +17,7 @@ type BillTotalsProps = {
  *
  * No card of its own — it is the last block inside the one bill card.
  */
-export function BillTotals({ lines }: BillTotalsProps) {
+export function BillTotals({ lines, displayCurrency = "THB" }: BillTotalsProps) {
   return (
     <div
       data-testid="bill-totals"
@@ -47,14 +48,14 @@ export function BillTotals({ lines }: BillTotalsProps) {
             <span
               className="mytab-row__amount mytab-tabular"
               data-mytab-amount
-              aria-label={formatThbMinorForA11y(line.amountMinor)}
+              aria-label={formatCurrencyMinorForA11y(line.amountMinor, displayCurrency)}
               style={{
                 fontSize: isTotal ? "15px" : "14px",
                 fontWeight: isTotal ? 600 : 500,
                 color: MYTAB_COLORS.ink,
               }}
             >
-              {formatFiatMinorThb(line.amountMinor)}
+              {formatCurrencyMinor(line.amountMinor, displayCurrency)}
             </span>
           </div>
         );

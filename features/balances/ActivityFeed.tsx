@@ -14,7 +14,7 @@ import { MYTAB_COLORS, MYTAB_RADIUS } from "@/lib/theme/tokens";
 import { ActivitySkeleton, OfflineBar } from "./LoadingStates";
 
 export const ACTIVITY_COPY = {
-  empty: "Nothing yet. Claims, tips and payments show up here.",
+  empty: "Nothing yet. Claims and payments show up here.",
   error: "Couldn't load your activity.",
   retry: "Try again",
   from: "From",
@@ -137,7 +137,7 @@ export function activityBucket(
   };
 }
 
-type ActivityTone = "settle" | "tip" | "quiet";
+type ActivityTone = "settle" | "quiet";
 
 /** §1.12 — three tones, and the amount colour follows the icon tint. */
 function toneForType(type: ActivityEventType): ActivityTone {
@@ -145,8 +145,6 @@ function toneForType(type: ActivityEventType): ActivityTone {
     case ACTIVITY_EVENT_TYPE.PAYMENT:
     case ACTIVITY_EVENT_TYPE.CASH_ACKNOWLEDGED:
       return "settle";
-    case ACTIVITY_EVENT_TYPE.TIP:
-      return "tip";
     default:
       return "quiet";
   }
@@ -157,11 +155,6 @@ const TONES: Record<ActivityTone, { background: string; foreground: string; amou
     background: MYTAB_COLORS.settledSoft,
     foreground: MYTAB_COLORS.settled,
     amount: MYTAB_COLORS.settled,
-  },
-  tip: {
-    background: MYTAB_COLORS.tipSoft,
-    foreground: MYTAB_COLORS.tip,
-    amount: MYTAB_COLORS.ink,
   },
   quiet: {
     background: MYTAB_COLORS.sunk,

@@ -31,6 +31,22 @@ export {
 export { formatFiatMinorThb, groupThousands } from "./format";
 
 export {
+  CURRENCY_FAILURE,
+  CurrencyError,
+  SUPPORTED_FIAT_CURRENCIES,
+  addCurrencyMoney,
+  assertSupportedCurrency,
+  currencyMinorDigits,
+  currencyDefinition,
+  formatCurrencyMinor,
+  formatCurrencyMinorForA11y,
+  money,
+  parseCurrencyAmount,
+  type CurrencyMoney,
+  type SupportedFiatCurrency,
+} from "./currency";
+
+export {
   USDC_DECIMALS,
   assertValidDecimals,
   cryptoAmountFromAtomicString,
@@ -54,6 +70,7 @@ export {
 
 export {
   FX_DIRECTION,
+  FX_GENERIC_DIRECTION,
   FX_FRESHNESS_WEEKDAY_MS,
   FX_FRESHNESS_WEEKEND_MS,
   FX_POLICY_VERSION,
@@ -75,6 +92,7 @@ export {
   reduceFxRational,
   resolveFreshnessWindowMs,
   thbMinorToUsdcAtomic,
+  usdFiatRateTextToRational,
   usdThbRateTextToRational,
   type FxRateQuote,
   type FxRational,
@@ -126,13 +144,16 @@ export {
 
 export {
   parseExtractedReceipt,
+  combineReceiptPages,
   parseReceiptAmount,
   formatDiscrepancyCopy,
   recomputeReconciliation,
   type ExtractedReceipt,
+  type ExtractedReceiptAdjustment,
   type ExtractedReceiptLine,
   type FieldConfidence,
   type ParsedReceipt,
+  type ParsedReceiptAdjustment,
   type ParsedReceiptLine,
   type ReconciliationStatus,
 } from "./receiptParse";
@@ -223,10 +244,8 @@ export {
 export {
   MAX_BILL_TOTAL_MINOR,
   MAX_PERCENTAGE_BPS,
-  MAX_TIP_MINOR,
   MIN_PERCENTAGE_BPS,
   MIN_POSITIVE_AMOUNT_MINOR,
-  MIN_TIP_MINOR,
   THB_MINOR_FACTOR,
   THB_MINOR_SCALE,
   applyPercentageBpsToMinor,
@@ -237,5 +256,4 @@ export {
   assertPercentageBps,
   assertPositiveDenominator,
   assertPositiveFiatMinor,
-  assertTipMinor,
 } from "./bounds";

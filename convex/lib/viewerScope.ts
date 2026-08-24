@@ -21,7 +21,12 @@ type ScopeCtx = GenericQueryCtx<DataModel>;
 export async function resolveViewerScope(
   ctx: ScopeCtx,
   groupId?: Id<"groups">,
-): Promise<{ user: Doc<"users">; groupIds: Id<"groups">[] } | null> {
+): Promise<{
+  user: Doc<"users">;
+  groupIds: Id<"groups">[];
+  /** Every tab whose stored roster still authorizes the viewer. */
+  personalTabIds: Id<"tabs">[];
+} | null> {
   const user = await getCurrentUser(ctx);
   if (!user) {
     return null;
@@ -31,7 +36,7 @@ export async function resolveViewerScope(
     // Deny by default: membership is verified against groupMembers, and an
     // inactive membership is not membership.
     await requireGroupMember(ctx, groupId);
-    return { user, groupIds: [groupId] };
+    return { user, groupIds: [groupId], personalTabIds: [] };
   }
 
   const memberships = await ctx.db
@@ -39,11 +44,35 @@ export async function resolveViewerScope(
     .withIndex("by_telegram_user_id", (q) => q.eq("telegramUserId", user.telegramUserId))
     .collect();
 
-  const groupIds = memberships
-    .filter((membership) => membership.membershipStatus === "active")
-    .map((membership) => membership.groupId);
+  const groupIds: Id<"groups">[] = [];
+  for (const membership of memberships) {
+    if (membership.membershipStatus !== "active") continue;
+    const group = await ctx.db.get(membership.groupId);
+    // A personal group belongs to its organizer and may hold many unrelated
+    // invite tabs. Visibility is granted per tab below, never by that group.
+    if (group?.kind !== "personal") groupIds.push(membership.groupId);
+  }
 
-  return { user, groupIds: [...new Set(groupIds)] };
+  const participantRows = await ctx.db
+    .query("tabParticipants")
+    .withIndex("by_user_id", (q) => q.eq("userId", user._id))
+    .collect();
+  const personalTabIds: Id<"tabs">[] = [];
+  for (const participant of participantRows) {
+    const tab = await ctx.db.get(participant.tabId);
+    if (!tab) continue;
+    // A roster survives chat departure (D-07). Include chat-origin tabs too,
+    // but avoid reading one twice while its group membership is still active.
+    if (tab.origin === "personal" || !groupIds.includes(tab.groupId)) {
+      personalTabIds.push(tab._id);
+    }
+  }
+
+  return {
+    user,
+    groupIds: [...new Set(groupIds)],
+    personalTabIds: [...new Set(personalTabIds)],
+  };
 }
 
 /** Resolves display names for a bounded set of user ids by primary key. */

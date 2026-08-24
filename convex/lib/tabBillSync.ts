@@ -11,7 +11,6 @@ import {
 import { fiatMinorFromInteger } from "../../lib/domain/money";
 import { getDefaultReceivingWalletForUser } from "./walletSync";
 
-export const PAYER_RECIPIENT_SAME = "PAYER_RECIPIENT_SAME";
 export const RECIPIENT_WALLET_REQUIRED = "RECIPIENT_WALLET_REQUIRED";
 export const INVALID_ITEM = "INVALID_ITEM";
 export const DISCOUNT_EXCEEDS_TOTAL = "DISCOUNT_EXCEEDS_TOTAL";
@@ -44,15 +43,6 @@ export async function assertRecipientWalletReady(
   const wallet = await getDefaultReceivingWalletForUser(ctx, recipientUserId);
   if (!wallet) {
     throw new TabBillError(RECIPIENT_WALLET_REQUIRED);
-  }
-}
-
-export function assertDistinctPayerRecipient(
-  payerUserId: Id<"users">,
-  recipientUserId: Id<"users">,
-): void {
-  if (payerUserId === recipientUserId) {
-    throw new TabBillError(PAYER_RECIPIENT_SAME);
   }
 }
 

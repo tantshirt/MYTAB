@@ -9,9 +9,7 @@ import { AuthError } from "../../convex/lib/auth";
 import {
   DISCOUNT_EXCEEDS_TOTAL,
   INVALID_ITEM,
-  PAYER_RECIPIENT_SAME,
   TabBillError,
-  assertDistinctPayerRecipient,
   validateItemInput,
 } from "../../convex/lib/tabBillSync";
 import { thbMinorFromWholeBaht } from "../../lib/domain";
@@ -114,17 +112,6 @@ describe("Story 4.1 — tab auth and setup guards", () => {
     await expect(requireBillOrganizer(ctx as never, "tabs:1" as never)).rejects.toMatchObject({
       code: NOT_BILL_ORGANIZER,
     });
-  });
-
-  it("AC3 — payer and recipient must differ", () => {
-    expect(() =>
-      assertDistinctPayerRecipient("users:1" as never, "users:1" as never),
-    ).toThrowError(TabBillError);
-    try {
-      assertDistinctPayerRecipient("users:1" as never, "users:1" as never);
-    } catch (error) {
-      expect((error as TabBillError).code).toBe(PAYER_RECIPIENT_SAME);
-    }
   });
 
   it("AC6 — fixture FX snapshot stores rational integers", async () => {

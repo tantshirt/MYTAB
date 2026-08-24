@@ -31,7 +31,10 @@ const ZERO = fiatMinorFromInteger(0);
 
 /** Nothing extracted yet — an honest empty receipt, never a stand-in over live data. */
 export const EMPTY_RECEIPT: ParsedReceipt = {
+  currency: "THB",
   lines: [],
+  adjustments: [],
+  totalConfidence: "high",
   reconciliation: {
     linesTotalMinor: ZERO,
     receiptTotalMinor: ZERO,

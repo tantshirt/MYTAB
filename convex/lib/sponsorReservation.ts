@@ -135,6 +135,8 @@ export type ReserveSponsorBudgetArgs = {
   reservedLamports?: bigint;
   recipientAddress: string;
   outputMint: string;
+  /** Frozen server-owned routed destination; omitted on exact-USDC paths. */
+  trustedOutputMint?: string;
   paused?: boolean;
   now?: number;
 };
@@ -180,6 +182,7 @@ export async function reserveSponsorBudget(
       instructionKind: "transferChecked",
     },
     paused: args.paused,
+    trustedOutputMint: args.trustedOutputMint,
   });
 
   if (!evaluation.ok) {

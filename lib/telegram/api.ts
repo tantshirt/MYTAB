@@ -42,6 +42,8 @@ export type TelegramCallResult<T> =
       description: string;
       errorCode?: number;
       retryAfterMs?: number;
+      /** No HTTP response arrived, so Telegram may have accepted the effect. */
+      ambiguous?: boolean;
     };
 
 export type TelegramMessage = {
@@ -201,6 +203,7 @@ export async function callTelegramApi<T>(
       ok: false,
       kind: "transient",
       description: error instanceof Error ? error.message : "network_error",
+      ambiguous: true,
     };
   }
 

@@ -32,20 +32,15 @@ function sheet(overrides: Partial<PaymentSheetProps> = {}) {
 
 describe("Payment Sheet — §1.8", () => {
   it("renders the one sanctioned reading order", () => {
-    const html = sheet({
-      roundUpLabel: "Round up to ฿300",
-      roundUpAmountLabel: "+฿8.26",
-      onToggleRoundUp: () => undefined,
-    });
+    const html = sheet();
 
-    // amount → recipient → Pay with → disclosed lines → tip → disclosure → countdown → CTA
+    // amount → recipient → Pay with → disclosed lines → disclosure → countdown → CTA
     const order = [
       "฿291.74",
       "To Maya",
       "Pay with",
       "You spend",
       "Maya receives at least",
-      "Round up to ฿300",
       "Fees and network",
       "Quote refreshes in 0:42",
     ].map((needle) => html.indexOf(needle));

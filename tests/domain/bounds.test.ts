@@ -7,7 +7,6 @@ import {
   assertNonZeroRecipients,
   assertPercentageBps,
   assertPositiveDenominator,
-  assertTipMinor,
   fiatMinorFromInteger,
   mulFiatMinorByInt,
   thbMinorFromInteger,
@@ -29,16 +28,6 @@ describe("AC6 — bounds, overflow, and empty denominators fail closed", () => {
       expect.objectContaining({ code: DomainErrorCode.OUT_OF_BOUNDS }),
     );
     expect(() => assertBillTotalMinor(fiatMinorFromInteger(-100))).toThrowError(
-      expect.objectContaining({ code: DomainErrorCode.OUT_OF_BOUNDS }),
-    );
-  });
-
-  it("enforces tip bounds", () => {
-    expect(() => assertTipMinor(thbMinorFromInteger(100))).not.toThrow();
-    expect(() => assertTipMinor(thbMinorFromInteger(99))).toThrowError(
-      expect.objectContaining({ code: DomainErrorCode.OUT_OF_BOUNDS }),
-    );
-    expect(() => assertTipMinor(thbMinorFromInteger(10_000_001))).toThrowError(
       expect.objectContaining({ code: DomainErrorCode.OUT_OF_BOUNDS }),
     );
   });

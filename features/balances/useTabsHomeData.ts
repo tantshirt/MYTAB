@@ -10,8 +10,8 @@ import {
 import { toActivityRow } from "@/features/balances/activityRow";
 import { compressDebts } from "@/lib/domain/debtCompression";
 import type { BalanceHeroState } from "@/lib/domain/balance";
-import { formatFiatMinorThb } from "@/lib/domain/format";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinor } from "@/lib/domain/format";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
 import { fiatMinorFromInteger } from "@/lib/domain/money";
 import type { TabsHomeSurfaceProps } from "./TabsHomeSurface";
 import type { OpenTabRow } from "./openTabRow";
@@ -91,6 +91,7 @@ export function useTabsHomeData(): TabsHomeData {
         balanceHero = {
           kind: "owed",
           amountMinor: fiatMinorFromInteger(Math.abs(view.netMinor)),
+          currency: view.displayCurrency ?? "THB",
         };
       } else if (view.netAtomic > 0n) {
         balanceHero = {
@@ -108,6 +109,7 @@ export function useTabsHomeData(): TabsHomeData {
     const viewerUserId = view?.viewerUserId ?? null;
 
     const openTabs: OpenTabRow[] = (tabs.data ?? []).map((tab) => {
+      const currency = tab.currency ?? "THB";
       const amountMinor = fiatMinorFromInteger(tab.viewerAmountMinor ?? 0);
       const totalMinor =
         tab.billTotalMinor === null ? null : fiatMinorFromInteger(tab.billTotalMinor);
@@ -120,9 +122,9 @@ export function useTabsHomeData(): TabsHomeData {
         totalCount: tab.totalCount,
         submittedCount: tab.submittedCount,
         peopleCount: tab.peopleCount,
-        totalLabel: totalMinor === null ? undefined : formatFiatMinorThb(totalMinor),
-        amountLabel: formatFiatMinorThb(amountMinor),
-        amountA11yLabel: formatThbMinorForA11y(amountMinor),
+        totalLabel: totalMinor === null ? undefined : formatCurrencyMinor(totalMinor, currency),
+        amountLabel: formatCurrencyMinor(amountMinor, currency),
+        amountA11yLabel: formatCurrencyMinorForA11y(amountMinor, currency),
         amountTone: tab.amountTone,
         href: `/tabs/${tab.tabId}`,
         updatedAt: tab.updatedAt,
@@ -137,7 +139,7 @@ export function useTabsHomeData(): TabsHomeData {
         unclaimedItems: tab.unclaimedItems.map((item) => ({
           itemId: item.itemId,
           name: item.name,
-          amountLabel: formatFiatMinorThb(fiatMinorFromInteger(item.lineTotalMinor)),
+          amountLabel: formatCurrencyMinor(fiatMinorFromInteger(item.lineTotalMinor), currency),
         })),
         unclaimedCount: tab.unclaimedCount,
         viewerClaimedCount:
@@ -190,6 +192,7 @@ export function useTabsHomeData(): TabsHomeData {
           counterpartyUserId,
           counterpartyName: memberNames[counterpartyUserId] ?? "Someone",
           direction: component.direction,
+          currency: component.currency,
           amountMinor: fiatMinorFromInteger(component.amountMinor),
           tabId: component.tabId,
           billId: component.billId,

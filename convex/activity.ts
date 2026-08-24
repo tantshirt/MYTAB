@@ -3,15 +3,23 @@ import { query, mutation } from "./_generated/server";
 import type { GenericMutationCtx } from "convex/server";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { AuthError, UNAUTHORIZED, requireGroupMember, getCurrentUser } from "./lib/auth";
+import { requireTabParticipant } from "./lib/tabAuth";
 import { appendActivityEvent, ACTIVITY_EVENT_TYPE } from "./lib/activitySync";
 import {
   billIdForObligation,
   confirmedOffsetMinorByObligation,
+  obligationDisplayAmountMinor,
 } from "./lib/balanceDerivation";
 import { resolveViewerScope } from "./lib/viewerScope";
-import { formatFiatMinorThb } from "../lib/domain/format";
-import { fiatMinorFromInteger } from "../lib/domain/money";
+import {
+  currencyMinorDigits,
+  formatCurrencyMinorBigInt,
+} from "../lib/domain/currency";
 import { isTerminalSettlementStatus, type SettlementStatus } from "./lib/settlementState";
+import {
+  countTabSettlementProgress,
+  queuePaymentProgressUpdate,
+} from "./lib/paymentConfirmationNotify";
 
 export const OFFSET_FAILURE = {
   OBLIGATION_NOT_FOUND: "OBLIGATION_NOT_FOUND",
@@ -26,6 +34,49 @@ export const OFFSET_FAILURE = {
 
 type ActivityMutationCtx = GenericMutationCtx<DataModel>;
 
+type ObligationDisplayMoney = Pick<
+  Doc<"obligations">,
+  "displayAmountMinor" | "displayAmountThbMinor" | "displayCurrency"
+>;
+
+/** D-33 dual-read: v2 is generic ISO fiat; an absent v2 lane is legacy THB. */
+export function obligationDisplayMoney(
+  obligation: ObligationDisplayMoney,
+): { amountMinor: bigint; currency: string; minorDigits: number } {
+  const currency = obligation.displayCurrency ?? "THB";
+  return {
+    amountMinor: obligationDisplayAmountMinor(obligation),
+    currency,
+    minorDigits: currencyMinorDigits(currency),
+  };
+}
+
+async function completeOffsetObligation(
+  ctx: ActivityMutationCtx,
+  obligation: Doc<"obligations">,
+  now: number,
+): Promise<void> {
+  await ctx.db.patch(obligation._id, {
+    status: "settled",
+    settledAt: now,
+    updatedAt: now,
+  });
+  const progress = await countTabSettlementProgress(ctx, obligation.tabId);
+  await queuePaymentProgressUpdate(ctx, {
+    tabId: obligation.tabId,
+    groupId: obligation.groupId,
+    settledCount: progress.settledCount,
+    totalCount: progress.totalCount,
+    billCompleted: progress.billCompleted,
+  });
+  if (progress.billCompleted) {
+    const tab = await ctx.db.get(obligation.tabId);
+    if (tab?.status === "locked") {
+      await ctx.db.patch(obligation.tabId, { status: "settled", updatedAt: now });
+    }
+  }
+}
+
 /**
  * Loads an obligation for an off-chain offset and proves the caller is party to it.
  *
@@ -39,24 +90,7 @@ async function requireOffsettableObligation(
   ctx: ActivityMutationCtx,
   obligationId: Id<"obligations">,
 ): Promise<{ obligation: Doc<"obligations">; user: Doc<"users"> }> {
-  const user = await getCurrentUser(ctx);
-  if (!user) {
-    throw new AuthError(UNAUTHORIZED);
-  }
-
-  const obligation = await ctx.db.get(obligationId);
-  if (!obligation) {
-    throw new AuthError(OFFSET_FAILURE.OBLIGATION_NOT_FOUND);
-  }
-
-  await requireGroupMember(ctx, obligation.groupId);
-
-  if (
-    obligation.debtorUserId !== user._id &&
-    obligation.creditorUserId !== user._id
-  ) {
-    throw new AuthError(OFFSET_FAILURE.NOT_OBLIGATION_PARTY);
-  }
+  const { obligation, user } = await requireObligationParty(ctx, obligationId);
 
   if (obligation.status !== "open") {
     throw new AuthError(OFFSET_FAILURE.OBLIGATION_NOT_OPEN);
@@ -67,9 +101,10 @@ async function requireOffsettableObligation(
     .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
     .collect();
 
+  const { amountMinor: obligationAmountMinor } = obligationDisplayMoney(obligation);
   const alreadyOffset =
     (confirmedOffsetMinorByObligation(existing).get(obligation._id) ?? 0n) >=
-    obligation.displayAmountThbMinor;
+    obligationAmountMinor;
   if (alreadyOffset) {
     throw new AuthError(OFFSET_FAILURE.OBLIGATION_NOT_OPEN);
   }
@@ -81,6 +116,35 @@ async function requireOffsettableObligation(
     if (intent && !isTerminalSettlementStatus(intent.status as SettlementStatus)) {
       throw new AuthError(OFFSET_FAILURE.SETTLEMENT_IN_FLIGHT);
     }
+  }
+
+  return { obligation, user };
+}
+
+/** Authentication/party proof shared by first execution and replay checks. */
+async function requireObligationParty(
+  ctx: ActivityMutationCtx,
+  obligationId: Id<"obligations">,
+): Promise<{ obligation: Doc<"obligations">; user: Doc<"users"> }> {
+  const user = await getCurrentUser(ctx);
+  if (!user) {
+    throw new AuthError(UNAUTHORIZED);
+  }
+
+  const obligation = await ctx.db.get(obligationId);
+  if (!obligation) {
+    throw new AuthError(OFFSET_FAILURE.OBLIGATION_NOT_FOUND);
+  }
+
+  // Obligations only exist after lock. The frozen participant roster, not a
+  // mutable Telegram membership check, is the post-lock authority (D-07).
+  await requireTabParticipant(ctx, obligation.tabId);
+
+  if (
+    obligation.debtorUserId !== user._id &&
+    obligation.creditorUserId !== user._id
+  ) {
+    throw new AuthError(OFFSET_FAILURE.NOT_OBLIGATION_PARTY);
   }
 
   return { obligation, user };
@@ -162,6 +226,27 @@ export const listForViewer = query({
       }
     }
 
+    for (const tabId of scope.personalTabIds) {
+      const tab = await ctx.db.get(tabId);
+      if (!tab) continue;
+      const events = await ctx.db
+        .query("activityEvents")
+        .withIndex("by_tab_and_created", (q) => q.eq("tabId", tabId))
+        .order("desc")
+        .take(limit);
+      for (const event of events) {
+        merged.push({
+          _id: event._id,
+          groupId: event.groupId,
+          groupName: tab.name,
+          type: event.type,
+          payload: event.payload,
+          tabId: event.tabId,
+          createdAt: event.createdAt,
+        });
+      }
+    }
+
     return merged.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   },
 });
@@ -193,8 +278,14 @@ export const proposeCashSettlement = mutation({
       .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
       .collect();
 
+    const displayMoney = obligationDisplayMoney(obligation);
+
     const pending = open.find(
-      (event) => event.eventKind === "cash_proposed" && !event.confirmed,
+      (event) =>
+        event.eventKind === "cash_proposed" &&
+        !event.confirmed &&
+        event.amountMinor === displayMoney.amountMinor &&
+        (event.displayCurrency ?? "THB") === displayMoney.currency,
     );
     if (pending) {
       return { proposalId: pending._id, created: false as const };
@@ -207,7 +298,9 @@ export const proposeCashSettlement = mutation({
       billId: billIdForObligation(obligation),
       debtorUserId: obligation.debtorUserId,
       creditorUserId: obligation.creditorUserId,
-      amountMinor: obligation.displayAmountThbMinor,
+      amountMinor: displayMoney.amountMinor,
+      displayCurrency: displayMoney.currency,
+      displayCurrencyMinorDigits: displayMoney.minorDigits,
       eventKind: "cash_proposed",
       confirmed: false,
       actorUserId: user._id,
@@ -221,8 +314,11 @@ export const proposeCashSettlement = mutation({
       type: ACTIVITY_EVENT_TYPE.CASH_PROPOSED,
       payload: {
         summary: "Cash settlement proposed",
-        amountLabel: `${formatFiatMinorThb(
-          fiatMinorFromInteger(Number(obligation.displayAmountThbMinor)),
+        amountMinor: displayMoney.amountMinor.toString(),
+        currency: displayMoney.currency,
+        amountLabel: `${formatCurrencyMinorBigInt(
+          displayMoney.amountMinor,
+          displayMoney.currency,
         )} pending acknowledgement`,
         tabId: obligation.tabId,
         billId: billIdForObligation(obligation),
@@ -246,11 +342,11 @@ export const acknowledgeCashSettlement = mutation({
   },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
-    if (!proposal || proposal.eventKind !== "cash_proposed" || proposal.confirmed) {
+    if (!proposal || proposal.eventKind !== "cash_proposed") {
       throw new AuthError(OFFSET_FAILURE.INVALID_CASH_PROPOSAL);
     }
 
-    const { obligation, user } = await requireOffsettableObligation(
+    const { obligation, user } = await requireObligationParty(
       ctx,
       proposal.obligationId as Id<"obligations">,
     );
@@ -264,16 +360,32 @@ export const acknowledgeCashSettlement = mutation({
       .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
       .collect();
 
-    if (
-      existing.some(
-        (event) =>
-          event.eventKind === "cash_offset" && event.linkedProposalId === args.proposalId,
-      )
-    ) {
-      throw new AuthError(OFFSET_FAILURE.CASH_ALREADY_ACKNOWLEDGED);
+    const priorAcknowledgement = existing.find(
+      (event) =>
+        event.eventKind === "cash_offset" && event.linkedProposalId === args.proposalId,
+    );
+    if (priorAcknowledgement) {
+      return {
+        ok: true as const,
+        replayed: true as const,
+        acknowledgementId: priorAcknowledgement._id,
+      };
     }
 
-    await ctx.db.insert("obligationLedgerEvents", {
+    await requireOffsettableObligation(ctx, obligation._id);
+
+    const displayMoney = obligationDisplayMoney(obligation);
+    // A stale or forged proposal cannot clear a differently-denominated debt.
+    // Legacy proposals have no currency metadata and therefore mean THB.
+    if (
+      proposal.amountMinor !== displayMoney.amountMinor ||
+      (proposal.displayCurrency ?? "THB") !== displayMoney.currency
+    ) {
+      throw new AuthError(OFFSET_FAILURE.INVALID_CASH_PROPOSAL);
+    }
+
+    const now = Date.now();
+    const acknowledgementId = await ctx.db.insert("obligationLedgerEvents", {
       groupId: obligation.groupId,
       tabId: obligation.tabId,
       obligationId: obligation._id,
@@ -281,11 +393,13 @@ export const acknowledgeCashSettlement = mutation({
       debtorUserId: obligation.debtorUserId,
       creditorUserId: obligation.creditorUserId,
       amountMinor: proposal.amountMinor,
+      displayCurrency: displayMoney.currency,
+      displayCurrencyMinorDigits: displayMoney.minorDigits,
       eventKind: "cash_offset",
       confirmed: true,
       actorUserId: user._id,
       linkedProposalId: args.proposalId,
-      createdAt: Date.now(),
+      createdAt: now,
     });
 
     await appendActivityEvent(ctx, {
@@ -295,12 +409,20 @@ export const acknowledgeCashSettlement = mutation({
       type: ACTIVITY_EVENT_TYPE.CASH_ACKNOWLEDGED,
       payload: {
         summary: "Cash settlement acknowledged",
+        amountMinor: displayMoney.amountMinor.toString(),
+        currency: displayMoney.currency,
+        amountLabel: formatCurrencyMinorBigInt(
+          displayMoney.amountMinor,
+          displayMoney.currency,
+        ),
         tabId: obligation.tabId,
         billId: billIdForObligation(obligation),
       },
     });
 
-    return { ok: true as const };
+    await completeOffsetObligation(ctx, obligation, now);
+
+    return { ok: true as const, replayed: false as const, acknowledgementId };
   },
 });
 
@@ -316,7 +438,7 @@ export const waiveObligation = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { obligation, user } = await requireOffsettableObligation(
+    const { obligation, user } = await requireObligationParty(
       ctx,
       args.obligationId,
     );
@@ -325,19 +447,36 @@ export const waiveObligation = mutation({
       throw new AuthError(OFFSET_FAILURE.WAIVER_NOT_AUTHORIZED);
     }
 
-    await ctx.db.insert("obligationLedgerEvents", {
+    const priorWaiver = (
+      await ctx.db
+        .query("obligationLedgerEvents")
+        .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
+        .collect()
+    ).find((event) => event.eventKind === "waiver_offset" && event.confirmed);
+    if (priorWaiver) {
+      return { ok: true as const, replayed: true as const, waiverId: priorWaiver._id };
+    }
+
+    await requireOffsettableObligation(ctx, obligation._id);
+
+    const displayMoney = obligationDisplayMoney(obligation);
+
+    const now = Date.now();
+    const waiverId = await ctx.db.insert("obligationLedgerEvents", {
       groupId: obligation.groupId,
       tabId: obligation.tabId,
       obligationId: obligation._id,
       billId: billIdForObligation(obligation),
       debtorUserId: obligation.debtorUserId,
       creditorUserId: obligation.creditorUserId,
-      amountMinor: obligation.displayAmountThbMinor,
+      amountMinor: displayMoney.amountMinor,
+      displayCurrency: displayMoney.currency,
+      displayCurrencyMinorDigits: displayMoney.minorDigits,
       eventKind: "waiver_offset",
       confirmed: true,
       actorUserId: user._id,
       reason: args.reason,
-      createdAt: Date.now(),
+      createdAt: now,
     });
 
     await appendActivityEvent(ctx, {
@@ -347,12 +486,20 @@ export const waiveObligation = mutation({
       type: ACTIVITY_EVENT_TYPE.WAIVER,
       payload: {
         summary: "Obligation waived",
+        amountMinor: displayMoney.amountMinor.toString(),
+        currency: displayMoney.currency,
+        amountLabel: `${formatCurrencyMinorBigInt(
+          displayMoney.amountMinor,
+          displayMoney.currency,
+        )} waived`,
         tabId: obligation.tabId,
         billId: billIdForObligation(obligation),
         detail: args.reason,
       },
     });
 
-    return { ok: true as const };
+    await completeOffsetObligation(ctx, obligation, now);
+
+    return { ok: true as const, replayed: false as const, waiverId };
   },
 });
