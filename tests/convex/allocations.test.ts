@@ -12,6 +12,7 @@ import {
   CLAIM_FAILURE,
   organizerResolveItemCore,
   setOwnClaimQuantityCore,
+  toggleOwnClaimCore,
 } from "../../convex/lib/claimSync";
 import { projectClaimItemView } from "../../convex/lib/claimBoardQuery";
 import { createFakeCtx } from "../helpers/convexFakeDb";
@@ -446,5 +447,35 @@ describe("Story 5.9/5.10 — stable failure codes", () => {
     expect(CLAIM_FAILURE.CANNOT_RELEASE_OTHERS).toBe("CANNOT_RELEASE_OTHERS");
     expect(CLAIM_FAILURE.QUANTITY_EXCEEDS_ITEM).toBe("QUANTITY_EXCEEDS_ITEM");
     expect(CLAIM_FAILURE.INVALID_QUANTITY).toBe("INVALID_QUANTITY");
+  });
+
+  it("refuses participant toggle on fixed-mode items", async () => {
+    const NOW = Date.now();
+    const { ctx } = createFakeCtx({
+      tabs: [{ _id: "tabs:1", status: "open", revision: 7, updatedAt: NOW }],
+      items: [{
+        _id: "items:shared",
+        tabId: "tabs:1",
+        name: "Set menu",
+        quantity: 1,
+        unitPriceMinor: 4000,
+        lineTotalMinor: 4000,
+        allocationMode: "fixed",
+        sortOrder: 0,
+        source: "receipt",
+        createdAt: NOW,
+        updatedAt: NOW,
+      }],
+      allocations: [],
+      adjustments: [],
+      adjustmentAllocations: [],
+    });
+    await expect(toggleOwnClaimCore(ctx, {
+      tabId: "tabs:1" as never,
+      itemId: "items:shared" as never,
+      userId: "users:andre" as never,
+      clientRevision: 7,
+      now: NOW,
+    })).rejects.toThrow(CLAIM_FAILURE.INVALID_MODE);
   });
 });

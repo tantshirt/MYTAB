@@ -229,7 +229,7 @@ export const createUploadTicket = mutation({
       limits: [MAX_UPLOADS_PER_USER_DAY, MAX_UPLOADS_PER_GROUP_DAY, MAX_UPLOADS_GLOBAL_DAY],
       now,
     });
-    const ticketHash = `ticket-${args.tabId}-${now}-${Math.random().toString(36).slice(2)}`;
+    const ticketHash = `ticket-${args.tabId}-${now}-${crypto.randomUUID()}`;
 
     const importId = await ctx.db.insert("receiptImports", {
       tabId: args.tabId,
@@ -763,6 +763,7 @@ async function finishExtractionResources(
 export const recordExtraction = internalMutation({
   args: {
     importId: v.id("receiptImports"),
+    claimId: v.string(),
     raw: v.any(),
     parsed: v.any(),
     fieldConfidence: v.any(),
@@ -772,6 +773,13 @@ export const recordExtraction = internalMutation({
   handler: async (ctx, args) => {
     const receiptImport = await ctx.db.get(args.importId);
     if (!receiptImport || receiptImport.status !== "extracting") {
+      return false;
+    }
+    const lease = await ctx.db
+      .query("receiptExtractionLeases")
+      .withIndex("by_import_id", (q) => q.eq("importId", args.importId))
+      .unique();
+    if (!lease || lease.status !== "active" || lease.claimId !== args.claimId) {
       return false;
     }
     await finishExtractionResources(ctx, receiptImport);
@@ -793,11 +801,19 @@ export const recordExtraction = internalMutation({
 export const recordExtractionFailure = internalMutation({
   args: {
     importId: v.id("receiptImports"),
+    claimId: v.string(),
     failureCode: v.string(),
   },
   handler: async (ctx, args) => {
     const receiptImport = await ctx.db.get(args.importId);
     if (!receiptImport || receiptImport.status !== "extracting") {
+      return false;
+    }
+    const lease = await ctx.db
+      .query("receiptExtractionLeases")
+      .withIndex("by_import_id", (q) => q.eq("importId", args.importId))
+      .unique();
+    if (!lease || lease.status !== "active" || lease.claimId !== args.claimId) {
       return false;
     }
     await finishExtractionResources(ctx, receiptImport);
@@ -1041,6 +1057,9 @@ export const confirmReceipt = mutation({
     );
     if (linesTotal + adjustmentsTotal !== args.receiptTotalMinor) {
       throw new Error(`RECONCILIATION_BLOCKED: shortfall of ${args.receiptTotalMinor - linesTotal - adjustmentsTotal} minor units`);
+    }
+    if (args.receiptTotalMinor <= 0n) {
+      throw new Error("RECEIPT_TOTAL_INVALID");
     }
 
     // The items are the whole point of confirming. This previously patched the

@@ -309,7 +309,7 @@ export const saveTabSetup = mutation({
       defaultCurrencyMinorDigits: currencyMinorDigits(displayCurrency),
       moneyPolicyVersion: "fiat-receive-v2",
       recipientAsset: receive.symbol,
-      receiveMint: requestedMint,
+      receiveMint: receive.mint,
       receiveDecimals: receive.decimals,
       receiveTokenProgramId: receive.tokenProgramId,
       receiveVerifiedAt: now,
@@ -442,12 +442,13 @@ async function replayChatTabCreation(ctx: MutationCtx, args: {
     )
     .unique();
   if (!existing) return null;
+  const normalizedCurrency = args.displayCurrency.trim().toUpperCase();
   const exact =
     existing.origin === "chat" &&
     existing.groupId === args.groupId &&
     existing.name === args.name.trim() &&
     (existing.merchantName ?? "") === (args.merchantName?.trim() ?? "") &&
-    (existing.defaultCurrency ?? "THB") === args.displayCurrency &&
+    (existing.defaultCurrency ?? "THB") === normalizedCurrency &&
     existing.receiveMint === (args.receiveMint?.trim() || USDC_MINT) &&
     existing.payerUserId === args.payerUserId &&
     existing.recipientUserId === args.payerUserId;

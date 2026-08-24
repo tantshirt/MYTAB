@@ -70,6 +70,7 @@ export const DFLOW_ACTION_FAILURE = {
   PAYER_BALANCE_UNAVAILABLE: "PAYER_BALANCE_UNAVAILABLE",
   INSUFFICIENT_INPUT_BALANCE: "INSUFFICIENT_INPUT_BALANCE",
   RECEIVE_ASSET_QUOTE_INVALID: "RECEIVE_ASSET_QUOTE_INVALID",
+  ORDER_INVALID: "DFLOW_ORDER_INVALID",
   RPC_CONSTRUCTION_FAILED: "RPC_CONSTRUCTION_FAILED",
   INTERNAL_QUOTE_FAILURE: "DFLOW_INTERNAL_QUOTE_FAILURE",
 } as const;
@@ -556,10 +557,20 @@ export async function buildDflowSettlementHandler(
 
     const threshold = guaranteedOutputAtomic(order);
 
+    const lastValidBlockHeight = order.lastValidBlockHeight;
+    if (lastValidBlockHeight === undefined || lastValidBlockHeight <= 0) {
+      await ctx.runMutation(internal.settlements.markFailedInternal, {
+        intentId: args.intentId,
+        failureCode: DFLOW_ACTION_FAILURE.ORDER_INVALID,
+        releaseReservation: false,
+      });
+      return { ok: false as const, failureCode: DFLOW_ACTION_FAILURE.ORDER_INVALID };
+    }
+
     const validation = deps.validateTransaction(order.transaction, {
       ...buildValidationContext(intent, wallet.solanaAddress, sponsorAddress, {
         blockhash: decoded.message.recentBlockhash,
-        lastValidBlockHeight: order.lastValidBlockHeight ?? 0,
+        lastValidBlockHeight,
         status: SETTLEMENT_STATUS.QUOTING,
       }),
       routingKind: "dflow_sync",
@@ -601,7 +612,7 @@ export async function buildDflowSettlementHandler(
       serializedMessage: order.transaction,
       messageHash,
       blockhash: decoded.message.recentBlockhash,
-      lastValidBlockHeight: order.lastValidBlockHeight ?? 0,
+      lastValidBlockHeight,
       sponsorExposureLamports: BigInt(validation.sponsorExposureLamports),
       quotedOtherAmountThreshold: threshold,
       dflowContextSlot: order.contextSlot,

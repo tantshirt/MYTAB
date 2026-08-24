@@ -55,7 +55,8 @@ describe("iteration-5 review regression seams", () => {
     expect(safeLineTotalMinor(Number.MAX_SAFE_INTEGER, 2)).toBeNull();
     expect(safeLineTotalMinor(125, 3)).toBe(375);
     expect(clampItemQuantity("1000")).toBe(999);
-    expect(clampItemQuantity("not-a-number")).toBe(999);
+    expect(clampItemQuantity("not-a-number")).toBe(1);
+    expect(clampItemQuantity("1.5", 3)).toBe(3);
   });
 
   it("fences old-tab invite work and surfaces router callback failures", () => {

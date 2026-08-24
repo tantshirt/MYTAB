@@ -323,6 +323,92 @@ describe("DFlow action orchestration — receive-asset pricing through persisten
     vi.unstubAllEnvs();
   });
 
+  it("refuses DFlow orders that omit a positive lastValidBlockHeight", async () => {
+    vi.stubEnv("SOLANA_CLUSTER", "mainnet-beta");
+    const order = parseDflowOrderResponse(ORDER_JSON);
+    const invalidOrder = { ...order, lastValidBlockHeight: undefined };
+    const mutations: Array<Record<string, unknown>> = [];
+    const intent = {
+      _id: "settlementIntents:missing-height",
+      userId: "users:payer",
+      walletId: "wallets:payer",
+      groupId: "groups:dinner",
+      tabId: "tabs:dinner",
+      tabRevision: 4,
+      status: "created",
+      routingKind: "dflow_sync",
+      inputMint: WRAPPED_SOL_MINT,
+      outputMint: MAINNET.usdcMint,
+      recipientAddress: KEYS.recipient,
+      minimumOutputAtomic: 1n,
+      maximumInputAtomic: 0n,
+      expiresAt: Date.now() + 60_000,
+    };
+    const actionCtx = {
+      runQuery: vi.fn(async (_reference: unknown, args: Record<string, unknown>) => {
+        if ("walletId" in args) {
+          return { _id: "wallets:payer", solanaAddress: KEYS.user };
+        }
+        if ("tabId" in args) {
+          return { _id: "tabs:dinner", revision: 4, lockedRevision: 4 };
+        }
+        return intent;
+      }),
+      runMutation: vi.fn(async (_reference: unknown, args: Record<string, unknown>) => {
+        mutations.push(args);
+        if ("userId" in args && "groupId" in args && !("windowKey" in args)) {
+          return { ok: true, windowKey: "hour:9", reservedAttempts: 5 };
+        }
+        return { ok: true };
+      }),
+    };
+    const tableData = fixture.lookupTableAccounts as Record<string, { owner: string; dataBase64: string }>;
+    const result = await buildDflowSettlementHandler(actionCtx as never, {
+      intentId: intent._id as never,
+    }, {
+      isRoutingAvailable: () => true,
+      resolveSponsorAddress: () => KEYS.sponsor,
+      createRpc: () => ({
+        getAccountInfo: async (address: string) => {
+          if (address === KEYS.user) {
+            return {
+              dataBase64: "",
+              owner: "11111111111111111111111111111111",
+              lamports: 100_000_000n,
+              executable: false,
+            };
+          }
+          const table = tableData[address];
+          return table
+            ? { ...table, lamports: 0n, executable: false }
+            : null;
+        },
+        getSlot: async () => fixture.order.contextSlot,
+        getTokenAccountsByOwner: async () => [],
+      }) as never,
+      fetchOrder: async () => ({
+        ok: true,
+        order: invalidOrder,
+        requestId: "request-invalid",
+        rawBodyLength: 1,
+      }),
+      validateTransaction: () => ({
+        ok: true,
+        messageHash: "abc",
+        computeUnits: 1,
+        priorityFeeLamports: 1,
+        ataCreates: 0,
+        sponsorExposureLamports: 1,
+      }),
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      failureCode: "DFLOW_ORDER_INVALID",
+    });
+    expect(mutations.some((args) => args.failureCode === "DFLOW_ORDER_INVALID")).toBe(true);
+    vi.unstubAllEnvs();
+  });
+
   it("routes USDC input to a distinct receive mint through the production handler seam", async () => {
     vi.stubEnv("SOLANA_CLUSTER", "mainnet-beta");
     const order = parseDflowOrderResponse(ORDER_JSON);

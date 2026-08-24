@@ -440,14 +440,21 @@ export const claimPaymentReminderDelivery = internalMutation({
     if (!row) return null;
     if (row.status === "sent") return { alreadySent: true as const };
     const now = Date.now();
-    if (
-      row.status === "claimed" &&
-      row.claimExpiresAt !== undefined &&
-      row.claimExpiresAt > now
-    ) {
-      return { inFlight: true as const };
+    if (row.status === "claimed") {
+      if (row.claimExpiresAt !== undefined && row.claimExpiresAt > now) {
+        return { inFlight: true as const };
+      }
+      // Expired ownership without a recorded delivery result is ambiguous.
+      // Never resend — a Telegram-accepted message may already be in flight.
+      await ctx.db.patch(row._id, {
+        status: "unknown",
+        claimId: undefined,
+        claimExpiresAt: undefined,
+        updatedAt: now,
+      });
+      return { ambiguous: true as const };
     }
-    if (row.status !== "queued" && row.status !== "claimed") return null;
+    if (row.status !== "queued") return null;
 
     const [obligation, debtor, creditor, tab] = await Promise.all([
       ctx.db.get(row.obligationId),
@@ -548,6 +555,7 @@ export const deliverPaymentReminder = internalAction({
     }
     if ("alreadySent" in row) return { ok: true as const, replayed: true as const };
     if ("inFlight" in row) return { ok: true as const, replayed: true as const };
+    if ("ambiguous" in row) return { ok: true as const, ambiguous: true as const };
     if ("closed" in row) {
       return { ok: false as const };
     }
@@ -565,12 +573,14 @@ export const deliverPaymentReminder = internalAction({
         chatId: row.telegramUserId,
         text: `${row.creditorName} sent a private reminder about ${row.tabName}. Open My Tab to review what you owe.`,
       });
+      const ambiguous =
+        !result.ok && result.kind === "transient" && result.ambiguous === true;
       const status = result.ok
         ? "sent" as const
-        : result.kind === "transient" && result.ambiguous === true
+        : ambiguous
           ? "unknown" as const
           : "failed" as const;
-      telegramAccepted = result.ok;
+      telegramAccepted = result.ok || ambiguous;
       try {
         await ctx.runMutation(internal.internal.telegramCommands.markPaymentReminderDelivery, {
           reminderId: args.reminderId,

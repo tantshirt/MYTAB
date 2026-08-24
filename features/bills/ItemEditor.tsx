@@ -20,11 +20,11 @@ export type ItemEditorProps = {
   onCancel: () => void;
 };
 
-export function clampItemQuantity(raw: string): number {
+export function clampItemQuantity(raw: string, fallback = 1): number {
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed)
     ? Math.min(999, Math.max(1, Math.floor(parsed)))
-    : 999;
+    : fallback;
 }
 
 /**

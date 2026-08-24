@@ -463,6 +463,7 @@ export const extractReceipt = internalAction({
       const recorded = await persistReceiptTerminalBeforeCleanup({
         persist: () => ctx.runMutation(internal.receipts.recordExtraction, {
           importId: args.importId,
+          claimId,
           raw: result.raw,
           parsed: result.parsed,
           fieldConfidence: result.fieldConfidence,
@@ -486,6 +487,7 @@ export const extractReceipt = internalAction({
       const recorded = await persistReceiptTerminalBeforeCleanup({
         persist: () => ctx.runMutation(internal.receipts.recordExtractionFailure, {
           importId: args.importId,
+          claimId,
           failureCode,
         }),
         deleteSource: (pageId) => ctx.storage.delete(pageId as never),

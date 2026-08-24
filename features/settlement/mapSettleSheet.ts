@@ -102,7 +102,7 @@ export function mapObligationQuoteToSheet(
   if (spendAtomic && selected) {
     const unit = selected.mint === WRAPPED_SOL_MINT ? "SOL" : selected.name;
     const formatted = formatAtomicLabel(spendAtomic, selected.decimals, unit);
-    spendLabel = selected.mint === quote.outputMint ? formatted : `≈ ${formatted}`;
+    spendLabel = selected.mint === quote.outputMint ? formatted : `Up to ${formatted}`;
     maximumSpend = formatted;
   } else if (quote.inputMint === quote.outputMint || quote.inputMint === null) {
     spendLabel = minimumReceiveAmount;

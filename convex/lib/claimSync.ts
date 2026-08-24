@@ -153,6 +153,10 @@ export async function toggleOwnClaimCore(
   const ownClaim = existing.find((claim) => claim.userId === args.userId);
   const mode = resolveItemAllocationMode(item.allocationMode, item.quantity);
 
+  if (mode === "fixed" || mode === "percentage") {
+    throw new Error(CLAIM_FAILURE.INVALID_MODE);
+  }
+
   if (ownClaim) {
     await ctx.db.delete(ownClaim._id);
   } else {
@@ -435,11 +439,33 @@ export async function setItemAllocationModeCore(
     throw new Error(CLAIM_FAILURE.ITEM_NOT_FOUND);
   }
 
+  const existing = await ctx.db
+    .query("allocations")
+    .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
+    .collect();
+  const currentMode = resolveItemAllocationMode(item.allocationMode, item.quantity);
+
+  if (currentMode === "fixed" || currentMode === "percentage") {
+    if (args.mode !== currentMode) {
+      throw new Error(CLAIM_FAILURE.INVALID_MODE);
+    }
+    const others = existing.filter((claim) => claim.userId !== args.userId);
+    const othersHaveWeights = others.some((claim) =>
+      currentMode === "fixed"
+        ? (claim.fixedMinor ?? 0n) > 0n
+        : (claim.percentageBps ?? 0) > 0,
+    );
+    if (othersHaveWeights) {
+      const ownWeightProvided = currentMode === "fixed"
+        ? args.fixedMinor !== undefined
+        : args.percentageBps !== undefined;
+      if (!ownWeightProvided) {
+        throw new Error(CLAIM_FAILURE.INVALID_WEIGHT_OVERRIDE);
+      }
+    }
+  }
+
   if (args.mode === "quantity" && args.quantity !== undefined) {
-    const existing = await ctx.db
-      .query("allocations")
-      .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
-      .collect();
     try {
       assertQuantityClaimWrite({
         itemQuantity: item.quantity,
@@ -456,10 +482,6 @@ export async function setItemAllocationModeCore(
     updatedAt: args.now,
   });
 
-  const existing = await ctx.db
-    .query("allocations")
-    .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
-    .collect();
   const ownClaim = existing.find((claim) => claim.userId === args.userId);
 
   if (ownClaim) {

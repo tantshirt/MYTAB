@@ -190,5 +190,10 @@ describe("group Mini App creation action", () => {
       ...configuredArgs,
       name: "Changed configuration",
     })).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+
+    await expect(run(tabs.replayChatTabCreationInternal, inner.ctx, {
+      ...configuredArgs,
+      displayCurrency: "usd",
+    })).resolves.toMatchObject({ tabId: result.tabId, duplicate: true });
   });
 });

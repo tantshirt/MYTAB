@@ -287,4 +287,41 @@ describe("private payment reminders", () => {
     await run(telegramCommands.recoverAcceptedPaymentReminder, actionCtx, scheduled.at(-1));
     expect(store.paymentReminders![0]!.status).toBe("unknown");
   });
+
+  it("marks an expired claimed reminder unknown and never resends", async () => {
+    const store = world();
+    store.paymentReminders!.push({
+      _id: "paymentReminders:r1",
+      obligationId: "obligations:o1",
+      tabId: "tabs:t1",
+      senderUserId: "users:creditor",
+      recipientUserId: "users:debtor",
+      status: "claimed",
+      claimId: "claim-expired",
+      claimExpiresAt: Date.now() - 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const { ctx } = createFakeCtx(store);
+    process.env.TELEGRAM_BOT_TOKEN = "123:test-token";
+    process.env.ENVIRONMENT = "production";
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true, result: { message_id: 9 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const actionCtx = {
+      runMutation: (_ref: unknown, args: Record<string, unknown>) =>
+        run(
+          "status" in args
+            ? telegramCommands.markPaymentReminderDelivery
+            : telegramCommands.claimPaymentReminderDelivery,
+          ctx,
+          args,
+        ),
+    };
+    await expect(run(telegramCommands.deliverPaymentReminder, actionCtx, {
+      reminderId: "paymentReminders:r1",
+    })).resolves.toEqual({ ok: true, ambiguous: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.paymentReminders![0]!.status).toBe("unknown");
+  });
 });

@@ -167,13 +167,17 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
   }, [open, handoff, deepLinkUrl, loadInvite]);
 
   const handleQr = useCallback(async () => {
+    const operationTabId = tabId;
+    const generation = operationGeneration.current;
     setOperationError(null);
     if (!deepLinkUrl) {
       const loaded = await loadInvite();
+      if (!current(operationTabId, generation)) return;
       if (!loaded) return;
     }
-    setShowQr((current) => !current);
-  }, [deepLinkUrl, loadInvite]);
+    if (!current(operationTabId, generation)) return;
+    setShowQr((open) => !open);
+  }, [current, deepLinkUrl, loadInvite, tabId]);
 
   const handleRevoke = useCallback(async () => {
     const operationTabId = tabId;

@@ -372,6 +372,41 @@ describe("receipts upload mutations fail closed without the gateway key", () => 
     expect(store.receiptImports![0]!.status).toBe("confirmed");
   });
 
+  it("refuses terminal extraction writes from a stale worker claim", async () => {
+    const store = world();
+    store.receiptImports = [{
+      _id: "receiptImports:r1",
+      tabId: "tabs:t1",
+      groupId: "groups:g1",
+      uploadedBy: "users:andre",
+      storageIds: ["storage:img1"],
+      status: "extracting",
+      uploadTicketHash: "ticket-1",
+      warnings: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }];
+    store.receiptExtractionLeases = [{
+      _id: "receiptExtractionLeases:l1",
+      importId: "receiptImports:r1",
+      groupId: "groups:g1",
+      status: "active",
+      claimId: "worker-2",
+      expiresAt: Date.now() + 60_000,
+      heartbeatAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }];
+    const { ctx } = createFakeCtx(store, identity);
+    const recorded = await run(receipts.recordExtractionFailure, ctx, {
+      importId: "receiptImports:r1",
+      claimId: "worker-1",
+      failureCode: "RECEIPT_GATEWAY_FAILED",
+    });
+    expect(recorded).toBe(false);
+    expect(store.receiptImports![0]!.status).toBe("extracting");
+  });
+
   it("releases unused provider capacity on crash and durably reclaims the worker", async () => {
     process.env.AI_GATEWAY_API_KEY = "k";
     const store = world();
@@ -424,6 +459,7 @@ describe("receipts upload mutations fail closed without the gateway key", () => 
     })).resolves.toBe(true);
     await run(receipts.recordExtractionFailure, ctx, {
       importId: "receiptImports:r1",
+      claimId: "worker-2",
       failureCode: "RECEIPT_GATEWAY_FAILED",
     });
     expect(store.receiptExtractionLeases![0]!.status).toBe("released");
