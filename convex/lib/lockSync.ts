@@ -20,13 +20,16 @@ import { getDefaultReceivingWalletForUser } from "./walletSync";
 import { SETTLEMENT_STATUS } from "./settlementState";
 import { AuthError } from "./auth";
 import { publishTabStatusEvent } from "./telegramBot";
+import { resolveVerifiedReceiveAsset } from "./receiveAsset";
+import { releaseSponsorReservation } from "./sponsorReservation";
+import { releaseDflowLease } from "./providerBudget";
 
 export const LOCK_FAILURE = {
   UNASSIGNED_ITEMS: "UNASSIGNED_ITEMS",
   INVARIANT_FAILED: "INVARIANT_FAILED",
   RECIPIENT_WALLET_REQUIRED: "RECIPIENT_WALLET_REQUIRED",
-  PAYER_IS_RECIPIENT: "PAYER_IS_RECIPIENT",
   TAB_NOT_OPEN: "TAB_NOT_OPEN",
+  RECEIVE_ASSET_STALE: "RECEIVE_ASSET_STALE",
 } as const;
 
 export const REOPEN_FAILURE = {
@@ -104,10 +107,6 @@ export async function lockBillCore(
     throw new AuthError(LOCK_FAILURE.RECIPIENT_WALLET_REQUIRED);
   }
 
-  if (tab.payerUserId && tab.payerUserId === recipientUserId) {
-    throw new AuthError(LOCK_FAILURE.PAYER_IS_RECIPIENT);
-  }
-
   const recipientWallet = await getDefaultReceivingWalletForUser(ctx, recipientUserId);
   if (!recipientWallet) {
     throw new AuthError(LOCK_FAILURE.RECIPIENT_WALLET_REQUIRED);
@@ -116,6 +115,27 @@ export async function lockBillCore(
   // Locking is where the rate stops being advisory: these amounts are what the
   // recipient is paid. Fail closed rather than lock against a fixture rate.
   const fxSnapshot = await requireLockableFxSnapshot(ctx, tab.fxSnapshotId, args.now);
+  const displayCurrency = tab.defaultCurrency ?? "THB";
+  const displayCurrencyMinorDigits = tab.defaultCurrencyMinorDigits ?? 2;
+  const receiveMint = tab.receiveMint ?? USDC_MINT;
+  let receive;
+  try {
+    receive = await resolveVerifiedReceiveAsset(ctx, receiveMint, args.now);
+  } catch {
+    throw new AuthError(LOCK_FAILURE.RECEIVE_ASSET_STALE);
+  }
+  if (
+    (tab.receiveDecimals !== undefined && tab.receiveDecimals !== receive.decimals) ||
+    (tab.receiveTokenProgramId !== undefined &&
+      tab.receiveTokenProgramId !== receive.tokenProgramId)
+  ) {
+    throw new AuthError(LOCK_FAILURE.RECEIVE_ASSET_STALE);
+  }
+  const receiveDecimals = receive.decimals;
+  const receiveTokenProgramId = receive.tokenProgramId;
+  if (fxSnapshot.baseCurrency !== displayCurrency || fxSnapshot.quoteMint !== USDC_MINT) {
+    throw new AuthError("FX_SNAPSHOT_NOT_FOR_CURRENCY");
+  }
   const fx = fxFieldsFromSnapshot(fxSnapshot);
   const obligations = buildObligationSnapshots(
     breakdowns,
@@ -127,6 +147,13 @@ export async function lockBillCore(
     breakdowns,
     recipientUserId,
     recipientAsset: tab.recipientAsset ?? "USDC",
+    displayCurrency,
+    displayCurrencyMinorDigits,
+    receiveMint,
+    receiveDecimals,
+    receiveTokenProgramId,
+    recipientAddress: recipientWallet.solanaAddress,
+    settlementPolicyVersion: "fiat-receive-v2",
     fx,
   };
 
@@ -137,6 +164,13 @@ export async function lockBillCore(
     billTotalMinor: BigInt(totals.billTotalMinor),
     recipientUserId,
     recipientAsset: tab.recipientAsset ?? "USDC",
+    displayCurrency,
+    displayCurrencyMinorDigits,
+    receiveMint,
+    receiveDecimals,
+    receiveTokenProgramId,
+    recipientAddress: recipientWallet.solanaAddress,
+    settlementPolicyVersion: "fiat-receive-v2",
     fxNumeratorAtomic: fx.fxNumeratorAtomic,
     fxDenominatorMinor: fx.fxDenominatorMinor,
     fxProvider: fx.fxProvider,
@@ -146,11 +180,18 @@ export async function lockBillCore(
 
   const obligationIds: Id<"obligations">[] = [];
   for (const obligation of obligations) {
+    // The recipient's own allocation is already paid: reimbursement only
+    // exists between distinct parties. Keeping it in the immutable snapshot
+    // preserves the full bill allocation while excluding a self-debt that no
+    // settlement path could or should pay.
+    if (obligation.participantId === recipientUserId) {
+      continue;
+    }
     const billSnapshotHash = computeBillSnapshotForObligation({
       tabId: args.tabId,
       lockedRevision: revision,
       obligationAmountAtomic: obligation.settlementAmountAtomic,
-      outputMint: USDC_MINT,
+      outputMint: receiveMint,
     });
 
     const obligationId = await ctx.db.insert("obligations", {
@@ -160,9 +201,18 @@ export async function lockBillCore(
       debtorUserId: obligation.participantId as Id<"users">,
       creditorUserId: recipientUserId,
       displayAmountThbMinor: BigInt(obligation.displayAmountThbMinor),
+      displayAmountMinor: BigInt(obligation.displayAmountThbMinor),
+      displayCurrency,
+      displayCurrencyMinorDigits,
       billSnapshotHash,
       amountAtomic: obligation.settlementAmountAtomic,
-      outputMint: USDC_MINT,
+      referenceMint: USDC_MINT,
+      referenceAmountAtomic: obligation.settlementAmountAtomic,
+      referenceDecimals: 6,
+      outputMint: receiveMint,
+      outputDecimals: receiveDecimals,
+      outputTokenProgramId: receiveTokenProgramId,
+      settlementPolicyVersion: "fiat-receive-v2",
       status: "open",
       createdAt: args.now,
       updatedAt: args.now,
@@ -170,20 +220,22 @@ export async function lockBillCore(
     obligationIds.push(obligationId);
   }
 
+  const alreadySettled = obligationIds.length === 0;
   await ctx.db.patch(args.tabId, {
-    status: "locked",
+    status: alreadySettled ? "settled" : "locked",
     lockedRevision: revision,
     lockSnapshotId: snapshotId,
     lockedAt: args.now,
     billTotalMinor: BigInt(totals.billTotalMinor),
+    recipientAddressAtLock: recipientWallet.solanaAddress,
     updatedAt: args.now,
   });
 
-  // "Bill ready to settle" — the second of the five events that reach a group.
-  // Fired after the obligations exist so the card's counts are already true.
+  // A recipient-only allocation is already paid. It completes at lock instead
+  // of creating an impossible self-debt or leaving a zero-obligation tab stuck.
   await publishTabStatusEvent(ctx, {
     tabId: args.tabId,
-    event: "bill_ready",
+    event: alreadySettled ? "bill_completed" : "bill_ready",
     now: args.now,
   });
 
@@ -232,7 +284,7 @@ export async function reopenBillCore(
 
   const intents = await ctx.db
     .query("settlementIntents")
-    .withIndex("by_user_id")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", args.tabId))
     .collect();
 
   const tabIntents = intents.filter(
@@ -247,6 +299,8 @@ export async function reopenBillCore(
 
   for (const intent of tabIntents) {
     if (SUPERSEDABLE_INTENT_STATUSES.has(intent.status)) {
+      await releaseSponsorReservation(ctx, intent._id, args.now);
+      await releaseDflowLease(ctx, intent._id, args.now);
       await ctx.db.patch(intent._id, {
         status: SETTLEMENT_STATUS.SUPERSEDED,
         updatedAt: args.now,

@@ -164,6 +164,12 @@ export type RpcAccountInfo = {
   owner: string;
   lamports: bigint;
   executable: boolean;
+  /** Actual slot carried by the RPC response, when the method returns context. */
+  contextSlot?: number;
+};
+
+export type RpcOwnedTokenAccount = RpcAccountInfo & {
+  address: string;
 };
 
 export type RpcLatestBlockhash = {
@@ -403,12 +409,18 @@ export class SolanaRpcClient {
   async getAccountInfo(
     address: string,
     commitment: Commitment = "finalized",
+    minContextSlot?: number,
   ): Promise<RpcAccountInfo | null> {
     const result = await this.read("getAccountInfo", [
       address,
-      { commitment, encoding: "base64" },
+      {
+        commitment,
+        encoding: "base64",
+        ...(minContextSlot === undefined ? {} : { minContextSlot }),
+      },
     ]);
-    const value = (result as { value?: unknown })?.value;
+    const envelope = result as { context?: { slot?: unknown }; value?: unknown };
+    const value = envelope?.value;
     if (value === null || value === undefined) {
       return null;
     }
@@ -425,7 +437,57 @@ export class SolanaRpcClient {
       owner: account.owner,
       lamports: safeU64FromJson(account.lamports, "account.lamports"),
       executable: account.executable === true,
+      contextSlot: safeCounterFromJson(
+        envelope.context?.slot ?? minContextSlot ?? 0,
+        "getAccountInfo.contextSlot",
+      ),
     };
+  }
+
+  /** All legacy SPL Token accounts owned by a wallet, with byte-exact data. */
+  async getTokenAccountsByOwner(
+    ownerAddress: string,
+    tokenProgramId: string,
+    commitment: Commitment = "confirmed",
+  ): Promise<RpcOwnedTokenAccount[]> {
+    const result = await this.read("getTokenAccountsByOwner", [
+      ownerAddress,
+      { programId: tokenProgramId },
+      { commitment, encoding: "base64" },
+    ]);
+    const values = (result as { value?: unknown })?.value;
+    if (!Array.isArray(values)) {
+      throw new SolanaRpcError(RPC_FAILURE.MALFORMED, "getTokenAccountsByOwner: no value array");
+    }
+    return values.map((entry, index) => {
+      if (typeof entry !== "object" || entry === null) {
+        throw new SolanaRpcError(
+          RPC_FAILURE.MALFORMED,
+          `getTokenAccountsByOwner: value[${index}] is not an object`,
+        );
+      }
+      const row = entry as Record<string, unknown>;
+      const account = row.account as Record<string, unknown> | undefined;
+      const data = account?.data;
+      if (
+        typeof row.pubkey !== "string" ||
+        !Array.isArray(data) ||
+        typeof data[0] !== "string" ||
+        typeof account?.owner !== "string"
+      ) {
+        throw new SolanaRpcError(
+          RPC_FAILURE.MALFORMED,
+          `getTokenAccountsByOwner: malformed value[${index}]`,
+        );
+      }
+      return {
+        address: row.pubkey,
+        dataBase64: data[0],
+        owner: account.owner,
+        lamports: safeU64FromJson(account.lamports, `tokenAccount[${index}].lamports`),
+        executable: account.executable === true,
+      };
+    });
   }
 
   async getSignatureStatus(

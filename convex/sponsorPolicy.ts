@@ -99,6 +99,8 @@ export type SponsorReservationRequest = {
     instructionKind: string;
   };
   paused?: boolean;
+  /** Server-frozen verified receive mint for routed intents. */
+  trustedOutputMint?: string;
 };
 
 export type SponsorReservationResult =
@@ -221,7 +223,7 @@ export function evaluateSponsorReservation(
   }
   // Exactly the configured cluster USDC mint. A devnet mint reserved against a
   // mainnet manifest (or the reverse) is a rejection, not a warning.
-  if (allowlist.mint !== manifestAllowlist.outputMint) {
+  if (allowlist.mint !== (request.trustedOutputMint ?? manifestAllowlist.outputMint)) {
     return { ok: false, failureCode: SPONSOR_FAILURE.ALLOWLIST_MINT };
   }
   if (

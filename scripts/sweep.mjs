@@ -179,7 +179,6 @@ const VARIANTS = [
   { path: `/tabs/${PARAM}?settle=ob_sweep`, label: "payment sheet" },
   { path: `/tabs/new?group=g_sweep`, label: "new tab (from group)" },
   { path: `/tabs/new`, label: "new tab (personal)" },
-  { path: `/tips/new?to=maya&group=g_sweep`, label: "tip composer (recipient)" },
   { path: "/wallet/callback", label: "wallet callback" },
   // No query: refused HTML. A valid hop assigns phantom:// and leaves the page.
   { path: "/wallet/open", label: "wallet open hop (refused)" },
@@ -279,7 +278,6 @@ const POPULATED_MIN = {
   "/activity": 5,
   /* Three debts, each with a reserved amount column. */
   "/owe": 3,
-  "/tips/new": 4,
   [`/groups/${PARAM}`]: 6,
   [`/pay/${PARAM}`]: 1,
   [`/tabs/${PARAM}`]: 8,
@@ -287,7 +285,6 @@ const POPULATED_MIN = {
   [`/tabs/${PARAM}/receipt`]: 10,
   [`/tabs/${PARAM}?settle=ob_sweep`]: 16,
   [`/tabs/new?group=g_sweep`]: 6,
-  [`/tips/new?to=maya&group=g_sweep`]: 4,
   /*
    * `/you` is the one surface with no amount column at all — §4.2 says it has
    * no empty state because it has no list. It is measured, and its floor is

@@ -113,10 +113,14 @@ function baseDiscriminators(): Record<string, readonly number[]> {
 export function buildSponsorPolicyManifest(input: {
   cluster?: SolanaCluster;
   routingKind: RoutingKind;
+  inputMint?: string;
+  outputMint?: string;
 }): SponsorPolicyManifest {
   const cluster = input.cluster ?? resolveCluster();
   const config = getClusterConfig(cluster);
   const isDflow = input.routingKind === "dflow_sync";
+  const routedInputMint = input.inputMint ?? config.wrappedSolMint;
+  const routedOutputMint = input.outputMint ?? config.usdcMint;
 
   // Routed path: ComputeBudget and the aggregator, nothing else.
   //
@@ -149,10 +153,10 @@ export function buildSponsorPolicyManifest(input: {
     allowedPrograms: Object.freeze(allowedPrograms),
     allowedMints: Object.freeze(
       isDflow
-        ? [config.usdcMint, config.wrappedSolMint]
+        ? Array.from(new Set([routedInputMint, routedOutputMint]))
         : [config.usdcMint],
     ),
-    outputMint: config.usdcMint,
+    outputMint: isDflow ? routedOutputMint : config.usdcMint,
     outputDecimals: config.usdcDecimals,
     routerProgramId: isDflow ? config.dflowAggregatorProgramId : undefined,
     allowedInstructionDiscriminators: Object.freeze(
@@ -218,9 +222,14 @@ export const SPONSOR_POLICY_V1_DFLOW: SponsorPolicyManifest =
 export function getSponsorPolicyManifest(
   routingKind: RoutingKind,
   cluster?: SolanaCluster,
+  assets?: { inputMint: string; outputMint: string },
 ): SponsorPolicyManifest {
-  if (cluster) {
-    return buildSponsorPolicyManifest({ cluster, routingKind });
+  if (cluster || assets) {
+    return buildSponsorPolicyManifest({
+      ...(cluster ? { cluster } : {}),
+      routingKind,
+      ...(assets ?? {}),
+    });
   }
   return routingKind === "dflow_sync"
     ? SPONSOR_POLICY_V1_DFLOW

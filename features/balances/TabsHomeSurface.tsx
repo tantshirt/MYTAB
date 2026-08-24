@@ -18,8 +18,8 @@ import { TabsHomeSkeleton, OfflineBar, OutsideTelegramBar } from "./LoadingState
 import { StartTabAction } from "./StartTabAction";
 import { useShareDelta } from "./useShareDelta";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_SPACING } from "@/lib/theme/tokens";
-import { formatFiatMinorThb } from "@/lib/domain/format";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinor } from "@/lib/domain/format";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
 import {
   formatBalanceHeroParts,
   formatBalanceHeroText,
@@ -58,6 +58,7 @@ export type BalanceComponentRow = {
   counterpartyUserId: string;
   counterpartyName: string;
   direction: "owe" | "owed";
+  currency?: string;
   amountMinor: FiatMinor;
   tabId: string;
   billId: string;
@@ -88,6 +89,8 @@ export type TabsHomeSurfaceProps = LoadState & {
    */
   onShareAllSquare?: () => void;
   inTelegram?: boolean;
+  onScanInvite?: () => void;
+  scanInviteError?: string | null;
 };
 
 /**
@@ -442,6 +445,8 @@ export function TabsHomeSurface({
   offline = false,
   onShareAllSquare,
   inTelegram = true,
+  onScanInvite,
+  scanInviteError,
 }: TabsHomeSurfaceProps) {
   const reducedMotion = useReducedMotion();
 
@@ -503,6 +508,24 @@ export function TabsHomeSurface({
           blockedReason={blockedReason}
         />
 
+        {onScanInvite ? (
+          <div style={{ marginTop: MYTAB_SPACING["2"] }}>
+            <button
+              type="button"
+              className="mytab-link-button"
+              onClick={onScanInvite}
+              style={{ minHeight: 44 }}
+            >
+              Scan an invite QR
+            </button>
+            {scanInviteError ? (
+              <p role="alert" className="mytab-type-meta" style={{ margin: "4px 0 0", color: MYTAB_COLORS.warning }}>
+                {scanInviteError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <AllSquareWatcher
           tabs={openTabs.map((tab) => ({
             tabId: tab.tabId,
@@ -525,7 +548,7 @@ export function TabsHomeSurface({
                   href={liveTab.href}
                   startedAt={liveTab.startedAt}
                   participants={liveTab.participants}
-                  shareLabel={liveTab.amountLabel ?? formatFiatMinorThb(0 as FiatMinor)}
+                  shareLabel={liveTab.amountLabel ?? formatCurrencyMinor(0 as FiatMinor, "THB")}
                   shareA11yLabel={liveTab.amountA11yLabel}
                   itemCount={liveTab.itemCount}
                   claimedItemCount={liveTab.claimedItemCount}
@@ -586,8 +609,8 @@ export function TabsHomeSurface({
                       userId={component.counterpartyUserId}
                       name={component.counterpartyName}
                       direction={component.direction}
-                      amount={formatFiatMinorThb(component.amountMinor)}
-                      amountA11yLabel={formatThbMinorForA11y(component.amountMinor)}
+                      amount={formatCurrencyMinor(component.amountMinor, component.currency ?? "THB")}
+                      amountA11yLabel={formatCurrencyMinorForA11y(component.amountMinor, component.currency ?? "THB")}
                       href={`/tabs/${component.tabId}?bill=${component.billId}`}
                     />
                   ))}

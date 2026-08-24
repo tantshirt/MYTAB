@@ -22,7 +22,19 @@ export const CLAIM_FAILURE = {
   INVALID_MODE: "INVALID_MODE",
   QUANTITY_EXCEEDS_ITEM: "QUANTITY_EXCEEDS_ITEM",
   INVALID_QUANTITY: "INVALID_QUANTITY",
+  INVALID_TARGET: "INVALID_TARGET",
+  CLAIM_NOT_FOUND: "CLAIM_NOT_FOUND",
+  NO_REMAINING_QUANTITY: "NO_REMAINING_QUANTITY",
+  NO_REMAINING_WEIGHT: "NO_REMAINING_WEIGHT",
+  INVALID_WEIGHT_OVERRIDE: "INVALID_WEIGHT_OVERRIDE",
 } as const;
+
+export type OrganizerResolutionOperation =
+  | "assign_remaining"
+  | "share_with_everyone"
+  | "remove_claimant"
+  | "reassign_claimant"
+  | "organizer_covers_remainder";
 
 async function recomputeTab(
   ctx: MutationCtx,
@@ -141,6 +153,10 @@ export async function toggleOwnClaimCore(
   const ownClaim = existing.find((claim) => claim.userId === args.userId);
   const mode = resolveItemAllocationMode(item.allocationMode, item.quantity);
 
+  if (mode === "fixed" || mode === "percentage") {
+    throw new Error(CLAIM_FAILURE.INVALID_MODE);
+  }
+
   if (ownClaim) {
     await ctx.db.delete(ownClaim._id);
   } else {
@@ -178,7 +194,205 @@ export async function toggleOwnClaimCore(
   return { revision: newRevision, claimed: !ownClaim };
 }
 
-/** Organizer assigns an item to a participant (Story 5.7 AC3). */
+/**
+ * Fair organizer resolution. Existing claims are never erased by an
+ * assign-remaining action; destructive replacement only happens for the
+ * explicit "share with everyone" choice visible in the sheet.
+ */
+export async function organizerResolveItemCore(
+  ctx: MutationCtx,
+  args: {
+    tabId: Id<"tabs">;
+    itemId: Id<"items">;
+    organizerUserId: Id<"users">;
+    participantUserIds: Id<"users">[];
+    operation: OrganizerResolutionOperation;
+    targetUserIds?: Id<"users">[];
+    sourceUserId?: Id<"users">;
+    targetUserId?: Id<"users">;
+    clientRevision: number;
+    now: number;
+  },
+): Promise<{ revision: number }> {
+  const tab = await ctx.db.get(args.tabId);
+  if (!tab) throw new Error(CLAIM_FAILURE.ITEM_NOT_FOUND);
+  assertTabUnlocked(tab);
+  checkClientRevision(args.clientRevision, tabRevision(tab));
+
+  const item = await ctx.db.get(args.itemId);
+  if (!item || item.tabId !== args.tabId) throw new Error(CLAIM_FAILURE.ITEM_NOT_FOUND);
+
+  const participantSet = new Set(args.participantUserIds);
+  const assertParticipant = (userId: Id<"users"> | undefined): Id<"users"> => {
+    if (!userId || !participantSet.has(userId)) throw new Error(CLAIM_FAILURE.INVALID_TARGET);
+    return userId;
+  };
+  assertParticipant(args.organizerUserId);
+
+  let existing = await ctx.db
+    .query("allocations")
+    .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
+    .collect();
+  const mode = resolveItemAllocationMode(item.allocationMode, item.quantity);
+
+  const insertClaim = async (
+    userId: Id<"users">,
+    quantity?: number,
+    claimMode: AllocationMode = mode,
+  ) => {
+    await ctx.db.insert("allocations", {
+      tabId: args.tabId,
+      itemId: args.itemId,
+      userId,
+      revision: tabRevision(tab),
+      mode: claimMode,
+      quantity,
+      amountMinor: 0n,
+      roundingMinor: 0n,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+  };
+
+  const assignRemaining = async (rawTargets: Id<"users">[]) => {
+    const targets = [...new Set(rawTargets.map(assertParticipant))];
+    if (targets.length === 0) throw new Error(CLAIM_FAILURE.INVALID_TARGET);
+    if (mode === "fixed" || mode === "percentage") {
+      const totalWeight = existing.reduce(
+        (sum, claim) => sum + (
+          mode === "fixed" ? Number(claim.fixedMinor ?? 0n) : (claim.percentageBps ?? 0)
+        ),
+        0,
+      );
+      const targetWeight = mode === "fixed" ? item.lineTotalMinor : 10_000;
+      const remainingWeight = targetWeight - totalWeight;
+      if (!Number.isSafeInteger(totalWeight) || remainingWeight <= 0) {
+        throw new Error(CLAIM_FAILURE.NO_REMAINING_WEIGHT);
+      }
+      const base = Math.floor(remainingWeight / targets.length);
+      let extra = remainingWeight % targets.length;
+      for (const userId of targets) {
+        const addWeight = base + (extra > 0 ? 1 : 0);
+        if (extra > 0) extra -= 1;
+        if (addWeight <= 0) continue;
+        const claim = existing.find((row) => row.userId === userId);
+        if (claim) {
+          await ctx.db.patch(
+            claim._id,
+            mode === "fixed"
+              ? { mode, fixedMinor: (claim.fixedMinor ?? 0n) + BigInt(addWeight), updatedAt: args.now }
+              : { mode, percentageBps: (claim.percentageBps ?? 0) + addWeight, updatedAt: args.now },
+          );
+        } else {
+          await ctx.db.insert("allocations", {
+            tabId: args.tabId,
+            itemId: args.itemId,
+            userId,
+            revision: tabRevision(tab),
+            mode,
+            fixedMinor: mode === "fixed" ? BigInt(addWeight) : undefined,
+            percentageBps: mode === "percentage" ? addWeight : undefined,
+            amountMinor: 0n,
+            roundingMinor: 0n,
+            createdAt: args.now,
+            updatedAt: args.now,
+          });
+        }
+      }
+      return;
+    }
+    if (mode !== "quantity") {
+      const claimed = new Set(existing.map((claim) => claim.userId));
+      for (const userId of targets) {
+        if (!claimed.has(userId)) await insertClaim(userId);
+      }
+      if (existing.length + targets.filter((id) => !claimed.has(id)).length > 1) {
+        await ctx.db.patch(item._id, { allocationMode: "equal", updatedAt: args.now });
+      }
+      return;
+    }
+
+    const remaining = item.quantity - claimedQuantitySum(existing);
+    if (remaining <= 0) throw new Error(CLAIM_FAILURE.NO_REMAINING_QUANTITY);
+    const base = Math.floor(remaining / targets.length);
+    let extra = remaining % targets.length;
+    for (const userId of targets) {
+      const quantity = base + (extra > 0 ? 1 : 0);
+      if (extra > 0) extra -= 1;
+      if (quantity === 0) continue;
+      const claim = existing.find((row) => row.userId === userId);
+      if (claim) {
+        await ctx.db.patch(claim._id, {
+          mode: "quantity",
+          quantity: (claim.quantity ?? 0) + quantity,
+          updatedAt: args.now,
+        });
+      } else {
+        await insertClaim(userId, quantity);
+      }
+    }
+  };
+
+  if (args.operation === "assign_remaining") {
+    await assignRemaining(args.targetUserIds ?? []);
+  } else if (args.operation === "organizer_covers_remainder") {
+    await assignRemaining([args.organizerUserId]);
+  } else if (args.operation === "share_with_everyone") {
+    for (const claim of existing) await ctx.db.delete(claim._id);
+    await ctx.db.patch(item._id, { allocationMode: "equal", updatedAt: args.now });
+    for (const userId of new Set(args.participantUserIds)) {
+      await insertClaim(userId, undefined, "equal");
+    }
+  } else if (args.operation === "remove_claimant") {
+    const source = assertParticipant(args.sourceUserId);
+    const claim = existing.find((row) => row.userId === source);
+    if (!claim) throw new Error(CLAIM_FAILURE.CLAIM_NOT_FOUND);
+    await ctx.db.delete(claim._id);
+  } else if (args.operation === "reassign_claimant") {
+    const source = assertParticipant(args.sourceUserId);
+    const target = assertParticipant(args.targetUserId);
+    if (source === target) throw new Error(CLAIM_FAILURE.INVALID_TARGET);
+    const sourceClaim = existing.find((row) => row.userId === source);
+    if (!sourceClaim) throw new Error(CLAIM_FAILURE.CLAIM_NOT_FOUND);
+    const targetClaim = existing.find((row) => row.userId === target);
+    if (targetClaim) {
+      if (mode === "quantity") {
+        await ctx.db.patch(targetClaim._id, {
+          quantity: (targetClaim.quantity ?? 0) + (sourceClaim.quantity ?? 0),
+          updatedAt: args.now,
+        });
+      } else if (mode === "fixed") {
+        if (sourceClaim.fixedMinor === undefined || targetClaim.fixedMinor === undefined) {
+          throw new Error(CLAIM_FAILURE.INVALID_WEIGHT_OVERRIDE);
+        }
+        await ctx.db.patch(targetClaim._id, {
+          fixedMinor: targetClaim.fixedMinor + sourceClaim.fixedMinor,
+          updatedAt: args.now,
+        });
+      } else if (mode === "percentage") {
+        if (sourceClaim.percentageBps === undefined || targetClaim.percentageBps === undefined) {
+          throw new Error(CLAIM_FAILURE.INVALID_WEIGHT_OVERRIDE);
+        }
+        await ctx.db.patch(targetClaim._id, {
+          percentageBps: targetClaim.percentageBps + sourceClaim.percentageBps,
+          updatedAt: args.now,
+        });
+      }
+      await ctx.db.delete(sourceClaim._id);
+    } else {
+      await ctx.db.patch(sourceClaim._id, { userId: target, updatedAt: args.now });
+    }
+  }
+
+  const newRevision = bumpRevision(tabRevision(tab));
+  await ctx.db.patch(args.tabId, { revision: newRevision, updatedAt: args.now });
+  const refreshedItem = (await ctx.db.get(args.itemId))!;
+  await recomputeItemShares(ctx, refreshedItem, newRevision, args.now);
+  await recomputeTab(ctx, args.tabId, newRevision, args.now);
+  return { revision: newRevision };
+}
+
+/** Organizer assigns only the unclaimed remainder to one participant. */
 export async function organizerAssignItemCore(
   ctx: MutationCtx,
   args: {
@@ -189,46 +403,13 @@ export async function organizerAssignItemCore(
     now: number;
   },
 ): Promise<{ revision: number }> {
-  const tab = await ctx.db.get(args.tabId);
-  if (!tab) {
-    throw new Error(CLAIM_FAILURE.ITEM_NOT_FOUND);
-  }
-  assertTabUnlocked(tab);
-  checkClientRevision(args.clientRevision, tabRevision(tab));
-
-  const item = await ctx.db.get(args.itemId);
-  if (!item || item.tabId !== args.tabId) {
-    throw new Error(CLAIM_FAILURE.ITEM_NOT_FOUND);
-  }
-
-  const existing = await ctx.db
-    .query("allocations")
-    .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
-    .collect();
-
-  for (const claim of existing) {
-    await ctx.db.delete(claim._id);
-  }
-
-  const mode = resolveItemAllocationMode(item.allocationMode, item.quantity);
-  await ctx.db.insert("allocations", {
-    tabId: args.tabId,
-    itemId: args.itemId,
-    userId: args.targetUserId,
-    revision: tabRevision(tab),
-    mode,
-    quantity: mode === "quantity" ? item.quantity : undefined,
-    amountMinor: BigInt(item.lineTotalMinor),
-    roundingMinor: 0n,
-    createdAt: args.now,
-    updatedAt: args.now,
+  return organizerResolveItemCore(ctx, {
+    ...args,
+    organizerUserId: args.targetUserId,
+    participantUserIds: [args.targetUserId],
+    operation: "assign_remaining",
+    targetUserIds: [args.targetUserId],
   });
-
-  const newRevision = bumpRevision(tabRevision(tab));
-  await ctx.db.patch(args.tabId, { revision: newRevision, updatedAt: args.now });
-  await recomputeTab(ctx, args.tabId, newRevision, args.now);
-
-  return { revision: newRevision };
 }
 
 /** Sets allocation mode and optional mode-specific inputs (Story 5.11). */
@@ -258,11 +439,33 @@ export async function setItemAllocationModeCore(
     throw new Error(CLAIM_FAILURE.ITEM_NOT_FOUND);
   }
 
+  const existing = await ctx.db
+    .query("allocations")
+    .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
+    .collect();
+  const currentMode = resolveItemAllocationMode(item.allocationMode, item.quantity);
+
+  if (currentMode === "fixed" || currentMode === "percentage") {
+    if (args.mode !== currentMode) {
+      throw new Error(CLAIM_FAILURE.INVALID_MODE);
+    }
+    const others = existing.filter((claim) => claim.userId !== args.userId);
+    const othersHaveWeights = others.some((claim) =>
+      currentMode === "fixed"
+        ? (claim.fixedMinor ?? 0n) > 0n
+        : (claim.percentageBps ?? 0) > 0,
+    );
+    if (othersHaveWeights) {
+      const ownWeightProvided = currentMode === "fixed"
+        ? args.fixedMinor !== undefined
+        : args.percentageBps !== undefined;
+      if (!ownWeightProvided) {
+        throw new Error(CLAIM_FAILURE.INVALID_WEIGHT_OVERRIDE);
+      }
+    }
+  }
+
   if (args.mode === "quantity" && args.quantity !== undefined) {
-    const existing = await ctx.db
-      .query("allocations")
-      .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
-      .collect();
     try {
       assertQuantityClaimWrite({
         itemQuantity: item.quantity,
@@ -279,10 +482,6 @@ export async function setItemAllocationModeCore(
     updatedAt: args.now,
   });
 
-  const existing = await ctx.db
-    .query("allocations")
-    .withIndex("by_item_id", (q) => q.eq("itemId", args.itemId))
-    .collect();
   const ownClaim = existing.find((claim) => claim.userId === args.userId);
 
   if (ownClaim) {

@@ -3,14 +3,14 @@
 import { useEffect, useRef, type CSSProperties } from "react";
 import { VisuallyHidden } from "@/components/primitives/visually-hidden";
 import { Avatar, type ClaimantIdentity } from "./Avatar";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
 import {
-  formatFiatMinorThb,
+  formatCurrencyMinor,
   isQuantityClaimMode,
   perHeadDisplayMinor,
   quantityClaimedCaption,
   quantityStepperState,
-  thbMinorFromInteger,
+  fiatMinorFromInteger,
 } from "@/lib/domain";
 import { MYTAB_COLORS, MYTAB_RADIUS, MYTAB_TYPOGRAPHY } from "@/lib/theme/tokens";
 
@@ -25,6 +25,7 @@ export type ClaimRowProps = {
   /** Receipt quantity. Rendered as "2×" ahead of the name, tabular like every numeral. */
   quantity?: number;
   lineTotalMinor: number;
+  displayCurrency?: string;
   claimants: ClaimantIdentity[];
   viewerUserId: string;
   viewerOwns: boolean;
@@ -50,8 +51,6 @@ export type ClaimRowProps = {
   onOpenClaimants?: () => void;
 };
 
-const baht = (minor: number) => formatFiatMinorThb(thbMinorFromInteger(minor));
-
 /** "and" rather than a trailing comma — this string is read aloud, not printed. */
 function spokenList(names: string[]): string {
   if (names.length === 0) return "";
@@ -64,6 +63,7 @@ export function claimRowCaption(
   lineTotalMinor: number,
   viewerUserId: string,
   quantityClaim?: { itemQuantity: number; claimedCount: number },
+  displayCurrency = "THB",
 ): { text: string; tone: "muted" | "warning" } {
   if (quantityClaim && quantityClaim.itemQuantity > 1) {
     if (quantityClaim.claimedCount === 0) {
@@ -78,7 +78,10 @@ export function claimRowCaption(
     return { text: "Needs an owner", tone: "warning" };
   }
   if (claimants.length > 1) {
-    const each = baht(perHeadDisplayMinor(thbMinorFromInteger(lineTotalMinor), claimants.length));
+    const each = formatCurrencyMinor(
+      perHeadDisplayMinor(fiatMinorFromInteger(lineTotalMinor), claimants.length),
+      displayCurrency,
+    );
     return { text: `Split ${claimants.length} ways · ${each} each`, tone: "muted" };
   }
   const only = claimants[0]!;
@@ -109,9 +112,14 @@ export function claimRowAriaLabel(args: {
   claimants: ClaimantIdentity[];
   viewerUserId: string;
   claimedCount?: number;
+  displayCurrency?: string;
 }): string {
   const qty = args.quantity && args.quantity > 1 ? `${args.quantity} × ` : "";
-  const parts = [`${qty}${args.name}`, formatThbMinorForA11y(thbMinorFromInteger(args.lineTotalMinor))];
+  const currency = args.displayCurrency ?? "THB";
+  const parts = [
+    `${qty}${args.name}`,
+    formatCurrencyMinorForA11y(fiatMinorFromInteger(args.lineTotalMinor), currency),
+  ];
 
   const viewerHolds = args.claimants.some((one) => one.userId === args.viewerUserId);
   const others = args.claimants.filter((one) => one.userId !== args.viewerUserId);
@@ -130,8 +138,8 @@ export function claimRowAriaLabel(args: {
     const claimed = args.claimedCount ?? args.claimants.length;
     parts.push(quantityClaimedCaption(claimed, args.quantity));
   } else if (args.claimants.length > 1) {
-    const each = perHeadDisplayMinor(thbMinorFromInteger(args.lineTotalMinor), args.claimants.length);
-    parts.push(`split ${args.claimants.length} ways, ${formatThbMinorForA11y(each)} each`);
+    const each = perHeadDisplayMinor(fiatMinorFromInteger(args.lineTotalMinor), args.claimants.length);
+    parts.push(`split ${args.claimants.length} ways, ${formatCurrencyMinorForA11y(each, currency)} each`);
   }
 
   return `${parts.join(", ")}`;
@@ -173,6 +181,7 @@ export function ClaimRow({
   name,
   quantity,
   lineTotalMinor,
+  displayCurrency = "THB",
   claimants,
   viewerUserId,
   viewerOwns,
@@ -205,6 +214,7 @@ export function ClaimRow({
     quantityMode && quantity
       ? { itemQuantity: quantity, claimedCount: resolvedClaimed }
       : undefined,
+    displayCurrency,
   );
   const tag = claimRowStateTag(claimants, viewerOwns, locked);
   const background = viewerOwns ? MYTAB_COLORS.primarySoft : MYTAB_COLORS.surface;
@@ -250,6 +260,7 @@ export function ClaimRow({
             claimants,
             viewerUserId,
             claimedCount: resolvedClaimed,
+            displayCurrency,
           })}
           data-claim-target={itemId}
           data-testid={`claim-row-${itemId}`}
@@ -387,7 +398,7 @@ export function ClaimRow({
           aria-hidden
           style={{ fontSize: MYTAB_TYPOGRAPHY.amountRow.size, fontWeight: 500 }}
         >
-          {baht(lineTotalMinor)}
+          {formatCurrencyMinor(fiatMinorFromInteger(lineTotalMinor), displayCurrency)}
         </span>
         <span
           aria-hidden

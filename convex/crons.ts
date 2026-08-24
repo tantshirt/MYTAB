@@ -35,4 +35,10 @@ crons.interval(
   internal.tokens.refreshStaleTokens,
 );
 
+crons.interval(
+  "recover receipt resources",
+  { minutes: 1 },
+  internal.receipts.sweepReceiptResources,
+);
+
 export default crons;

@@ -24,6 +24,7 @@ import { expectedUsdcMint, fixtureMessageHash } from "../lib/solanaFixture";
 import { assertFixturePathAllowed } from "../../lib/solana/runtimeGuard";
 import { sha256Hex } from "../../lib/crypto/convexCrypto";
 import {
+  bytesToBase58,
   decodeTransactionBase64,
   TransactionDecodeError,
 } from "../../lib/solana/decodeTransaction";
@@ -32,6 +33,7 @@ import {
   FIXTURE_TX_SIGNATURE,
   TOKEN_PROGRAM_ID,
   USDC_DECIMALS,
+  WRAPPED_SOL_MINT,
 } from "../../lib/solana/constants";
 import {
   safeU64FromJson,
@@ -48,6 +50,7 @@ export const CONFIRMATION_FAILURE = {
   SIGNATURE_MISMATCH: "CONFIRMATION_SIGNATURE_MISMATCH",
   SIGNATURE_UNKNOWN: "CONFIRMATION_SIGNATURE_UNKNOWN",
   ADDRESS_TABLE_PRESENT: "CONFIRMATION_ADDRESS_TABLE_PRESENT",
+  ADDRESS_TABLE_MALFORMED: "CONFIRMATION_ADDRESS_TABLE_MALFORMED",
   META_MALFORMED: "CONFIRMATION_META_MALFORMED",
   MINT: "CONFIRMATION_MINT",
   RECIPIENT_ACCOUNT: "CONFIRMATION_RECIPIENT_ACCOUNT",
@@ -55,6 +58,7 @@ export const CONFIRMATION_FAILURE = {
   PAYER_ACCOUNT: "CONFIRMATION_PAYER_ACCOUNT",
   PAYER_DEBIT: "CONFIRMATION_PAYER_DEBIT",
   PAYER_LAMPORTS_DEBITED: "CONFIRMATION_PAYER_LAMPORTS_DEBITED",
+  NATIVE_INPUT_UNPROVEN: "CONFIRMATION_NATIVE_INPUT_UNPROVEN",
   PLATFORM_FEE_PRESENT: "CONFIRMATION_PLATFORM_FEE_PRESENT",
   SPONSOR_ACCOUNT: "CONFIRMATION_SPONSOR_ACCOUNT",
   SPONSOR_DEBIT: "CONFIRMATION_SPONSOR_DEBIT",
@@ -91,9 +95,13 @@ export type ConfirmationExpectation = {
   messageHash: string;
   recipientAddress: string;
   outputMint: string;
+  inputMint: string;
+  routingKind: "exact_usdc" | "dflow_sync";
   minimumOutputAtomic: bigint;
   maximumInputAtomic: bigint;
   reservedSponsorLamports: bigint;
+  resolvedAltWritableAddresses?: readonly string[];
+  resolvedAltReadonlyAddresses?: readonly string[];
   /** Server-owned payer address. Required for a live parse. */
   payerAddress?: string;
   /** Sponsor fee-payer address. Required for a live parse. */
@@ -277,25 +285,68 @@ export function parseFinalizedConfirmation(
       `finalized message hash ${observedHash} != ${expectation.messageHash}`,
     );
   }
-
-  // ---- C3: nothing was resolved out of an address-lookup table ------------
-  // A v0 message with lookups resolves accounts we never saw at validation
-  // time. The direct USDC path never uses one; a routed path must resolve them
-  // at the gate before it can ever reach here.
-  if (decoded.message.addressTableLookups.length > 0) {
-    return reject(CONFIRMATION_FAILURE.ADDRESS_TABLE_PRESENT);
+  const observedSignature = decoded.signatures[0];
+  if (!observedSignature || bytesToBase58(observedSignature) !== transactionSignature) {
+    return reject(CONFIRMATION_FAILURE.SIGNATURE_MISMATCH);
   }
+
+  // ---- C3: lookup tables are only valid for a routed transaction -----------
+  // The pre-sign gate resolves and validates each referenced table. At
+  // confirmation we bind the finalized message hash, then require RPC to
+  // supply exactly the loaded keys so every balance index remains provable.
   const loaded = meta.loadedAddresses as
     | { writable?: unknown[]; readonly?: unknown[] }
     | undefined;
-  if (
-    (Array.isArray(loaded?.writable) && loaded.writable.length > 0) ||
-    (Array.isArray(loaded?.readonly) && loaded.readonly.length > 0)
-  ) {
+  const hasLookups = decoded.message.addressTableLookups.length > 0;
+  if (expectation.routingKind === "exact_usdc" && hasLookups) {
+    return reject(CONFIRMATION_FAILURE.ADDRESS_TABLE_PRESENT);
+  }
+  const writable = Array.isArray(loaded?.writable) ? loaded.writable : [];
+  const readonly = Array.isArray(loaded?.readonly) ? loaded.readonly : [];
+  if (expectation.routingKind === "exact_usdc" && (writable.length > 0 || readonly.length > 0)) {
     return reject(CONFIRMATION_FAILURE.ADDRESS_TABLE_PRESENT, "meta.loadedAddresses non-empty");
   }
+  const expectedWritable = decoded.message.addressTableLookups.reduce(
+    (sum, lookup) => sum + lookup.writableIndexes.length,
+    0,
+  );
+  const expectedReadonly = decoded.message.addressTableLookups.reduce(
+    (sum, lookup) => sum + lookup.readonlyIndexes.length,
+    0,
+  );
+  if (
+    writable.length !== expectedWritable ||
+    readonly.length !== expectedReadonly ||
+    [...writable, ...readonly].some((key) => typeof key !== "string")
+  ) {
+    return reject(
+      CONFIRMATION_FAILURE.ADDRESS_TABLE_MALFORMED,
+      "loaded address counts or keys do not match the signed message",
+    );
+  }
+  if (expectation.routingKind === "dflow_sync" && hasLookups) {
+    const expectedWritableAddresses = expectation.resolvedAltWritableAddresses;
+    const expectedReadonlyAddresses = expectation.resolvedAltReadonlyAddresses;
+    if (
+      !expectedWritableAddresses ||
+      !expectedReadonlyAddresses ||
+      expectedWritableAddresses.length !== writable.length ||
+      expectedReadonlyAddresses.length !== readonly.length ||
+      writable.some((key, index) => key !== expectedWritableAddresses[index]) ||
+      readonly.some((key, index) => key !== expectedReadonlyAddresses[index])
+    ) {
+      return reject(
+        CONFIRMATION_FAILURE.ADDRESS_TABLE_MALFORMED,
+        "finalized loaded addresses differ from the pre-sign resolved identities",
+      );
+    }
+  }
 
-  const accountKeys = decoded.message.staticAccountKeys;
+  const accountKeys = [
+    ...decoded.message.staticAccountKeys,
+    ...(writable as string[]),
+    ...(readonly as string[]),
+  ];
 
   // The fee payer is account index 0 by construction, and it must be ours.
   if (accountKeys[0] !== sponsorAddress) {
@@ -364,38 +415,34 @@ export function parseFinalizedConfirmation(
       `token account owner ${recipientDelta.owner} is not the recipient`,
     );
   }
-  // Exactly, not "at least": the direct path locks a single exact output, and a
-  // larger credit means the transaction was not the one we priced.
-  if (recipientDelta.delta !== expectation.minimumOutputAtomic) {
+  const recipientOutputAccepted = expectation.routingKind === "dflow_sync"
+    ? recipientDelta.delta >= expectation.minimumOutputAtomic
+    : recipientDelta.delta === expectation.minimumOutputAtomic;
+  if (!recipientOutputAccepted) {
     return reject(
       CONFIRMATION_FAILURE.RECIPIENT_DELTA,
-      `recipient delta ${recipientDelta.delta} != locked target ${expectation.minimumOutputAtomic}`,
+      `recipient delta ${recipientDelta.delta} does not satisfy locked minimum ${expectation.minimumOutputAtomic}`,
     );
   }
 
   // ---- C5: payer debited, within the locked maximum ------------------------
-  const payerAta = deriveRecipientUsdcAta(payerAddress, expectation.outputMint);
-  const payerIndex = accountKeys.indexOf(payerAta);
-  if (payerIndex < 0) {
-    return reject(
-      CONFIRMATION_FAILURE.PAYER_ACCOUNT,
-      `derived payer ATA ${payerAta} is not in the finalized account list`,
-    );
+  // DFlow represents native SOL through wrapped SOL at its quote boundary, but
+  // native lamport movements cannot be attributed safely from this metadata
+  // model. Refuse until that separate accounting model is implemented.
+  if (expectation.routingKind === "dflow_sync" && expectation.inputMint === WRAPPED_SOL_MINT) {
+    return reject(CONFIRMATION_FAILURE.NATIVE_INPUT_UNPROVEN);
   }
-  const payerDelta = deltas.get(payerIndex);
-  if (!payerDelta) {
-    return reject(CONFIRMATION_FAILURE.PAYER_DEBIT, "payer ATA balance did not change");
+  const payerEntries = [...deltas.values()].filter(
+    (entry) => entry.mint === expectation.inputMint && entry.owner === payerAddress,
+  );
+  if (payerEntries.length === 0) {
+    return reject(CONFIRMATION_FAILURE.PAYER_ACCOUNT, "no payer-owned input token account");
   }
-  if (payerDelta.mint !== expectation.outputMint) {
-    return reject(CONFIRMATION_FAILURE.MINT, `payer account holds ${payerDelta.mint}`);
+  const payerNet = payerEntries.reduce((sum, entry) => sum + entry.delta, 0n);
+  if (payerNet >= 0n) {
+    return reject(CONFIRMATION_FAILURE.PAYER_DEBIT, `payer input net ${payerNet} is not a debit`);
   }
-  if (payerDelta.delta >= 0n) {
-    return reject(
-      CONFIRMATION_FAILURE.PAYER_DEBIT,
-      `payer delta ${payerDelta.delta} is not a debit`,
-    );
-  }
-  const payerDebit = -payerDelta.delta;
+  const payerDebit = -payerNet;
   if (payerDebit > expectation.maximumInputAtomic) {
     return reject(
       CONFIRMATION_FAILURE.PAYER_DEBIT,
@@ -410,36 +457,26 @@ export function parseFinalizedConfirmation(
   // sum, IS the platform fee, whatever it is labelled.
   let mintDeltaSum = 0n;
   const skimmed: string[] = [];
-  for (const entry of deltas.values()) {
-    if (entry.mint !== expectation.outputMint) {
-      continue;
+  if (expectation.routingKind === "exact_usdc") {
+    const payerAta = deriveRecipientUsdcAta(payerAddress, expectation.outputMint);
+    const payerIndex = accountKeys.indexOf(payerAta);
+    if (payerIndex < 0) {
+      return reject(CONFIRMATION_FAILURE.PAYER_ACCOUNT, `derived payer ATA ${payerAta} missing`);
     }
-    mintDeltaSum += entry.delta;
-    if (
-      entry.accountIndex !== recipientIndex &&
-      entry.accountIndex !== payerIndex &&
-      entry.delta !== 0n
-    ) {
-      skimmed.push(`${accountKeys[entry.accountIndex] ?? entry.accountIndex}:${entry.delta}`);
+    for (const entry of deltas.values()) {
+      if (entry.mint !== expectation.outputMint) continue;
+      mintDeltaSum += entry.delta;
+      if (
+        entry.accountIndex !== recipientIndex &&
+        entry.accountIndex !== payerIndex &&
+        entry.delta !== 0n
+      ) {
+        skimmed.push(`${accountKeys[entry.accountIndex] ?? entry.accountIndex}:${entry.delta}`);
+      }
     }
-  }
-  if (skimmed.length > 0) {
-    return reject(
-      CONFIRMATION_FAILURE.PLATFORM_FEE_PRESENT,
-      `unexpected ${expectation.outputMint} movement — ${skimmed.join(", ")}`,
-    );
-  }
-  if (mintDeltaSum !== 0n) {
-    return reject(
-      CONFIRMATION_FAILURE.PLATFORM_FEE_PRESENT,
-      `mint deltas do not net to zero (${mintDeltaSum})`,
-    );
-  }
-  if (payerDebit !== recipientDelta.delta) {
-    return reject(
-      CONFIRMATION_FAILURE.PLATFORM_FEE_PRESENT,
-      `payer debit ${payerDebit} != recipient credit ${recipientDelta.delta}`,
-    );
+    if (skimmed.length > 0 || mintDeltaSum !== 0n || payerDebit !== recipientDelta.delta) {
+      return reject(CONFIRMATION_FAILURE.PLATFORM_FEE_PRESENT);
+    }
   }
 
   // ---- C7: the payer paid no SOL ------------------------------------------
@@ -556,13 +593,21 @@ export function buildConfirmationExpectation(
   addresses?: { payerAddress?: string; sponsorAddress?: string },
 ): ConfirmationExpectation {
   void USDC_DECIMALS;
+  const displayedFloor = intent.quotedOtherAmountThreshold ?? 0n;
   return {
     messageHash: intent.messageHash ?? "",
     recipientAddress: intent.recipientAddress,
     outputMint: intent.outputMint,
-    minimumOutputAtomic: intent.minimumOutputAtomic,
+    inputMint: intent.inputMint,
+    routingKind: intent.routingKind ?? "exact_usdc",
+    minimumOutputAtomic:
+      displayedFloor > intent.minimumOutputAtomic
+        ? displayedFloor
+        : intent.minimumOutputAtomic,
     maximumInputAtomic: intent.maximumInputAtomic,
     reservedSponsorLamports: intent.sponsorReservationLamports ?? 3_000_000n,
+    resolvedAltWritableAddresses: intent.resolvedAltWritableAddresses,
+    resolvedAltReadonlyAddresses: intent.resolvedAltReadonlyAddresses,
     ...(addresses?.payerAddress ? { payerAddress: addresses.payerAddress } : {}),
     ...(addresses?.sponsorAddress ? { sponsorAddress: addresses.sponsorAddress } : {}),
   };

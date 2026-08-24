@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SheetContainer } from "@/components/settlement-sheet/SheetContainer";
 import { useCopyKey } from "@/features/you/useCopyKey";
 import { useShareMessage } from "@/features/telegram/useShareMessage";
@@ -28,6 +28,15 @@ export type InviteSheetProps = {
   onDismiss: () => void;
 };
 
+export function isCurrentInviteOperation(
+  currentTabId: string,
+  currentGeneration: number,
+  operationTabId: string,
+  operationGeneration: number,
+): boolean {
+  return currentTabId === operationTabId && currentGeneration === operationGeneration;
+}
+
 /**
  * Share + QR + revoke, on the same token (U-9, D-24).
  * Prepared messages are minted fresh on every tap — never cached.
@@ -46,50 +55,102 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
   const [stopped, setStopped] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const activeTabId = useRef(tabId);
+  const operationGeneration = useRef(0);
+
+  useEffect(() => {
+    activeTabId.current = tabId;
+    operationGeneration.current += 1;
+    setDeepLinkUrl(null);
+    setTokenId(null);
+    setSeats(null);
+    setSent(false);
+    setStopped(false);
+    setShowQr(false);
+    setBusy(false);
+    setOperationError(null);
+  }, [tabId]);
+
+  const current = useCallback((operationTabId: string, generation: number) =>
+    isCurrentInviteOperation(
+      activeTabId.current,
+      operationGeneration.current,
+      operationTabId,
+      generation,
+    ), []);
 
   const loadInvite = useCallback(async () => {
+    const operationTabId = tabId;
+    const generation = operationGeneration.current;
     if (!ensure) {
+      if (current(operationTabId, generation)) {
+        setOperationError("Invite details are unavailable here. Reopen My Tab in Telegram.");
+      }
       return null;
     }
-    const payload = await ensure({ tabId: tabId as Id<"tabs"> });
-    setDeepLinkUrl(payload.deepLinkUrl);
-    setTokenId(payload.tokenId || null);
-    setSeats(payload.seatsRemaining);
-    return payload;
-  }, [ensure, tabId]);
+    setOperationError(null);
+    try {
+      const payload = await ensure({ tabId: tabId as Id<"tabs"> });
+      if (!current(operationTabId, generation)) return null;
+      setDeepLinkUrl(payload.deepLinkUrl);
+      setTokenId(payload.tokenId || null);
+      setSeats(payload.seatsRemaining);
+      return payload;
+    } catch {
+      if (current(operationTabId, generation)) setOperationError("Couldn't load the invite. Try again.");
+      return null;
+    }
+  }, [current, ensure, tabId]);
 
   const handleShare = useCallback(async () => {
     if (!prepare || !share.available || busy) {
       return;
     }
     setBusy(true);
+    setOperationError(null);
+    const operationTabId = tabId;
+    const generation = operationGeneration.current;
     try {
       const prepared = await prepare({ tabId: tabId as Id<"tabs"> });
+      if (!current(operationTabId, generation)) return;
       if (!prepared.ok) {
+        setOperationError("Couldn't prepare the invite. Try again.");
         return;
       }
       setDeepLinkUrl(prepared.deepLinkUrl);
       setTokenId(prepared.tokenId || null);
       setSeats(prepared.seatsRemaining);
       const outcome = await share.share(prepared.preparedMessageId);
+      if (!current(operationTabId, generation)) return;
       if (outcome.status === "sent") {
         setSent(true);
+      } else if (outcome.status === "failed") {
+        setOperationError("Couldn't open sharing. Copy the link instead.");
       }
+    } catch {
+      if (current(operationTabId, generation)) setOperationError("Couldn't prepare the invite. Try again.");
     } finally {
-      setBusy(false);
+      if (current(operationTabId, generation)) setBusy(false);
     }
-  }, [busy, prepare, share, tabId]);
+  }, [busy, current, prepare, share, tabId]);
 
   const handleCopy = useCallback(async () => {
+    const operationTabId = tabId;
+    const generation = operationGeneration.current;
+    setOperationError(null);
     let url = deepLinkUrl;
     if (!url) {
       const payload = await loadInvite();
+      if (!current(operationTabId, generation)) return;
       url = payload?.deepLinkUrl ?? null;
     }
     if (url) {
       copy(url);
+    } else if (current(operationTabId, generation)) {
+      setOperationError("Couldn't load the link. Try again.");
     }
-  }, [copy, deepLinkUrl, loadInvite]);
+  }, [copy, current, deepLinkUrl, loadInvite, tabId]);
 
   /*
    * Handoff opens straight onto the code. A toggle here would mean the table
@@ -106,13 +167,21 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
   }, [open, handoff, deepLinkUrl, loadInvite]);
 
   const handleQr = useCallback(async () => {
+    const operationTabId = tabId;
+    const generation = operationGeneration.current;
+    setOperationError(null);
     if (!deepLinkUrl) {
-      await loadInvite();
+      const loaded = await loadInvite();
+      if (!current(operationTabId, generation)) return;
+      if (!loaded) return;
     }
-    setShowQr((current) => !current);
-  }, [deepLinkUrl, loadInvite]);
+    if (!current(operationTabId, generation)) return;
+    setShowQr((open) => !open);
+  }, [current, deepLinkUrl, loadInvite, tabId]);
 
   const handleRevoke = useCallback(async () => {
+    const operationTabId = tabId;
+    const generation = operationGeneration.current;
     if (!revoke || !tokenId || busy) {
       if (!tokenId) {
         const payload = await loadInvite();
@@ -122,24 +191,31 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
         setBusy(true);
         try {
           await revoke({ tokenId: payload.tokenId as Id<"sessionTokens"> });
+          if (!current(operationTabId, generation)) return;
           setStopped(true);
           setDeepLinkUrl(null);
+        } catch {
+          if (current(operationTabId, generation)) setOperationError("Couldn't stop the link. Try again.");
         } finally {
-          setBusy(false);
+          if (current(operationTabId, generation)) setBusy(false);
         }
         return;
       }
       return;
     }
     setBusy(true);
+    setOperationError(null);
     try {
       await revoke({ tokenId: tokenId as Id<"sessionTokens"> });
+      if (!current(operationTabId, generation)) return;
       setStopped(true);
       setDeepLinkUrl(null);
+    } catch {
+      if (current(operationTabId, generation)) setOperationError("Couldn't stop the link. Try again.");
     } finally {
-      setBusy(false);
+      if (current(operationTabId, generation)) setBusy(false);
     }
-  }, [busy, loadInvite, revoke, tokenId]);
+  }, [busy, current, loadInvite, revoke, tabId, tokenId]);
 
   if (!open) {
     return null;
@@ -172,6 +248,25 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
       </div>
     ) : null;
 
+  const errorPanel = operationError || copyStatus === "failed" ? (
+    <div role="alert" className="mytab-type-meta" style={{ marginTop: MYTAB_SPACING["3"] }}>
+      <p style={{ margin: 0 }}>
+        {operationError ?? "Couldn't copy the link. Try again or long-press it to select."}
+      </p>
+      {operationError ? (
+        <button
+          type="button"
+          className="mytab-link-button"
+          style={{ minHeight: 44 }}
+          onClick={() => void loadInvite()}
+          disabled={busy}
+        >
+          Try again
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
   if (handoff) {
     return (
       <SheetContainer label={INVITE_COPY.handoffTitle} onDismiss={onDismiss}>
@@ -180,6 +275,7 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
         </p>
 
         {qrPanel}
+        {errorPanel}
 
         <p
           className="mytab-type-body"
@@ -247,6 +343,8 @@ export function InviteSheet({ open, tabId, mode = "manage", onDismiss }: InviteS
           {INVITE_COPY.stopped}
         </p>
       ) : null}
+
+      {errorPanel}
 
       {sent && seats !== null && !stopped ? (
         <p className="mytab-type-meta" style={{ margin: `${MYTAB_SPACING["3"]} 0 0` }}>

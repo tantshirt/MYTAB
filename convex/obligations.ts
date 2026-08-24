@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { GenericQueryCtx } from "convex/server";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { AuthError, UNAUTHORIZED, getCurrentUser } from "./lib/auth";
@@ -8,9 +9,9 @@ import {
   DEFAULT_BILL_CURRENCY,
   billIdForObligation,
   confirmedOffsetMinorByObligation,
+  obligationDisplayAmountMinor,
   offsetAtomicForObligation,
 } from "./lib/balanceDerivation";
-import { resolveViewerScope } from "./lib/viewerScope";
 import { isTerminalSettlementStatus, type SettlementStatus } from "./lib/settlementState";
 import { getDefaultReceivingWalletForUser } from "./lib/walletSync";
 
@@ -85,12 +86,45 @@ async function offsetMinorFor(
   return confirmedOffsetMinorByObligation(events).get(obligation._id) ?? 0n;
 }
 
+async function pendingCashProposalFor(
+  ctx: ObligationsCtx,
+  obligation: Doc<"obligations">,
+): Promise<Doc<"obligationLedgerEvents"> | null> {
+  const events = await ctx.db
+    .query("obligationLedgerEvents")
+    .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
+    .collect();
+  const displayAmountMinor = obligationDisplayAmountMinor(obligation);
+  const displayCurrency = obligation.displayCurrency ?? "THB";
+  return events.find(
+    (event) =>
+      event.eventKind === "cash_proposed" &&
+      !event.confirmed &&
+      event.amountMinor === displayAmountMinor &&
+      (event.displayCurrency ?? "THB") === displayCurrency,
+  ) ?? null;
+}
+
+async function latestReminderFor(
+  ctx: ObligationsCtx,
+  obligation: Doc<"obligations">,
+): Promise<Doc<"paymentReminders"> | null> {
+  const rows = await ctx.db
+    .query("paymentReminders")
+    .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
+    .collect();
+  return rows.length === 0
+    ? null
+    : rows.reduce((latest, row) => row.createdAt > latest.createdAt ? row : latest);
+}
+
 function projectObligation(
   obligation: Doc<"obligations">,
   tab: Doc<"tabs">,
   offsetMinor: bigint,
 ) {
-  const remainingMinor = obligation.displayAmountThbMinor - offsetMinor;
+  const displayAmountMinor = obligationDisplayAmountMinor(obligation);
+  const remainingMinor = displayAmountMinor - offsetMinor;
   const remainingAtomic =
     obligation.amountAtomic - offsetAtomicForObligation(obligation, offsetMinor);
   const currentRevision = tab.lockedRevision ?? tab.revision ?? 0;
@@ -103,11 +137,11 @@ function projectObligation(
     tabStatus: tab.status,
     tabRevision: obligation.tabRevision,
     billId: billIdForObligation(obligation),
-    currency: tab.defaultCurrency ?? DEFAULT_BILL_CURRENCY,
+    currency: obligation.displayCurrency ?? tab.defaultCurrency ?? DEFAULT_BILL_CURRENCY,
     debtorUserId: obligation.debtorUserId,
     creditorUserId: obligation.creditorUserId,
     /** The locked bill-currency amount. Never summed with another currency. */
-    displayAmountMinor: Number(obligation.displayAmountThbMinor),
+    displayAmountMinor: Number(displayAmountMinor),
     /** The locked USDC target. The canonical unit for anything that nets. */
     amountAtomic: obligation.amountAtomic,
     outputMint: obligation.outputMint,
@@ -117,7 +151,7 @@ function projectObligation(
     /** Confirmed money only — a submitted transaction leaves this false. */
     settled:
       obligation.status === "settled" ||
-      offsetMinor >= obligation.displayAmountThbMinor,
+      offsetMinor >= displayAmountMinor,
     settledAt: obligation.settledAt ?? null,
     settlementIntentId: obligation.settlementIntentId ?? null,
     billSnapshotHash: obligation.billSnapshotHash,
@@ -200,21 +234,19 @@ export const listForViewer = query({
     status: v.optional(obligationStatusValidator),
   },
   handler: async (ctx, args) => {
-    const scope = await resolveViewerScope(ctx, args.groupId);
-    if (!scope) {
+    const user = await getCurrentUser(ctx);
+    if (!user) {
       return [];
     }
 
-    const allowedGroups = new Set<string>(scope.groupIds);
-
     const obligations = await ctx.db
       .query("obligations")
-      .withIndex("by_debtor_user_id", (q) => q.eq("debtorUserId", scope.user._id))
+      .withIndex("by_debtor_user_id", (q) => q.eq("debtorUserId", user._id))
       .collect();
 
     const rows = [];
     for (const obligation of obligations) {
-      if (!allowedGroups.has(obligation.groupId)) {
+      if (args.groupId && obligation.groupId !== args.groupId) {
         continue;
       }
       if (args.status !== undefined && obligation.status !== args.status) {
@@ -228,14 +260,95 @@ export const listForViewer = query({
 
       const offsetMinor = await offsetMinorFor(ctx, obligation);
       const creditor = await ctx.db.get(obligation.creditorUserId);
+      const pendingCash = await pendingCashProposalFor(ctx, obligation);
 
       rows.push({
         ...projectObligation(obligation, tab, offsetMinor),
         creditorDisplayName: creditor?.displayName ?? "Someone",
+        pendingCashProposalId: pendingCash?._id ?? null,
+        pendingCashProposerUserId: pendingCash?.actorUserId ?? null,
+        canAcknowledgeCash: Boolean(pendingCash && pendingCash.actorUserId !== user._id),
       });
     }
 
     return rows.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+/** The reciprocal private view: obligations where the viewer is the creditor. */
+export const listOwedToViewer = query({
+  args: { status: v.optional(obligationStatusValidator) },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const obligations = await ctx.db
+      .query("obligations")
+      .withIndex("by_creditor_user_id", (q) => q.eq("creditorUserId", user._id))
+      .collect();
+    const rows = [];
+    for (const obligation of obligations) {
+      if (args.status && obligation.status !== args.status) continue;
+      const tab = await ctx.db.get(obligation.tabId);
+      if (!tab) continue;
+      const offsetMinor = await offsetMinorFor(ctx, obligation);
+      const debtor = await ctx.db.get(obligation.debtorUserId);
+      const pendingCash = await pendingCashProposalFor(ctx, obligation);
+      const reminder = await latestReminderFor(ctx, obligation);
+      rows.push({
+        ...projectObligation(obligation, tab, offsetMinor),
+        debtorDisplayName: debtor?.displayName ?? "Someone",
+        pendingCashProposalId: pendingCash?._id ?? null,
+        pendingCashProposerUserId: pendingCash?.actorUserId ?? null,
+        canAcknowledgeCash: Boolean(pendingCash && pendingCash.actorUserId !== user._id),
+        reminderStatus: reminder?.status ?? null,
+      });
+    }
+    return rows.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+/** Creditor-only, rate-limited request for one private reminder. */
+export const requestPaymentReminder = mutation({
+  args: { obligationId: v.id("obligations") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) throw new AuthError(UNAUTHORIZED);
+    const obligation = await ctx.db.get(args.obligationId);
+    if (!obligation) throw new AuthError(OBLIGATION_NOT_FOUND);
+    if (obligation.creditorUserId !== user._id) throw new AuthError("REMINDER_NOT_AUTHORIZED");
+    if (obligation.status !== "open") throw new AuthError("REMINDER_NOT_OPEN");
+    const now = Date.now();
+    const prior = await ctx.db
+      .query("paymentReminders")
+      .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
+      .collect();
+    if (prior.some(
+      (row) => row.status !== "failed" && now - (row.updatedAt ?? row.createdAt) < 24 * 60 * 60_000,
+    )) {
+      throw new AuthError("REMINDER_RATE_LIMITED");
+    }
+    const senderRows = await ctx.db
+      .query("paymentReminders")
+      .withIndex("by_sender_and_created", (q) => q.eq("senderUserId", user._id))
+      .collect();
+    if (senderRows.filter(
+      (row) => row.status !== "failed" && now - (row.updatedAt ?? row.createdAt) < 60 * 60_000,
+    ).length >= 10) {
+      throw new AuthError("REMINDER_RATE_LIMITED");
+    }
+    const reminderId = await ctx.db.insert("paymentReminders", {
+      obligationId: obligation._id,
+      tabId: obligation.tabId,
+      senderUserId: user._id,
+      recipientUserId: obligation.debtorUserId,
+      status: "queued",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.internal.telegramCommands.deliverPaymentReminder, {
+      reminderId,
+    });
+    return { reminderId, queued: true as const };
   },
 });
 
@@ -297,7 +410,8 @@ export const forTab = query({
       totalCount: projected.length,
       settledCount: projected.filter((row) => row.settled).length,
       complete:
-        projected.length > 0 && projected.every((row) => row.settled),
+        projected.every((row) => row.settled) &&
+        (projected.length > 0 || tab.status === "settled"),
     };
   },
 });

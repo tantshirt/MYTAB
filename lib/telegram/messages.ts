@@ -3,17 +3,13 @@
  *
  * Two rules make this file worth having in one place:
  *
- * 1. **Five events post, and no others** (EXPERIENCE, *The Telegram Surface*).
- *    Four of them are the same card, edited in place; the fifth is the tip
- *    confirmation, which is a separate message because it is a separate social
- *    act.
+ * 1. **Four status events post, and no others**. They edit one tab card in
+ *    place; standalone tipping has no command, route, or event.
  * 2. **NFR-7.** A group message carries totals and counts, never who owes what,
- *    never an individual amount, never an address or a link to one. The tip
- *    confirmation is the single deliberate exception and it names both people
- *    on purpose.
+ *    never an individual amount, never an address or a link to one.
  */
 
-import { formatFiatMinorThb } from "../domain/format";
+import { formatCurrencyMinor } from "../domain/format";
 import type { FiatMinor } from "../domain/money";
 
 /** The four events that render as the one status card for a tab. */
@@ -26,11 +22,8 @@ export const TELEGRAM_STATUS_EVENTS = [
 
 export type TelegramStatusEvent = (typeof TELEGRAM_STATUS_EVENTS)[number];
 
-/** Every event that is allowed to reach a group chat. Exactly five. */
-export const TELEGRAM_POSTING_EVENTS = [
-  ...TELEGRAM_STATUS_EVENTS,
-  "tip_confirmed",
-] as const;
+/** Every event that is allowed to reach a group chat. */
+export const TELEGRAM_POSTING_EVENTS = [...TELEGRAM_STATUS_EVENTS] as const;
 
 export type TelegramPostingEvent = (typeof TELEGRAM_POSTING_EVENTS)[number];
 
@@ -103,8 +96,9 @@ export type TabStatusFacts = {
   event: TelegramStatusEvent;
   /** People on the tab. Never who they are. */
   peopleCount: number;
-  /** The bill total in THB minor units, or null before there is one. */
+  /** The bill total in the tab's display-currency minor units. */
   billTotalMinor: number | null;
+  displayCurrency?: string;
   claimedItemCount: number;
   totalItemCount: number;
   settledShareCount: number;
@@ -165,7 +159,7 @@ export function renderTabStatusCard(facts: TabStatusFacts): string {
   const totalText =
     facts.billTotalMinor === null || facts.billTotalMinor === undefined
       ? null
-      : `${formatFiatMinorThb(facts.billTotalMinor as FiatMinor)} total`;
+      : `${formatCurrencyMinor(facts.billTotalMinor as FiatMinor, facts.displayCurrency ?? "THB")} total`;
 
   lines.push(totalText ? `${peopleLine(facts.peopleCount)} · ${totalText}` : peopleLine(facts.peopleCount));
 
@@ -175,21 +169,6 @@ export function renderTabStatusCard(facts: TabStatusFacts): string {
   }
 
   return lines.join("\n");
-}
-
-export type TipConfirmationFacts = {
-  senderDisplayName: string;
-  recipientDisplayName: string;
-  displayAmountThbMinor: number;
-};
-
-/**
- * The one warm message. It names both people and the amount because that is
- * the social act the tip was for — the deliberate exception to NFR-7.
- */
-export function renderTipConfirmation(facts: TipConfirmationFacts): string {
-  const amount = formatFiatMinorThb(facts.displayAmountThbMinor as FiatMinor);
-  return `${facts.senderDisplayName} tipped ${facts.recipientDisplayName} ${amount}`;
 }
 
 /**

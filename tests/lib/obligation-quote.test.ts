@@ -14,6 +14,9 @@ const MAYA = {
   recipientId: "users:maya",
   tabName: "Sukhumvit Dinner",
   displayAmountThbMinor: 29_174n,
+  displayCurrency: "THB",
+  outputDecimals: 6,
+  outputSymbol: "USDC",
 };
 
 describe("guaranteedReceiveAtomic — D-08", () => {
@@ -174,8 +177,103 @@ describe("mapObligationQuoteToSheet", () => {
 
     const sheet = mapObligationQuoteToSheet(quote);
     expect(sheet.held).toBe(true);
+    expect(sheet.payable).toBe(false);
     expect(sheet.billAmount).toBeTruthy();
     expect(sheet.billAmount).not.toMatch(/^[—–-]$/);
+  });
+
+  it("formats a three-decimal fiat debt and frozen non-USDC receive asset exactly", () => {
+    const quote = assembleObligationQuote({
+      ...MAYA,
+      displayAmountThbMinor: 12_345n,
+      displayCurrency: "KWD",
+      outputDecimals: 5,
+      outputSymbol: "BONK",
+      intentId: "intents:kwd",
+      status: "ready_for_signature",
+      quoteResolving: false,
+      quoteExpired: false,
+      quoteRemainingMs: 20_000,
+      staleRevision: false,
+      quotedOtherAmountThreshold: 123_456_789n,
+      minimumOutputAtomic: 123_000_000n,
+      obligationAmountAtomic: 4_000_000n,
+      maximumInputAtomic: 8_000_000n,
+      inputMint: USDC_MINT,
+      outputMint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6wXMSQFAeSS5kC",
+      roundUpAtomic: null,
+      rateNumeratorAtomic: null,
+      rateDenominatorMinor: null,
+      walletKind: "embedded",
+      walletProvider: null,
+      preparedTxBase64: "prepared",
+      tokens: [{
+        mint: USDC_MINT,
+        fallbackName: "USD Coin",
+        fallbackDecimals: 6,
+        balanceAtomic: 9_000_000n,
+        requiredAtomic: 8_000_000n,
+        affordable: true,
+      }],
+      metadata: [{
+        status: "ok",
+        metadata: {
+          mint: USDC_MINT,
+          symbol: "USDC",
+          name: "USD Coin",
+          decimals: 6,
+          logoURI: "https://example.test/usdc.png",
+          verified: true,
+          provenance: {
+            source: "cluster_pin",
+            cluster: "mainnet-beta",
+            fetchedAt: 1,
+            decimalsVerifiedAt: 1,
+          },
+        },
+      }],
+    });
+
+    const sheet = mapObligationQuoteToSheet(quote);
+    expect(quote.displayAmountMinor).toBe("12345");
+    expect(sheet.billAmount).toBe("KD 12.345");
+    expect(sheet.minimumReceiveAmount).toBe("1,234.56789 BONK");
+    expect(sheet.destinationAsset).toBe("BONK");
+    expect(sheet.payable).toBe(true);
+    expect(mapObligationQuoteToSheet({ ...quote, status: "failed" }).payable).toBe(false);
+  });
+
+  it("does not relabel stable-reference atomic units as non-USDC before pricing exists", () => {
+    const quote = assembleObligationQuote({
+      ...MAYA,
+      outputDecimals: 5,
+      outputSymbol: "BONK",
+      intentId: null,
+      status: null,
+      quoteResolving: true,
+      quoteExpired: false,
+      quoteRemainingMs: 0,
+      staleRevision: false,
+      quotedOtherAmountThreshold: null,
+      minimumOutputAtomic: 8_250_000n,
+      obligationAmountAtomic: 8_250_000n,
+      maximumInputAtomic: null,
+      inputMint: null,
+      outputMint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6wXMSQFAeSS5kC",
+      roundUpAtomic: null,
+      rateNumeratorAtomic: null,
+      rateDenominatorMinor: null,
+      walletKind: "embedded",
+      walletProvider: null,
+      preparedTxBase64: null,
+      tokens: [],
+      metadata: [],
+    });
+
+    const sheet = mapObligationQuoteToSheet(quote);
+    expect(sheet.status).toBe("ready");
+    expect(sheet.minimumReceiveAmount).toBe("");
+    expect(sheet.minimumReceiveAmount).not.toContain("BONK");
   });
 
   it("marks a token verified only when isVerified === true", () => {

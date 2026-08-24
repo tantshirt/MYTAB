@@ -8,6 +8,7 @@ import {
   confirmedOffsetMinorByObligation,
   deriveGroupBalance,
   loadGroupBalanceRows,
+  obligationDisplayAmountMinor,
   offsetAtomicForObligation,
   type BalanceComponent,
   type GroupBalance,
@@ -32,7 +33,7 @@ const IN_FLIGHT_INTENT_STATUSES: ReadonlySet<string> = new Set([
   SETTLEMENT_STATUS.UNKNOWN,
 ]);
 
-const TAB_OPEN_STATUSES: ReadonlySet<string> = new Set(["draft", "open", "locked"]);
+const TAB_OPEN_STATUSES: ReadonlySet<string> = new Set(["draft", "open", "locked", "settled"]);
 
 /**
  * How many still-unclaimed items the live tab card names outright.
@@ -89,6 +90,40 @@ async function balanceForGroup(
   });
 
   return { balance, tabs };
+}
+
+type BalanceRows = Awaited<ReturnType<typeof loadGroupBalanceRows>>;
+
+/** Personal groups can contain unrelated invite tabs, so load one tab exactly. */
+async function loadTabBalanceRows(
+  ctx: BalancesCtx,
+  tabId: Id<"tabs">,
+): Promise<BalanceRows> {
+  const obligations = await ctx.db
+    .query("obligations")
+    .withIndex("by_tab_id", (q) => q.eq("tabId", tabId))
+    .collect();
+  const ledgerEvents: BalanceRows["ledgerEvents"] = [];
+  for (const obligation of obligations) {
+    ledgerEvents.push(...await ctx.db
+      .query("obligationLedgerEvents")
+      .withIndex("by_obligation_id", (q) => q.eq("obligationId", obligation._id))
+      .collect());
+  }
+  return { obligations, ledgerEvents };
+}
+
+async function balanceForPersonalTab(
+  ctx: BalancesCtx,
+  tab: Doc<"tabs">,
+): Promise<GroupBalance> {
+  const rows = await loadTabBalanceRows(ctx, tab._id);
+  return deriveGroupBalance({
+    groupId: tab.groupId,
+    obligations: rows.obligations,
+    ledgerEvents: rows.ledgerEvents,
+    currencyByTabId: new Map([[tab._id, currencyForTab(tab)]]),
+  });
 }
 
 type ViewerGroupBalance = {
@@ -195,6 +230,35 @@ export const forViewer = query({
       netMinor += viewerMinor?.netMinor ?? 0;
     }
 
+    for (const tabId of scope.personalTabIds) {
+      const tab = await ctx.db.get(tabId);
+      if (!tab) continue;
+      const balance = await balanceForPersonalTab(ctx, tab);
+
+      groups.push({
+        groupId: tab.groupId,
+        displayName: tab.name,
+        displayCurrency: balance.displayCurrency,
+        isAllSquare: balance.isAllSquare,
+        positions: balance.positions,
+        positionsAtomic: balance.positionsAtomic,
+      });
+      for (const component of balance.components) {
+        currencies.add(component.currency);
+        if (component.debtorUserId === scope.user._id) {
+          components.push({ ...component, direction: "owe" });
+        } else if (component.creditorUserId === scope.user._id) {
+          components.push({ ...component, direction: "owed" });
+        }
+      }
+      netAtomic += balance.positionsAtomic.find(
+        (position) => position.userId === scope.user._id,
+      )?.netAtomic ?? 0n;
+      netMinor += balance.positions?.find(
+        (position) => position.userId === scope.user._id,
+      )?.netMinor ?? 0;
+    }
+
     // One currency across the whole scope, or no fiat figure at all. A hero
     // that sums baht and dollars is exactly the trust defect this forbids.
     const displayCurrency = currencies.size <= 1 ? [...currencies][0] ?? null : null;
@@ -282,13 +346,30 @@ export const listOpenTabsForViewer = query({
       startedAt: number;
     }> = [];
 
+    const sources: Array<{
+      groupId: Id<"groups">;
+      tabs: Doc<"tabs">[];
+      rows: BalanceRows;
+    }> = [];
     for (const groupId of scope.groupIds) {
       const tabs = await ctx.db
         .query("tabs")
         .withIndex("by_group_id", (q) => q.eq("groupId", groupId))
         .collect();
-
       const rows = await loadGroupBalanceRows(ctx, groupId);
+      sources.push({ groupId, tabs, rows });
+    }
+    for (const tabId of scope.personalTabIds) {
+      const tab = await ctx.db.get(tabId);
+      if (!tab) continue;
+      sources.push({
+        groupId: tab.groupId,
+        tabs: [tab],
+        rows: await loadTabBalanceRows(ctx, tabId),
+      });
+    }
+
+    for (const { groupId, tabs, rows } of sources) {
       const offsets = confirmedOffsetMinorByObligation(rows.ledgerEvents);
 
       for (const tab of tabs) {
@@ -310,9 +391,10 @@ export const listOpenTabsForViewer = query({
 
         for (const obligation of obligations) {
           const offsetMinor = offsets.get(obligation._id) ?? 0n;
+          const displayAmountMinor = obligationDisplayAmountMinor(obligation);
           const cleared =
             obligation.status === "settled" ||
-            offsetMinor >= obligation.displayAmountThbMinor;
+            offsetMinor >= displayAmountMinor;
 
           if (cleared) {
             settledCount += 1;
@@ -327,7 +409,7 @@ export const listOpenTabsForViewer = query({
             continue;
           }
 
-          const remainingMinor = obligation.displayAmountThbMinor - offsetMinor;
+          const remainingMinor = displayAmountMinor - offsetMinor;
           const remainingAtomic =
             obligation.amountAtomic -
             offsetAtomicForObligation(obligation, offsetMinor);
@@ -483,7 +565,7 @@ export async function computeBillCompletion(
   const settled = active.filter(
     (o) =>
       o.status === "settled" ||
-      (offsets.get(o._id) ?? 0n) >= o.displayAmountThbMinor,
+      (offsets.get(o._id) ?? 0n) >= obligationDisplayAmountMinor(o),
   );
 
   return {
@@ -492,7 +574,8 @@ export async function computeBillCompletion(
     revision: tab.lockedRevision ?? tab.revision ?? 0,
     totalCount: active.length,
     settledCount: settled.length,
-    complete: active.length > 0 && settled.length === active.length,
+    complete:
+      settled.length === active.length && (active.length > 0 || tab.status === "settled"),
   };
 }
 

@@ -158,16 +158,29 @@ export function confirmedOffsetMinorByObligation(
  * waiver, cash and chain settlement all clear an obligation entirely.
  */
 export function offsetAtomicForObligation(
-  obligation: { displayAmountThbMinor: bigint; amountAtomic: bigint },
+  obligation: {
+    displayAmountThbMinor: bigint;
+    displayAmountMinor?: bigint;
+    amountAtomic: bigint;
+  },
   offsetMinor: bigint,
 ): bigint {
-  if (offsetMinor <= 0n || obligation.displayAmountThbMinor <= 0n) {
+  const displayAmountMinor = obligationDisplayAmountMinor(obligation);
+  if (offsetMinor <= 0n || displayAmountMinor <= 0n) {
     return 0n;
   }
-  if (offsetMinor >= obligation.displayAmountThbMinor) {
+  if (offsetMinor >= displayAmountMinor) {
     return obligation.amountAtomic;
   }
-  return (offsetMinor * obligation.amountAtomic) / obligation.displayAmountThbMinor;
+  return (offsetMinor * obligation.amountAtomic) / displayAmountMinor;
+}
+
+/** D-33 dual-read. The legacy field remains required until migration is retired. */
+export function obligationDisplayAmountMinor(obligation: {
+  displayAmountThbMinor: bigint;
+  displayAmountMinor?: bigint;
+}): bigint {
+  return obligation.displayAmountMinor ?? obligation.displayAmountThbMinor;
 }
 
 export type BalanceComponent = {
@@ -218,6 +231,8 @@ export function deriveGroupBalance(input: {
     debtorUserId: string;
     creditorUserId: string;
     displayAmountThbMinor: bigint;
+    displayAmountMinor?: bigint;
+    displayCurrency?: string;
     amountAtomic: bigint;
     status: "open" | "settled" | "superseded";
   }>;
@@ -237,7 +252,9 @@ export function deriveGroupBalance(input: {
   const byId = new Map(active.map((o) => [o._id, o]));
 
   const currencies = new Set(
-    active.map((o) => input.currencyByTabId.get(o.tabId) ?? DEFAULT_BILL_CURRENCY),
+    active.map((o) =>
+      o.displayCurrency ?? input.currencyByTabId.get(o.tabId) ?? DEFAULT_BILL_CURRENCY
+    ),
   );
   const displayCurrency = currencies.size === 1 ? [...currencies][0]! : null;
 
@@ -251,7 +268,7 @@ export function deriveGroupBalance(input: {
       billId: billIdForObligation(o),
       debtorUserId: o.debtorUserId,
       creditorUserId: o.creditorUserId,
-      amountMinor: o.displayAmountThbMinor,
+      amountMinor: obligationDisplayAmountMinor(o),
       eventKind: "settlement_offset",
       confirmed: true,
     }));
@@ -266,7 +283,7 @@ export function deriveGroupBalance(input: {
         billId: billIdForObligation(o),
         debtorUserId: o.debtorUserId,
         creditorUserId: o.creditorUserId,
-        amountMinor: Number(o.displayAmountThbMinor),
+        amountMinor: Number(obligationDisplayAmountMinor(o)),
         revision: o.tabRevision,
         superseded: false,
       })),
@@ -312,7 +329,10 @@ export function deriveGroupBalance(input: {
       creditorUserId: obligation.creditorUserId,
       amountMinor: component.amountMinor,
       amountAtomic,
-      currency: input.currencyByTabId.get(obligation.tabId) ?? DEFAULT_BILL_CURRENCY,
+      currency:
+        obligation.displayCurrency ??
+        input.currencyByTabId.get(obligation.tabId) ??
+        DEFAULT_BILL_CURRENCY,
     });
 
     addAtomic(obligation.debtorUserId, -amountAtomic);

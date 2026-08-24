@@ -9,6 +9,8 @@ import {
   MYTAB_RADIUS,
 } from "@/lib/theme/tokens";
 import type { BillMemberOption } from "./types";
+import { SUPPORTED_FIAT_CURRENCIES } from "@/lib/domain/currency";
+import { USDC_MINT } from "@/lib/solana/constants";
 
 /** How the organizer intends to get the items in (EXPERIENCE, IA: "capture method"). */
 export type CaptureMethod = "scan" | "manual";
@@ -17,6 +19,7 @@ export type NewTabFormPatch = {
   title?: string;
   merchantName?: string;
   displayCurrency?: string;
+  receiveMint?: string;
   payerUserId?: string;
   captureMethod?: CaptureMethod;
   seats?: number;
@@ -26,6 +29,8 @@ export type NewTabFormProps = {
   title: string;
   merchantName: string;
   displayCurrency: string;
+  receiveMint?: string;
+  receiveAssetOptions?: readonly { mint: string; symbol: string; name: string }[];
   /** Chip pair. Two values; the artboard's pair is THB / USDC. */
   currencyOptions?: readonly string[];
   payerUserId: string;
@@ -51,12 +56,8 @@ export type NewTabFormProps = {
    *
    *   Where       — merchant name is on the receipt. Scanning fills it in, and
    *                 typing it before the tab exists buys nothing.
-   *   Currency    — offered THB or USDC, which are not the same kind of thing.
-   *                 The bill is denominated in local fiat; which token each
-   *                 person pays with is that person's choice at pay time. The
-   *                 money domain is THB-only today (`lib/domain/fx.ts` is
-   *                 literally USDC_ATOMIC_PER_THB_MINOR), so a chip pair here
-   *                 was one real option and one category error.
+   *   Currency    — receipt extraction or manual review owns the bill ISO
+   *                 currency; the quick door starts with the group default.
    *   Who paid?   — on a personal tab the member list is exactly the viewer,
    *                 so this was a single avatar of yourself, pre-selected.
    *
@@ -66,7 +67,7 @@ export type NewTabFormProps = {
   onChange: (patch: NewTabFormPatch) => void;
 };
 
-const DEFAULT_CURRENCIES = ["THB", "USDC"] as const;
+const DEFAULT_CURRENCIES = Object.freeze(Object.keys(SUPPORTED_FIAT_CURRENCIES));
 
 const BARE_BUTTON: CSSProperties = {
   appearance: "none",
@@ -246,6 +247,8 @@ export function NewTabForm({
   title,
   merchantName,
   displayCurrency,
+  receiveMint = USDC_MINT,
+  receiveAssetOptions = [{ mint: USDC_MINT, symbol: "USDC", name: "USD Coin" }],
   currencyOptions = DEFAULT_CURRENCIES,
   payerUserId,
   members,
@@ -259,7 +262,8 @@ export function NewTabForm({
   onChange,
 }: NewTabFormProps) {
   const quick = variant === "quick";
-  const currencies = currencyOptions.map<RadioOption>((currency) => ({
+  const visibleCurrencies = Array.from(new Set([...currencyOptions, displayCurrency.toUpperCase()]));
+  const currencies = visibleCurrencies.map<RadioOption>((currency) => ({
     key: currency,
     label: currency,
     render: (selected) => (
@@ -278,6 +282,27 @@ export function NewTabForm({
         }}
       >
         {currency}
+      </span>
+    ),
+  }));
+  const receiveAssets = receiveAssetOptions.map<RadioOption>((asset) => ({
+    key: asset.mint,
+    label: `${asset.symbol}, ${asset.name}`,
+    render: (selected) => (
+      <span
+        style={{
+          display: "flex",
+          minHeight: 44,
+          alignItems: "center",
+          padding: "0 18px",
+          borderRadius: MYTAB_RADIUS.full,
+          fontWeight: 600,
+          background: selected ? MYTAB_COLORS.primarySoft : MYTAB_COLORS.surface,
+          color: selected ? MYTAB_COLORS.primary : MYTAB_COLORS.ink,
+          border: `1px solid ${selected ? MYTAB_COLORS.primary : MYTAB_COLORS.border}`,
+        }}
+      >
+        {asset.symbol}
       </span>
     ),
   }));
@@ -414,6 +439,19 @@ export function NewTabForm({
             onSelect={(key) => onChange({ displayCurrency: key })}
             style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
           />
+          <label className="mytab-type-meta" style={{ display: "block", marginTop: 12 }}>
+            Other ISO currency
+            <input
+              className="mytab-input mytab-input--compact mytab-tabular"
+              aria-label="Other ISO currency"
+              value={displayCurrency}
+              maxLength={3}
+              onChange={(event) =>
+                onChange({ displayCurrency: event.target.value.toUpperCase().replace(/[^A-Z]/g, "") })
+              }
+              style={{ marginTop: 6, textTransform: "uppercase" }}
+            />
+          </label>
         </Section>
       )}
 
@@ -426,6 +464,20 @@ export function NewTabForm({
           {fxFixtureBadge}
         </p>
       ) : null}
+
+      <Section id="tab-receive-mint-label" heading="You receive" marginBottom={28}>
+        <RadioRow
+          name="receive-asset"
+          labelledBy="tab-receive-mint-label"
+          options={receiveAssets}
+          selectedKey={receiveMint}
+          onSelect={(key) => onChange({ receiveMint: key })}
+          style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
+        />
+        <p className="mytab-type-meta" style={{ margin: "8px 0 0" }}>
+          Only verified receiving assets are shown. Powered by Jupiter
+        </p>
+      </Section>
 
       {seats !== undefined ? (
         <Section id="tab-seats-label" heading="How many people" gap={12} marginBottom={28}>

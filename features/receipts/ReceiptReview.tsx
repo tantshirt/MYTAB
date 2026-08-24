@@ -5,22 +5,29 @@ import { createPortal } from "react-dom";
 import { AlertTriangleIcon } from "@/components/icons";
 import { EmptyState } from "@/components/primitives/empty-state";
 import { VisuallyHidden } from "@/components/primitives/visually-hidden";
-import type { ParsedReceipt, ParsedReceiptLine } from "@/lib/domain/receiptParse";
+import type {
+  ParsedReceipt,
+  ParsedReceiptAdjustment,
+  ParsedReceiptLine,
+} from "@/lib/domain/receiptParse";
 import { formatDiscrepancyCopy, recomputeReconciliation } from "@/lib/domain/receiptParse";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
-import { formatFiatMinorThb } from "@/lib/domain/format";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
+import { formatCurrencyMinor } from "@/lib/domain/format";
+import { currencyMinorDigits, parseCurrencyAmount } from "@/lib/domain/currency";
 import type { FiatMinor } from "@/lib/domain/money";
 import { MYTAB_COLORS, MYTAB_LAYOUT, MYTAB_RADIUS } from "@/lib/theme/tokens";
+import { ITEM_QUANTITY_MAX } from "@/lib/domain/bill";
 
 export type DiscrepancyCardProps = {
   reconciliation: ParsedReceipt["reconciliation"];
+  currency?: ParsedReceipt["currency"];
 };
 
 /**
  * Sticky discrepancy card — auto-dismisses when reconciled, and is never
  * manually dismissible (Story 8.4 AC2–AC3; EXPERIENCE, *Component Patterns*).
  */
-export function DiscrepancyCard({ reconciliation }: DiscrepancyCardProps) {
+export function DiscrepancyCard({ reconciliation, currency = "THB" }: DiscrepancyCardProps) {
   if (reconciliation.reconciled) {
     return null;
   }
@@ -58,7 +65,7 @@ export function DiscrepancyCard({ reconciliation }: DiscrepancyCardProps) {
           color: MYTAB_COLORS.warning,
         }}
       >
-        {formatDiscrepancyCopy(reconciliation)} Check the highlighted rows.
+        {formatDiscrepancyCopy(reconciliation, currency)} Check the highlighted rows.
       </p>
     </div>
   );
@@ -68,10 +75,18 @@ export type ReceiptReviewProps = {
   parsed: ParsedReceipt;
   /** Rendered right of the merchant in the header strip, when it is known. */
   capturedAtLabel?: string;
-  onConfirm: (lines: ParsedReceiptLine[], receiptTotalMinor: FiatMinor) => void;
+  onConfirm: (
+    lines: ParsedReceiptLine[],
+    receiptTotalMinor: FiatMinor,
+    adjustments: ParsedReceiptAdjustment[],
+    currency: ParsedReceipt["currency"],
+    resolvedLowConfidenceFields: string[],
+  ) => void;
   onManualEntry: () => void;
   /** Only wired when receipt scanning is on; otherwise the affordance is absent. */
   onScanReceipt?: () => void;
+  /** Visible mutation failure; preserving edits makes the same confirmation retryable. */
+  confirmationError?: string | null;
   /**
    * Where the Confirm action is pinned. §1.5 requires it pinned, and it cannot
    * pin from inside this component: `AppShell`'s content column sets
@@ -89,21 +104,27 @@ export type ReceiptReviewProps = {
  * People type baht. Minor units are storage and never surface in a label
  * (EXPERIENCE, *Voice and Tone*: never explain the mechanism).
  */
-function minorToBahtInput(minor: number): string {
+function minorToCurrencyInput(minor: number, currency: ParsedReceipt["currency"]): string {
   const negative = minor < 0;
   const absolute = Math.abs(minor);
-  const whole = Math.floor(absolute / 100);
-  const satang = String(absolute % 100).padStart(2, "0");
-  return `${negative ? "-" : ""}${whole}.${satang}`;
+  const digits = currencyMinorDigits(currency);
+  const scale = 10 ** digits;
+  const whole = Math.floor(absolute / scale);
+  if (digits === 0) return `${negative ? "-" : ""}${whole}`;
+  const fraction = String(absolute % scale).padStart(digits, "0");
+  return `${negative ? "-" : ""}${whole}.${fraction}`;
 }
 
-function bahtInputToMinor(raw: string): number | null {
-  const trimmed = raw.replace(/[฿,\s]/g, "");
-  if (!/^\d+(\.\d{0,2})?$/.test(trimmed)) {
+function currencyInputToMinor(
+  raw: string,
+  currency: ParsedReceipt["currency"],
+): number | null {
+  const trimmed = raw.replace(/[,\s]/g, "");
+  try {
+    return parseCurrencyAmount(trimmed, currency);
+  } catch {
     return null;
   }
-  const [whole = "0", fraction = ""] = trimmed.split(".");
-  return Number(whole) * 100 + Number(`${fraction}00`.slice(0, 2));
 }
 
 /** The one place a flagged field's outline is described. */
@@ -134,6 +155,7 @@ const BARE_FIELD: CSSProperties = {
   WebkitAppearance: "none",
   background: "transparent",
   border: 0,
+  padding: 0,
   outline: "none",
   color: "inherit",
   fontSize: "16px",
@@ -168,17 +190,66 @@ export function ReceiptReview({
   onConfirm,
   onManualEntry,
   onScanReceipt,
+  confirmationError,
   footerSlot,
 }: ReceiptReviewProps) {
   const [lines, setLines] = useState(parsed.lines);
   const [receiptTotalMinor, setReceiptTotalMinor] = useState<FiatMinor>(
     parsed.reconciliation.receiptTotalMinor,
   );
+  const [adjustments, setAdjustments] = useState(parsed.adjustments);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+  const [adjustmentDrafts, setAdjustmentDrafts] = useState<Record<number, string>>({});
   const [totalDraft, setTotalDraft] = useState<string | null>(null);
+  const [resolvedLowConfidenceFields, setResolvedLowConfidenceFields] = useState<Set<string>>(
+    () => new Set(),
+  );
 
-  const reconciliation = recomputeReconciliation({ lines, receiptTotalMinor });
-  const flaggedCount = lines.filter((line) => line.flagged).length;
+  const markResolved = (field: string) => {
+    setResolvedLowConfidenceFields((current) => {
+      const next = new Set(current);
+      next.add(field);
+      return next;
+    });
+  };
+
+  const reconciliation = recomputeReconciliation({
+    lines,
+    adjustments,
+    receiptTotalMinor,
+  });
+  const unresolvedLowConfidenceCount =
+    lines.reduce((count, line, index) =>
+      count +
+      (line.nameConfidence === "low" && !resolvedLowConfidenceFields.has(`line.${index}.name`) ? 1 : 0) +
+      (line.priceConfidence === "low" && !resolvedLowConfidenceFields.has(`line.${index}.price`) ? 1 : 0), 0) +
+    adjustments.reduce((count, adjustment, index) =>
+      count + (adjustment.confidence === "low" && !resolvedLowConfidenceFields.has(`adjustment.${index}`) ? 1 : 0), 0) +
+    (parsed.totalConfidence === "low" && !resolvedLowConfidenceFields.has("total") ? 1 : 0);
+  const flaggedCount = lines.filter((line) => line.flagged).length +
+    adjustments.filter((adjustment) => adjustment.flagged).length +
+    (parsed.totalConfidence === "low" ? 1 : 0);
+  const lowConfidenceResolved = unresolvedLowConfidenceCount === 0;
+  const invalidDraft =
+    lines.some((line) =>
+      line.name.trim().length === 0 ||
+      line.unitPriceMinor <= 0 ||
+      !Number.isSafeInteger(line.quantity) ||
+      line.quantity < 1 ||
+      line.quantity > ITEM_QUANTITY_MAX
+    ) ||
+    Object.values(priceDrafts).some((raw) => {
+      const minor = currencyInputToMinor(raw, parsed.currency);
+      return minor == null || minor <= 0;
+    }) ||
+    Object.values(adjustmentDrafts).some((raw) => {
+      const minor = currencyInputToMinor(raw, parsed.currency);
+      return minor == null || minor <= 0;
+    }) ||
+    (totalDraft !== null && (() => {
+      const minor = currencyInputToMinor(totalDraft, parsed.currency);
+      return minor == null || minor <= 0;
+    })());
   const scanAvailable = onScanReceipt != null;
 
   const updateLine = (index: number, patch: Partial<ParsedReceiptLine>) => {
@@ -227,16 +298,26 @@ export function ReceiptReview({
       <button
         type="button"
         className="mytab-button-primary"
-        disabled={!reconciliation.reconciled}
+        disabled={!reconciliation.reconciled || !lowConfidenceResolved || invalidDraft}
         aria-describedby="receipt-helper"
-        onClick={() => onConfirm(lines, receiptTotalMinor)}
+        onClick={() => onConfirm(
+          lines,
+          receiptTotalMinor,
+          adjustments,
+          parsed.currency,
+          [...resolvedLowConfidenceFields],
+        )}
       >
         Confirm receipt
       </button>
       {/* A disabled action states its reason rather than going silent (§4.4). */}
-      {!reconciliation.reconciled ? (
+      {!reconciliation.reconciled || !lowConfidenceResolved || invalidDraft ? (
         <p className="mytab-type-meta" style={{ margin: "8px 0 0", textAlign: "center" }}>
-          The items and the receipt total have to match first.
+          {invalidDraft
+            ? "Give every item a name and enter valid positive amounts."
+            : !reconciliation.reconciled
+            ? "The items and the receipt total have to match first."
+            : "Check every highlighted field before confirming."}
         </p>
       ) : null}
     </>
@@ -253,7 +334,16 @@ export function ReceiptReview({
         </p>
       </header>
 
-      <DiscrepancyCard reconciliation={reconciliation} />
+      <DiscrepancyCard reconciliation={reconciliation} currency={parsed.currency} />
+      {confirmationError ? (
+        <p
+          role="alert"
+          className="mytab-type-meta"
+          style={{ color: MYTAB_COLORS.warning, margin: "0 0 14px" }}
+        >
+          {confirmationError} Your corrections are still here; try confirming again.
+        </p>
+      ) : null}
 
       <section className="mytab-card" style={{ overflow: "hidden" }}>
         {/* Header strip — merchant left, when it was taken right. */}
@@ -291,7 +381,8 @@ export function ReceiptReview({
 
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {lines.map((line, index) => {
-            const priceValue = priceDrafts[index] ?? minorToBahtInput(line.unitPriceMinor);
+            const priceValue =
+              priceDrafts[index] ?? minorToCurrencyInput(line.unitPriceMinor, parsed.currency);
             return (
               <li
                 key={index}
@@ -354,10 +445,18 @@ export function ReceiptReview({
                     <VisuallyHidden>Quantity for {line.name}</VisuallyHidden>
                     <input
                       inputMode="numeric"
+                      min={1}
+                      max={ITEM_QUANTITY_MAX}
+                      aria-label={`Quantity for ${line.name}, maximum ${ITEM_QUANTITY_MAX}`}
                       value={String(line.quantity)}
                       onChange={(event) => {
                         const digits = event.target.value.replace(/\D/g, "");
-                        updateLine(index, { quantity: Math.max(1, Number(digits) || 1) });
+                        const parsedQuantity = digits.length === 0 ? 1 : Number(digits);
+                        updateLine(index, {
+                          quantity: Number.isSafeInteger(parsedQuantity)
+                            ? Math.min(ITEM_QUANTITY_MAX, Math.max(1, parsedQuantity))
+                            : ITEM_QUANTITY_MAX,
+                        });
                       }}
                       className="mytab-tabular"
                       style={{
@@ -389,7 +488,13 @@ export function ReceiptReview({
                     <VisuallyHidden>Item name</VisuallyHidden>
                     <input
                       value={line.name}
-                      onChange={(event) => updateLine(index, { name: event.target.value })}
+                      onChange={(event) => {
+                        updateLine(index, {
+                          name: event.target.value,
+                          nameConfidence: "high",
+                        });
+                        markResolved(`line.${index}.name`);
+                      }}
                       className="mytab-item-name"
                       style={NAME_FIELD}
                     />
@@ -407,9 +512,9 @@ export function ReceiptReview({
                       ...flagStyle(line.flagged),
                     }}
                   >
-                    <VisuallyHidden>Unit price in baht</VisuallyHidden>
+                    <VisuallyHidden>Unit price in {parsed.currency}</VisuallyHidden>
                     <span aria-hidden="true" style={{ fontSize: "15px", fontWeight: 500 }}>
-                      ฿
+                      {parsed.currency}
                     </span>
                     <input
                       inputMode="decimal"
@@ -417,9 +522,13 @@ export function ReceiptReview({
                       onChange={(event) => {
                         const raw = event.target.value;
                         setPriceDrafts((current) => ({ ...current, [index]: raw }));
-                        const minor = bahtInputToMinor(raw);
+                        const minor = currencyInputToMinor(raw, parsed.currency);
                         if (minor != null) {
-                          updateLine(index, { unitPriceMinor: minor as FiatMinor });
+                          updateLine(index, {
+                            unitPriceMinor: minor as FiatMinor,
+                            priceConfidence: "high",
+                          });
+                          markResolved(`line.${index}.price`);
                         }
                       }}
                       onBlur={() =>
@@ -430,7 +539,13 @@ export function ReceiptReview({
                         })
                       }
                       className="mytab-tabular"
-                      style={{ ...BARE_FIELD, textAlign: "right", color: "inherit" }}
+                      style={{
+                        ...BARE_FIELD,
+                        width: 0,
+                        flex: "1 1 0",
+                        textAlign: "right",
+                        color: "inherit",
+                      }}
                     />
                   </label>
                 </div>
@@ -451,12 +566,60 @@ export function ReceiptReview({
             <span
               className="mytab-row__amount mytab-tabular"
               data-mytab-amount
-              aria-label={formatThbMinorForA11y(reconciliation.linesTotalMinor)}
+              aria-label={formatCurrencyMinorForA11y(
+                reconciliation.linesTotalMinor,
+                parsed.currency,
+              )}
               style={{ fontSize: "14px", fontWeight: 500 }}
             >
-              {formatFiatMinorThb(reconciliation.linesTotalMinor)}
+              {formatCurrencyMinor(reconciliation.linesTotalMinor, parsed.currency)}
             </span>
           </div>
+
+          {adjustments.map((adjustment, index) => {
+            const label = adjustment.label ?? {
+              service: "Service",
+              tax: "Tax",
+              discount: "Discount",
+              gratuity: "Receipt gratuity",
+            }[adjustment.kind];
+            return (
+              <label className="mytab-row" key={`${adjustment.kind}-${index}`}>
+                <span className="mytab-row__label" style={{ fontSize: "14px" }}>
+                  {adjustment.flagged ? `Check ${label}` : label}
+                </span>
+                <span className="mytab-row__amount" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span aria-hidden="true">{adjustment.kind === "discount" ? "−" : "+"}</span>
+                  <span aria-hidden="true">{parsed.currency}</span>
+                  <input
+                    aria-label={`${label} in ${parsed.currency}`}
+                    inputMode="decimal"
+                    value={adjustmentDrafts[index] ?? minorToCurrencyInput(adjustment.amountMinor, parsed.currency)}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      setAdjustmentDrafts((current) => ({ ...current, [index]: raw }));
+                      const minor = currencyInputToMinor(raw, parsed.currency);
+                      if (minor != null && minor > 0) {
+                        markResolved(`adjustment.${index}`);
+                        setAdjustments((current) => current.map((row, rowIndex) =>
+                          rowIndex === index
+                            ? { ...row, amountMinor: minor as FiatMinor, flagged: false, confidence: "high" }
+                            : row,
+                        ));
+                      }
+                    }}
+                    onBlur={() => setAdjustmentDrafts((current) => {
+                      const next = { ...current };
+                      delete next[index];
+                      return next;
+                    })}
+                    className="mytab-tabular"
+                    style={{ ...BARE_FIELD, width: "7em", textAlign: "right" }}
+                  />
+                </span>
+              </label>
+            );
+          })}
 
           <label
             className="mytab-row"
@@ -488,17 +651,18 @@ export function ReceiptReview({
               }}
             >
               <span aria-hidden="true" style={{ fontSize: "15px", fontWeight: 600 }}>
-                ฿
+                {parsed.currency}
               </span>
               <input
                 inputMode="decimal"
-                value={totalDraft ?? minorToBahtInput(receiptTotalMinor)}
+                value={totalDraft ?? minorToCurrencyInput(receiptTotalMinor, parsed.currency)}
                 onChange={(event) => {
                   const raw = event.target.value;
                   setTotalDraft(raw);
-                  const minor = bahtInputToMinor(raw);
+                  const minor = currencyInputToMinor(raw, parsed.currency);
                   if (minor != null) {
                     setReceiptTotalMinor(minor as FiatMinor);
+                    markResolved("total");
                   }
                 }}
                 onBlur={() => setTotalDraft(null)}

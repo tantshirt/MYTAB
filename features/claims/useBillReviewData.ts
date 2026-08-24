@@ -15,6 +15,7 @@ export type BillReviewData = {
 /** Nothing read yet. §4.2 — "Nobody has claimed anything yet." with "Back to the tab". */
 const EMPTY_BILL_REVIEW: BillReviewProps = {
   tabName: "",
+  displayCurrency: "THB",
   isOrganizer: false,
   isLocked: false,
   billTotalMinor: 0,
@@ -63,6 +64,7 @@ export function useBillReviewData(tabId: string | null): BillReviewData {
       revision: view.tab.revision,
       bill: {
         tabName: view.tab.name,
+        displayCurrency: view.tab.displayCurrency,
         isOrganizer: view.viewerIsOrganizer,
         isLocked: view.isLocked,
         viewerUserId: view.viewerUserId,

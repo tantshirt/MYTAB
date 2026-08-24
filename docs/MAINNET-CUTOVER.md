@@ -137,9 +137,40 @@ a blockhash valid on mainnet and invalid on devnet.
   as a replay guard — before the sponsor co-signs anything. Note it proves
   **authenticity, not soundness**: DFlow's own backend produces it. Keep every
   independent check, especially that `account[0]` is our sponsor.
-- Address lookup tables are rejected outright. If a route needs one, either
-  constrain the route or resolve the table at `contextSlot` and validate the
-  expanded account set under the identical rules. Never relax the gate.
+- Address lookup tables are accepted only on the routed policy. Resolve every
+  table from chain state at or after `contextSlot`, require the provider's
+  declared mapping to match byte-for-byte, expand all writable/readonly keys
+  before both signing gates, and require finalized RPC metadata to report the
+  exact same loaded-key counts. Direct transfers still reject every ALT.
+- For a non-USDC receive mint, retain the first signed DFlow order that prices
+  the locked USDC reference into that mint. Persist provider, quote time,
+  reference amount, guaranteed output and the evidence hash; then independently
+  solve the payer input against that frozen guaranteed-output threshold.
+- Prove at least one non-native payer-token route through finalized
+  confirmation. Native SOL stays refused at confirmation until attributable
+  lamport accounting exists; wrapped/native ambiguity is not a cutover waiver.
+
+## 6A. Fiat/receive v2 migration and rollback
+
+This is an additive, dual-read rollout. Do not rewrite existing rows.
+
+- New tabs carry `moneyPolicyVersion=fiat-receive-v2`, an ISO display currency
+  and minor-digit scale, a verified receive mint/decimals timestamp, and an
+  append-only FX snapshot. Missing fields continue to mean the legacy THB/USDC
+  contract; never infer another interpretation for an old amount column.
+- New obligations retain the historical amount field while also binding the
+  stable-reference mint/atomic amount and frozen output mint. Old obligations
+  settle under their stored output and sponsor policy version.
+- Existing `user_signed`, `submitted`, `unknown`, and reconciliation incidents
+  must finish under their original manifest. A deploy must not mutate or
+  silently requote them. Pause only admission of new intents during rollback.
+- Before enabling new non-THB tabs, prove the provider cron has a fresh row for
+  every currency offered by the UI. USD identity snapshots are exact; every
+  other fiat requires real provider evidence. Missing/stale data is a named
+  refusal, never a manual production rate.
+- Rollback is `SPONSOR_PAUSE` plus disabling new v2 admission. Keep all v2
+  columns and snapshots readable. Reverting schema or deleting provider rows is
+  destructive and is not an approved rollback.
 
 ---
 
@@ -162,9 +193,9 @@ a blockhash valid on mainnet and invalid on devnet.
   `false` from the provider.
 - **Partial payment is not representable.** `settlementLedgerEvents` carries no
   amount; a confirmed chain payment is a full clear.
-- **`obligations.displayAmountThbMinor` is THB-named but holds any currency.**
-  The cross-currency guard is real and tested; the column name is a lie waiting
-  to happen.
+- **`obligations.displayAmountThbMinor` is a legacy column name.** V2 rows bind
+  their ISO currency and scale through the tab/snapshot and stable-reference
+  fields; rename only in a later additive migration.
 - **`obligationLedgerEvents.obligationId` is `v.string()`**, so nothing at the
   schema level prevents a dangling reference.
 - **`USDC_DECIMALS = 6` is defined in two places** and they agree today.

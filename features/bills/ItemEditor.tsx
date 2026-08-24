@@ -1,17 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { parseThbStringToMinor } from "@/lib/domain";
+import {
+  assertSupportedCurrency,
+  currencyMinorDigits,
+  currencyDefinition,
+  parseCurrencyAmount,
+  parseThbStringToMinor,
+} from "@/lib/domain";
 import { MYTAB_COLORS } from "@/lib/theme/tokens";
 
 export type ItemEditorProps = {
   name: string;
   quantity: number;
-  unitPriceBaht: number;
-  onChange: (patch: Partial<Pick<ItemEditorProps, "name" | "quantity" | "unitPriceBaht">>) => void;
+  unitPriceInput: string;
+  displayCurrency?: string;
+  onChange: (patch: Partial<Pick<ItemEditorProps, "name" | "quantity" | "unitPriceInput">>) => void;
   onSave: () => void;
   onCancel: () => void;
 };
+
+export function clampItemQuantity(raw: string, fallback = 1): number {
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed)
+    ? Math.min(999, Math.max(1, Math.floor(parsed)))
+    : fallback;
+}
 
 /**
  * Inline item editor for manual capture (Story 4.2), with the validation
@@ -24,19 +38,33 @@ export type ItemEditorProps = {
 export function ItemEditor({
   name,
   quantity,
-  unitPriceBaht,
+  unitPriceInput,
+  displayCurrency = "THB",
   onChange,
   onSave,
   onCancel,
 }: ItemEditorProps) {
+  const currency = assertSupportedCurrency(displayCurrency);
+  const minorDigits = currencyMinorDigits(currency);
+  const step = minorDigits === 0 ? 1 : 1 / 10 ** minorDigits;
   const [touched, setTouched] = useState({ name: false, price: false });
 
   const nameMissing = name.trim().length === 0;
-  const priceMissing = !(unitPriceBaht > 0);
-  const valid = !nameMissing && !priceMissing;
+  const priceMissing = unitPriceInput.trim().length === 0;
+  let pricePrecisionInvalid = false;
+  if (!priceMissing) {
+    try {
+      if (parseCurrencyAmount(unitPriceInput, currency) <= 0) pricePrecisionInvalid = true;
+    } catch {
+      pricePrecisionInvalid = true;
+    }
+  }
+  const quantityInvalid =
+    !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 999;
+  const valid = !nameMissing && !priceMissing && !pricePrecisionInvalid && !quantityInvalid;
 
   const showNameError = nameMissing && touched.name;
-  const showPriceError = priceMissing && touched.price;
+  const showPriceError = (priceMissing || pricePrecisionInvalid) && touched.price;
 
   const handleSubmit = () => {
     setTouched({ name: true, price: true });
@@ -97,9 +125,7 @@ export function ItemEditor({
             min={1}
             max={999}
             value={quantity}
-            onChange={(event) =>
-              onChange({ quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)) })
-            }
+            onChange={(event) => onChange({ quantity: clampItemQuantity(event.target.value) })}
             className="mytab-input mytab-input--compact mytab-tabular"
           />
         </div>
@@ -109,18 +135,18 @@ export function ItemEditor({
             htmlFor="item-price"
             style={{ display: "block", marginBottom: 8 }}
           >
-            Unit price (฿)
+            Unit price ({currencyDefinition(currency).symbol.trim() || currency})
           </label>
           <input
             id="item-price"
             type="number"
             inputMode="decimal"
-            min={0.01}
-            step={0.01}
-            value={unitPriceBaht}
+            min={step}
+            step={step}
+            value={unitPriceInput}
             aria-invalid={showPriceError || undefined}
             aria-describedby={showPriceError ? "item-price-error" : undefined}
-            onChange={(event) => onChange({ unitPriceBaht: Number(event.target.value) })}
+            onChange={(event) => onChange({ unitPriceInput: event.target.value })}
             onBlur={() => setTouched((current) => ({ ...current, price: true }))}
             className="mytab-input mytab-input--compact mytab-tabular"
             style={showPriceError ? { borderColor: MYTAB_COLORS.owed } : undefined}
@@ -134,7 +160,9 @@ export function ItemEditor({
           className="mytab-type-meta"
           style={{ margin: "0 0 12px", color: MYTAB_COLORS.owed }}
         >
-          Add a price.
+          {pricePrecisionInvalid
+            ? `${currency} uses ${minorDigits} decimal place${minorDigits === 1 ? "" : "s"}.`
+            : "Add a price."}
         </p>
       ) : null}
 
@@ -168,4 +196,29 @@ export function bahtToMinor(baht: number): number {
 
 export function minorToBaht(minor: number): number {
   return minor / 100;
+}
+
+/** Generic manual-entry conversion. Invalid/excess precision is refused. */
+export function currencyUnitToMinor(amount: string, currency: string): number {
+  if (!amount.trim()) return 0;
+  try {
+    const minor = parseCurrencyAmount(amount, currency);
+    return minor > 0 ? minor : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function minorToCurrencyUnit(minor: number, currency: string): string {
+  const digits = currencyMinorDigits(currency);
+  if (digits === 0) return String(minor);
+  const scale = 10 ** digits;
+  return `${Math.floor(minor / scale)}.${String(minor % scale).padStart(digits, "0")}`;
+}
+
+export function safeLineTotalMinor(unitPriceMinor: number, quantity: number): number | null {
+  if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0 ||
+      !Number.isSafeInteger(quantity) || quantity <= 0) return null;
+  const total = BigInt(unitPriceMinor) * BigInt(quantity);
+  return total <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(total) : null;
 }

@@ -23,7 +23,6 @@ export async function requireTabParticipant(
   ctx: AuthCtx,
   tabId: Id<"tabs">,
 ): Promise<{ tab: Doc<"tabs">; user: Doc<"users">; participant: Doc<"tabParticipants"> }> {
-  await requireTelegramContext(ctx);
   const user = await getCurrentUser(ctx);
   if (!user) {
     throw new AuthError(UNAUTHORIZED);
@@ -34,10 +33,14 @@ export async function requireTabParticipant(
     throw new AuthError(NOT_TAB_PARTICIPANT);
   }
 
-  // Personal-origin tabs have no chat roster. The invite door writes the same
-  // `tabParticipants` row; that row is the authorization (D-06). Chat-origin
-  // still requires live group membership.
-  if (!isPersonalOrigin(tab)) {
+  if (tab.status === "draft" || tab.status === "open") {
+    await requireTelegramContext(ctx);
+  }
+
+  // Before lock, a chat-origin tab still follows the live Telegram roster.
+  // Lock freezes the tab participant rows; from then on that immutable roster
+  // is the authorization even if Telegram membership later changes (D-07).
+  if (!isPersonalOrigin(tab) && (tab.status === "draft" || tab.status === "open")) {
     await requireGroupMember(ctx, tab.groupId);
   }
 

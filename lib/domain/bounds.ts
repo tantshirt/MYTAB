@@ -15,12 +15,6 @@ export const MAX_BILL_TOTAL_MINOR = 1_000_000_000;
 /** Bill and line totals must be strictly positive. */
 export const MIN_POSITIVE_AMOUNT_MINOR = 1;
 
-/** THB 1.00 expressed in satang. */
-export const MIN_TIP_MINOR = 100;
-
-/** THB 100,000.00 expressed in satang. */
-export const MAX_TIP_MINOR = 10_000_000;
-
 export const MIN_PERCENTAGE_BPS = 0;
 export const MAX_PERCENTAGE_BPS = 10_000;
 
@@ -54,16 +48,6 @@ export function assertBillTotalMinor(amountMinor: FiatMinor): void {
     throw new DomainError(
       DomainErrorCode.OUT_OF_BOUNDS,
       `assertBillTotalMinor: amount exceeds maximum bill total of ${MAX_BILL_TOTAL_MINOR} satang`,
-    );
-  }
-}
-
-export function assertTipMinor(amountMinor: FiatMinor): void {
-  assertNonNegativeFiatMinor(amountMinor, "assertTipMinor");
-  if (amountMinor < MIN_TIP_MINOR || amountMinor > MAX_TIP_MINOR) {
-    throw new DomainError(
-      DomainErrorCode.OUT_OF_BOUNDS,
-      `assertTipMinor: tip must be between ${MIN_TIP_MINOR} and ${MAX_TIP_MINOR} satang`,
     );
   }
 }

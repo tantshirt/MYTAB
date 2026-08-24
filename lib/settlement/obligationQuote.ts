@@ -5,7 +5,7 @@
  * `outAmount` is an estimate and is not an input to anything here.
  */
 
-import { formatFiatMinorThb } from "../domain/format";
+import { formatCurrencyMinor } from "../domain/currency";
 import {
   cryptoAmountFromAtomicString,
   formatCryptoAmountDisplay,
@@ -54,7 +54,12 @@ export type AssembledObligationQuote = {
   roundUpAtomic: string | null;
   rateNumeratorAtomic: string | null;
   rateDenominatorMinor: string | null;
+  displayAmountMinor: string;
+  /** @deprecated D-33 compatibility alias. Value is denominated in `displayCurrency`. */
   displayAmountThbMinor: string;
+  displayCurrency: string;
+  outputDecimals: number;
+  outputSymbol: string;
   tabName: string;
   recipientName: string;
   recipientId: string;
@@ -172,7 +177,11 @@ export function assembleObligationQuote(input: {
   roundUpAtomic: bigint | null;
   rateNumeratorAtomic: bigint | null;
   rateDenominatorMinor: bigint | null;
+  displayAmountMinor?: bigint;
   displayAmountThbMinor: bigint;
+  displayCurrency: string;
+  outputDecimals: number;
+  outputSymbol: string;
   tabName: string;
   recipientName: string;
   recipientId: string;
@@ -213,7 +222,13 @@ export function assembleObligationQuote(input: {
       input.rateNumeratorAtomic === null ? null : input.rateNumeratorAtomic.toString(),
     rateDenominatorMinor:
       input.rateDenominatorMinor === null ? null : input.rateDenominatorMinor.toString(),
-    displayAmountThbMinor: input.displayAmountThbMinor.toString(),
+    displayAmountMinor:
+      (input.displayAmountMinor ?? input.displayAmountThbMinor).toString(),
+    displayAmountThbMinor:
+      (input.displayAmountMinor ?? input.displayAmountThbMinor).toString(),
+    displayCurrency: input.displayCurrency,
+    outputDecimals: input.outputDecimals,
+    outputSymbol: input.outputSymbol,
     tabName: input.tabName,
     recipientName: input.recipientName,
     recipientId: input.recipientId,
@@ -240,12 +255,16 @@ export function formatUsdcLabel(atomic: string | bigint): string {
 }
 
 export function formatThbLabel(minor: string | bigint): string | null {
+  return formatFiatLabel(minor, "THB");
+}
+
+export function formatFiatLabel(minor: string | bigint, currency: string): string | null {
   try {
     const asNumber = Number(minor);
     if (!Number.isSafeInteger(asNumber)) {
       return null;
     }
-    return formatFiatMinorThb(fiatMinorFromInteger(asNumber));
+    return formatCurrencyMinor(fiatMinorFromInteger(asNumber), currency);
   } catch {
     return null;
   }
@@ -254,6 +273,7 @@ export function formatThbLabel(minor: string | bigint): string | null {
 export function formatRateLabel(
   numeratorAtomic: string,
   denominatorMinor: string,
+  displayCurrency: string = "THB",
 ): string | null {
   try {
     const numerator = BigInt(numeratorAtomic);
@@ -263,7 +283,7 @@ export function formatRateLabel(
     }
     const usdcAtomic = 10n ** BigInt(USDC_DECIMALS);
     const thbMinor = (usdcAtomic * denominator) / numerator;
-    const label = formatThbLabel(thbMinor.toString());
+    const label = formatFiatLabel(thbMinor.toString(), displayCurrency);
     return label ? `${label} per USDC` : null;
   } catch {
     return null;

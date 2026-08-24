@@ -176,9 +176,20 @@ export default defineSchema({
     debtorUserId: v.id("users"),
     creditorUserId: v.id("users"),
     displayAmountThbMinor: v.int64(),
+    /** D-33 v2. Absent means legacy THB. */
+    displayAmountMinor: v.optional(v.int64()),
+    displayCurrency: v.optional(v.string()),
+    displayCurrencyMinorDigits: v.optional(v.number()),
     billSnapshotHash: v.string(),
     amountAtomic: v.int64(),
+    /** Stable-reference value of the fiat debt. V2 rows use this for pricing. */
+    referenceMint: v.optional(v.string()),
+    referenceAmountAtomic: v.optional(v.int64()),
+    referenceDecimals: v.optional(v.number()),
     outputMint: v.string(),
+    outputDecimals: v.optional(v.number()),
+    outputTokenProgramId: v.optional(v.string()),
+    settlementPolicyVersion: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("settled"), v.literal("superseded")),
     settledAt: v.optional(v.number()),
     supersededAt: v.optional(v.number()),
@@ -188,6 +199,7 @@ export default defineSchema({
   })
     .index("by_group_id", ["groupId"])
     .index("by_debtor_user_id", ["debtorUserId"])
+    .index("by_creditor_user_id", ["creditorUserId"])
     .index("by_tab_id", ["tabId"]),
 
   settlementIntents: defineTable({
@@ -209,6 +221,21 @@ export default defineSchema({
     excessOutputAtomic: v.optional(v.int64()),
     dflowContextSlot: v.optional(v.number()),
     quotedOtherAmountThreshold: v.optional(v.int64()),
+    pricingReferenceMint: v.optional(v.string()),
+    pricingReferenceAtomic: v.optional(v.int64()),
+    /** Fresh fiat→stable snapshot used when this payment attempt was created. */
+    paymentFxSnapshotId: v.optional(v.id("fxSnapshots")),
+    pricingGuaranteedOutputAtomic: v.optional(v.int64()),
+    pricingProvider: v.optional(v.string()),
+    pricingQuotedAt: v.optional(v.number()),
+    pricingEvidenceHash: v.optional(v.string()),
+    /** Exact server-derived request configuration bound to the idempotency key. */
+    idempotencyRequestHash: v.optional(v.string()),
+    /** Whether the request explicitly authorized replacing a pre-sign intent. */
+    idempotencyReplaceExisting: v.optional(v.boolean()),
+    /** ALT identities resolved and validated before the payer was asked to sign. */
+    resolvedAltWritableAddresses: v.optional(v.array(v.string())),
+    resolvedAltReadonlyAddresses: v.optional(v.array(v.string())),
     routingKind: v.optional(
       v.union(v.literal("exact_usdc"), v.literal("dflow_sync")),
     ),
@@ -248,6 +275,7 @@ export default defineSchema({
   })
     .index("by_idempotency_key", ["idempotencyKey"])
     .index("by_user_id", ["userId"])
+    .index("by_tab_id", ["tabId"])
     .index("by_status", ["status"])
     .index("by_tip_id", ["tipId"])
     .index("by_obligation_id", ["obligationId"]),
@@ -309,6 +337,11 @@ export default defineSchema({
     operation: v.literal("dflow_solver"),
     scopeKey: v.string(),
     intentId: v.id("settlementIntents"),
+    userId: v.optional(v.id("users")),
+    groupId: v.optional(v.id("groups")),
+    windowKey: v.optional(v.string()),
+    reservedAttempts: v.optional(v.number()),
+    usedAttempts: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("released")),
     expiresAt: v.number(),
     createdAt: v.number(),
@@ -324,6 +357,11 @@ export default defineSchema({
     billSnapshotHash: v.optional(v.string()),
     excessOutputAtomic: v.optional(v.int64()),
     sponsorDebitLamports: v.int64(),
+    actualInputAtomic: v.optional(v.int64()),
+    actualOutputAtomic: v.optional(v.int64()),
+    inputMint: v.optional(v.string()),
+    outputMint: v.optional(v.string()),
+    recipientTokenAccount: v.optional(v.string()),
     confirmedAt: v.number(),
   })
     .index("by_intent_id", ["intentId"])
@@ -349,6 +387,9 @@ export default defineSchema({
     // Delivery lease — a claim fences the commit so a slow retry can never
     // overwrite a newer worker's result.
     claimId: v.optional(v.string()),
+    providerWindowKey: v.optional(v.string()),
+    reservedProviderAttempts: v.optional(v.number()),
+    usedProviderAttempts: v.optional(v.number()),
     claimExpiresAt: v.optional(v.number()),
     attemptCount: v.optional(v.number()),
     nextAttemptAt: v.optional(v.number()),
@@ -400,9 +441,11 @@ export default defineSchema({
     .index("by_subject", ["subjectKind", "subjectId"]),
 
   fxSnapshots: defineTable({
-    baseCurrency: v.literal("THB"),
+    baseCurrency: v.string(),
+    baseCurrencyMinorDigits: v.optional(v.number()),
     quoteMint: v.string(),
-    direction: v.literal("USDC_ATOMIC_PER_THB_MINOR"),
+    quoteDecimals: v.optional(v.number()),
+    direction: v.string(),
     numeratorAtomic: v.int64(),
     denominatorMinor: v.int64(),
     provider: v.string(),
@@ -431,6 +474,8 @@ export default defineSchema({
      * it onto a deep link rather than handing the raw field out.
      */
     liveInviteToken: v.optional(v.string()),
+    /** Client retry key for exact personal or group tab creation replay. */
+    creationIdempotencyKey: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("open"),
@@ -439,6 +484,8 @@ export default defineSchema({
       v.literal("closed"),
     ),
     defaultCurrency: v.optional(v.string()),
+    defaultCurrencyMinorDigits: v.optional(v.number()),
+    moneyPolicyVersion: v.optional(v.string()),
     // INVITE-FLOW §1.5 — the bound that replaces `getChatMember` for a tab with
     // no chat. Absent means `{ kind: "chat" }`: bounded by the Telegram chat's
     // own membership, which is every tab that exists today.
@@ -449,6 +496,11 @@ export default defineSchema({
       ),
     ),
     recipientAsset: v.optional(v.string()),
+    receiveMint: v.optional(v.string()),
+    receiveDecimals: v.optional(v.number()),
+    receiveTokenProgramId: v.optional(v.string()),
+    receiveVerifiedAt: v.optional(v.number()),
+    recipientAddressAtLock: v.optional(v.string()),
     payerUserId: v.optional(v.id("users")),
     recipientUserId: v.optional(v.id("users")),
     fxSnapshotId: v.optional(v.id("fxSnapshots")),
@@ -478,6 +530,7 @@ export default defineSchema({
     .index("by_group_id", ["groupId"])
     .index("by_group_and_status", ["groupId", "status"])
     .index("by_group_and_organizer", ["groupId", "organizerTelegramUserId"])
+    .index("by_organizer_and_creation_key", ["organizerTelegramUserId", "creationIdempotencyKey"])
     .index("by_organizer", ["organizerTelegramUserId"]),
 
   items: defineTable({
@@ -579,6 +632,13 @@ export default defineSchema({
     billTotalMinor: v.int64(),
     recipientUserId: v.id("users"),
     recipientAsset: v.string(),
+    displayCurrency: v.optional(v.string()),
+    displayCurrencyMinorDigits: v.optional(v.number()),
+    receiveMint: v.optional(v.string()),
+    receiveDecimals: v.optional(v.number()),
+    receiveTokenProgramId: v.optional(v.string()),
+    recipientAddress: v.optional(v.string()),
+    settlementPolicyVersion: v.optional(v.string()),
     fxNumeratorAtomic: v.int64(),
     fxDenominatorMinor: v.int64(),
     fxProvider: v.string(),
@@ -605,9 +665,11 @@ export default defineSchema({
     userId: v.id("users"),
     telegramUserId: v.string(),
     joinedAt: v.number(),
+    origin: v.optional(v.union(v.literal("chat"), v.literal("personal"), v.literal("qr"))),
   })
     .index("by_tab_id", ["tabId"])
-    .index("by_tab_and_user", ["tabId", "userId"]),
+    .index("by_tab_and_user", ["tabId", "userId"])
+    .index("by_user_id", ["userId"]),
 
   // Exactly one row per tab — the canonical group card that is edited in place
   // (FR-N4). `by_tab_id` is the uniqueness path and the delivery lease lives on
@@ -681,7 +743,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_group_id", ["groupId"])
-    .index("by_group_and_created", ["groupId", "createdAt"]),
+    .index("by_group_and_created", ["groupId", "createdAt"])
+    .index("by_tab_and_created", ["tabId", "createdAt"]),
 
   obligationLedgerEvents: defineTable({
     groupId: v.id("groups"),
@@ -691,6 +754,9 @@ export default defineSchema({
     debtorUserId: v.id("users"),
     creditorUserId: v.id("users"),
     amountMinor: v.int64(),
+    /** D-33 v2. Absent means this legacy ledger row is denominated in THB. */
+    displayCurrency: v.optional(v.string()),
+    displayCurrencyMinorDigits: v.optional(v.number()),
     eventKind: v.union(
       v.literal("settlement_offset"),
       v.literal("waiver_offset"),
@@ -748,6 +814,8 @@ export default defineSchema({
     fetchedAt: v.number(),
     /** When `decimals` was last proven equal to the mint account. */
     decimalsVerifiedAt: v.optional(v.number()),
+    /** Mint-account owner proven by the same chain read (legacy SPL or Token-2022). */
+    tokenProgramId: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_cluster_and_mint", ["cluster", "mint"])
@@ -799,8 +867,16 @@ export default defineSchema({
 
   receiptImports: defineTable({
     tabId: v.id("tabs"),
+    groupId: v.optional(v.id("groups")),
     uploadedBy: v.id("users"),
     storageId: v.optional(v.id("_storage")),
+    storageIds: v.optional(v.array(v.id("_storage"))),
+    /** Terminal record committed; source blobs still need durable cleanup. */
+    cleanupPending: v.optional(v.boolean()),
+    pageCount: v.optional(v.number()),
+    confirmationKey: v.optional(v.string()),
+    confirmationPayloadHash: v.optional(v.string()),
+    confirmedItemIds: v.optional(v.array(v.id("items"))),
     status: v.union(
       v.literal("ticketed"),
       v.literal("uploaded"),
@@ -824,5 +900,82 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_tab_id", ["tabId"])
+    .index("by_group_id", ["groupId"])
+    .index("by_uploaded_by", ["uploadedBy"])
+    .index("by_uploaded_and_created", ["uploadedBy", "createdAt"])
     .index("by_status", ["status"]),
+
+  /** One storage blob belongs to exactly one receipt import before finalize. */
+  receiptBlobOwners: defineTable({
+    storageId: v.id("_storage"),
+    importId: v.id("receiptImports"),
+    createdAt: v.number(),
+  })
+    .index("by_storage_id", ["storageId"])
+    .index("by_import_id", ["importId"]),
+
+  /** Consumed receipt upload/extraction attempts for AD-24 UTC-day caps. */
+  receiptUsageBuckets: defineTable({
+    operation: v.union(
+      v.literal("receipt_upload"),
+      v.literal("receipt_extraction"),
+      v.literal("receipt_provider"),
+    ),
+    dimension: v.union(
+      v.literal("user_day"),
+      v.literal("group_day"),
+      v.literal("global_day"),
+      v.literal("user_hour"),
+      v.literal("group_hour"),
+      v.literal("global_hour"),
+    ),
+    scopeKey: v.string(),
+    windowKey: v.string(),
+    attempts: v.number(),
+    updatedAt: v.number(),
+  }).index("by_operation_dimension_scope_window", [
+    "operation",
+    "dimension",
+    "scopeKey",
+    "windowKey",
+  ]),
+
+  /** Durable receipt worker ownership; stale owners are safe to replace. */
+  receiptExtractionLeases: defineTable({
+    importId: v.id("receiptImports"),
+    groupId: v.id("groups"),
+    status: v.union(v.literal("active"), v.literal("released")),
+    claimId: v.optional(v.string()),
+    providerWindowKey: v.optional(v.string()),
+    reservedProviderAttempts: v.optional(v.number()),
+    usedProviderAttempts: v.optional(v.number()),
+    expiresAt: v.number(),
+    heartbeatAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_import_id", ["importId"])
+    .index("by_status", ["status"])
+    .index("by_group_and_status", ["groupId", "status"]),
+
+  /** Private, rate-limited nudges. No group card ever reads this table. */
+  paymentReminders: defineTable({
+    obligationId: v.id("obligations"),
+    tabId: v.id("tabs"),
+    senderUserId: v.id("users"),
+    recipientUserId: v.id("users"),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("claimed"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("unknown"),
+    ),
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_obligation_id", ["obligationId"])
+    .index("by_sender_and_created", ["senderUserId", "createdAt"]),
 });

@@ -5,9 +5,11 @@ import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import {
   assertReceiptScanAvailable,
+  validateReceiptPageExtraction,
   validateAndParseExtraction,
   type ReceiptExtractionResult,
 } from "../lib/receiptExtraction";
+import { combineReceiptPages, type ExtractedReceipt } from "../../lib/domain/receiptParse";
 import {
   assertPreviewEgressAllowed,
   guardedFetch,
@@ -15,6 +17,8 @@ import {
   type RuntimeEnv,
 } from "../../lib/env/preview-guard";
 import { RuntimeGuardError } from "../../lib/solana/runtimeGuard";
+import { inspectReceiptImage } from "../../lib/images/receiptImage";
+import { ITEM_QUANTITY_MAX } from "../../lib/domain/bill";
 
 export const AI_GATEWAY_RESPONSES_URL = "https://ai-gateway.vercel.sh/v1/responses";
 
@@ -29,6 +33,13 @@ export const RECEIPT_GATEWAY_FAILED = "RECEIPT_GATEWAY_FAILED";
 export const RECEIPT_IMAGE_MISSING = "RECEIPT_IMAGE_MISSING";
 
 const RECEIPT_GATEWAY_TIMEOUT_MS = 30_000;
+// Eight admitted pages may each legitimately consume the full provider timeout.
+// Keep a small orchestration margin for storage reads, heartbeats, combination,
+// and the terminal mutation so the advertised page limit is actually usable.
+export const RECEIPT_EXTRACTION_DEADLINE_MS = RECEIPT_GATEWAY_TIMEOUT_MS * 8 + 15_000;
+export const RECEIPT_PAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const RECEIPT_TOTAL_MAX_BYTES = 32 * 1024 * 1024;
+const RECEIPT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /**
  * Strict JSON schema for ExtractedReceipt. Optional fields are nullable so
@@ -40,15 +51,16 @@ export const EXTRACTED_RECEIPT_JSON_SCHEMA = {
   additionalProperties: false,
   properties: {
     merchant: { type: ["string", "null"] },
+    currency: { type: "string", minLength: 3, maxLength: 3 },
     lines: {
       type: "array",
-      minItems: 1,
+      minItems: 0,
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
           name: { type: "string" },
-          quantity: { type: "integer", minimum: 1 },
+          quantity: { type: "integer", minimum: 1, maximum: ITEM_QUANTITY_MAX },
           unitPriceRaw: { type: "string" },
           lineTotalRaw: { type: ["string", "null"] },
           nameConfidence: { type: ["string", "null"], enum: ["high", "low", null] },
@@ -64,14 +76,28 @@ export const EXTRACTED_RECEIPT_JSON_SCHEMA = {
         ],
       },
     },
+    adjustments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string", enum: ["service", "tax", "discount", "gratuity"] },
+          label: { type: ["string", "null"] },
+          amountRaw: { type: "string" },
+          confidence: { type: ["string", "null"], enum: ["high", "low", null] },
+        },
+        required: ["kind", "label", "amountRaw", "confidence"],
+      },
+    },
     totalRaw: { type: "string" },
     totalConfidence: { type: ["string", "null"], enum: ["high", "low", null] },
   },
-  required: ["merchant", "lines", "totalRaw", "totalConfidence"],
+  required: ["merchant", "currency", "lines", "adjustments", "totalRaw", "totalConfidence"],
 } as const;
 
 const EXTRACTION_PROMPT =
-  "Extract every line item from this restaurant receipt. Copy printed prices as raw strings (whole baht or two decimals). quantity is a positive integer. Copy totalRaw from the printed total — do not recompute it. Thai and English names are both valid. If a field is hard to read, set its confidence to low.";
+  "Extract this page of a restaurant receipt. Return the printed ISO currency code. Copy every amount as a raw decimal string using that currency's printed precision; never recompute it. quantity is a positive integer. Thai and English names are both valid. If a field is hard to read, set its confidence to low.";
 
 export type GatewayEnv = RuntimeEnv & { AI_GATEWAY_API_KEY?: string };
 
@@ -80,7 +106,10 @@ export function imageBytesToDataUrl(bytes: ArrayBuffer, mimeType: string): strin
   return `data:${media};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
-export function buildReceiptExtractionRequest(imageDataUrl: string): {
+export function buildReceiptExtractionRequest(
+  imageDataUrl: string | readonly string[],
+  page?: { index: number; count: number },
+): {
   model: typeof RECEIPT_VISION_MODEL;
   input: unknown[];
   text: { format: Record<string, unknown> };
@@ -91,8 +120,21 @@ export function buildReceiptExtractionRequest(imageDataUrl: string): {
       {
         role: "user",
         content: [
-          { type: "input_text", text: EXTRACTION_PROMPT },
-          { type: "input_image", image_url: imageDataUrl, detail: "high" },
+          {
+            type: "input_text",
+            text: page
+              ? `${EXTRACTION_PROMPT} This is page ${page.index + 1} of ${page.count}. ${
+                  page.index + 1 < page.count
+                    ? "This is not the final page: return an empty totalRaw and no adjustments, even if repeated subtotal text is visible."
+                    : "This is the final page: include the final total and all printed service, tax, discount and gratuity adjustments."
+                }`
+              : `${EXTRACTION_PROMPT} Include the final total and all printed service, tax, discount and gratuity adjustments.`,
+          },
+          ...(Array.isArray(imageDataUrl) ? imageDataUrl : [imageDataUrl]).map((image_url) => ({
+            type: "input_image",
+            image_url,
+            detail: "high",
+          })),
         ],
       },
     ],
@@ -188,7 +230,15 @@ function failureCodeOf(error: unknown): string {
     if (
       error.message === "RECEIPT_SCHEMA_REJECTED" ||
       error.message === RECEIPT_GATEWAY_FAILED ||
-      error.message === RECEIPT_IMAGE_MISSING
+      error.message === RECEIPT_IMAGE_MISSING ||
+      error.message === "RECEIPT_IMAGE_TYPE_UNSUPPORTED" ||
+      error.message === "RECEIPT_IMAGE_TOO_LARGE" ||
+      error.message === "RECEIPT_IMAGE_HEADER_INVALID" ||
+      error.message === "RECEIPT_IMAGE_TYPE_MISMATCH" ||
+      error.message === "RECEIPT_IMAGE_DIMENSIONS_UNSUPPORTED" ||
+      error.message === "RECEIPT_EXTRACTION_TIMEOUT" ||
+      error.message === "RECEIPT_EXTRACTION_LEASE_LOST" ||
+      error.message === "RECEIPT_UPLOAD_PAGE_MISMATCH"
     ) {
       return error.message;
     }
@@ -197,14 +247,20 @@ function failureCodeOf(error: unknown): string {
 }
 
 export async function extractReceiptViaGateway(input: {
-  imageBytes: ArrayBuffer;
-  mimeType: string;
+  imageBytes: ArrayBuffer | readonly ArrayBuffer[];
+  mimeType: string | readonly string[];
   fetchImpl?: typeof fetch;
   env?: GatewayEnv;
 }): Promise<ReceiptExtractionResult> {
   const apiKey = assertReceiptScanAvailable(input.env);
-  const imageDataUrl = imageBytesToDataUrl(input.imageBytes, input.mimeType);
-  const request = buildReceiptExtractionRequest(imageDataUrl);
+  const bytePages = Array.isArray(input.imageBytes) ? input.imageBytes : [input.imageBytes];
+  const mimePages = Array.isArray(input.mimeType) ? input.mimeType : [input.mimeType];
+  if (bytePages.length === 0 || bytePages.length > 8 || mimePages.length !== bytePages.length) {
+    throw new Error(RECEIPT_IMAGE_MISSING);
+  }
+  const request = buildReceiptExtractionRequest(
+    bytePages.map((bytes, index) => imageBytesToDataUrl(bytes, mimePages[index] ?? "image/jpeg")),
+  );
 
   assertPreviewEgressAllowed(AI_GATEWAY_RESPONSES_URL, input.env);
 
@@ -248,6 +304,80 @@ export async function extractReceiptViaGateway(input: {
   });
 }
 
+async function extractReceiptPageViaGateway(input: {
+  imageBytes: ArrayBuffer;
+  mimeType: string;
+  pageIndex: number;
+  pageCount: number;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+  env?: GatewayEnv;
+}): Promise<ExtractedReceipt> {
+  const apiKey = assertReceiptScanAvailable(input.env);
+  const request = buildReceiptExtractionRequest(
+    imageBytesToDataUrl(input.imageBytes, input.mimeType),
+    { index: input.pageIndex, count: input.pageCount },
+  );
+  assertPreviewEgressAllowed(AI_GATEWAY_RESPONSES_URL, input.env);
+  let response: Response;
+  try {
+    response = await guardedFetch(
+      AI_GATEWAY_RESPONSES_URL,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(input.timeoutMs ?? RECEIPT_GATEWAY_TIMEOUT_MS),
+      },
+      input.env,
+      input.fetchImpl ?? fetch,
+    );
+  } catch (error) {
+    if (error instanceof PreviewEgressBlockedError || error instanceof RuntimeGuardError) {
+      throw error;
+    }
+    throw new Error(RECEIPT_GATEWAY_FAILED);
+  }
+  if (!response.ok) throw new Error(RECEIPT_GATEWAY_FAILED);
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("RECEIPT_SCHEMA_REJECTED");
+  }
+  return validateReceiptPageExtraction(parseGatewayResponseBody(payload));
+}
+
+/** Terminal persistence fence shared by success and failure action exits. */
+export async function persistReceiptTerminalBeforeCleanup(input: {
+  persist: () => Promise<boolean>;
+  deleteSource: (storageId: string) => Promise<void>;
+  storageIds: readonly string[];
+  markCleanupComplete?: () => Promise<unknown>;
+}): Promise<boolean> {
+  const recorded = await input.persist();
+  if (!recorded) return false;
+  let cleanupComplete = true;
+  for (const storageId of input.storageIds) {
+    try {
+      await input.deleteSource(storageId);
+    } catch {
+      cleanupComplete = false;
+    }
+  }
+  if (cleanupComplete && input.markCleanupComplete) {
+    try {
+      await input.markCleanupComplete();
+    } catch {
+      // The terminal row still carries cleanupPending + the source ids.
+    }
+  }
+  return true;
+}
+
 /**
  * Durable intent is already written (ticket + storageId + extracting).
  * This action is the outside-world hop (AD-8). The client never calls it.
@@ -255,39 +385,118 @@ export async function extractReceiptViaGateway(input: {
 export const extractReceipt = internalAction({
   args: {
     importId: v.id("receiptImports"),
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
+    storageIds: v.optional(v.array(v.id("_storage"))),
   },
   handler: async (ctx, args): Promise<{ ok: true } | { ok: false; failureCode: string }> => {
+    const claimId = crypto.randomUUID();
+    const claim = await ctx.runMutation(internal.receipts.claimExtraction, {
+      importId: args.importId,
+      claimId,
+    });
+    if (!claim || "inFlight" in claim || "busy" in claim) {
+      return { ok: false, failureCode: "RECEIPT_EXTRACTION_NOT_CLAIMED" };
+    }
+    const startedAt = Date.now();
     try {
-      const blob = await ctx.storage.get(args.storageId);
-      if (!blob) {
-        await ctx.runMutation(internal.receipts.recordExtractionFailure, {
-          importId: args.importId,
-          failureCode: RECEIPT_IMAGE_MISSING,
-        });
-        return { ok: false, failureCode: RECEIPT_IMAGE_MISSING };
+      const requestedIds = args.storageIds ?? (args.storageId ? [args.storageId] : []);
+      const ids = requestedIds.length > 0 ? requestedIds : claim.storageIds;
+      if (
+        ids.length !== claim.storageIds.length ||
+        ids.some((id, index) => id !== claim.storageIds[index])
+      ) {
+        throw new Error("RECEIPT_UPLOAD_PAGE_MISMATCH");
+      }
+      if (ids.length === 0 || ids.length > 8 || new Set(ids).size !== ids.length) {
+        throw new Error(RECEIPT_IMAGE_MISSING);
       }
 
-      const result = await extractReceiptViaGateway({
-        imageBytes: await blob.arrayBuffer(),
-        mimeType: blob.type || "image/jpeg",
+      // Materialize one page at a time. Promise.all over storage blobs and
+      // ArrayBuffers lets eight maximum-sized images coexist twice in memory,
+      // defeating the limits before the provider call even starts.
+      const pages: ExtractedReceipt[] = [];
+      let totalBytes = 0;
+      for (let index = 0; index < ids.length; index += 1) {
+          const remainingMs = RECEIPT_EXTRACTION_DEADLINE_MS - (Date.now() - startedAt);
+          if (remainingMs <= 0) throw new Error("RECEIPT_EXTRACTION_TIMEOUT");
+          const pagesRemaining = ids.length - index;
+          const pageTimeoutMs = Math.min(
+            RECEIPT_GATEWAY_TIMEOUT_MS,
+            Math.max(1_000, Math.floor((remainingMs - 1_000) / pagesRemaining)),
+          );
+          const heartbeat = await ctx.runMutation(internal.receipts.heartbeatExtraction, {
+            importId: args.importId,
+            claimId,
+          });
+          if (!heartbeat) throw new Error("RECEIPT_EXTRACTION_LEASE_LOST");
+          const id = ids[index]!;
+          const blob = await ctx.storage.get(id);
+          if (!blob) throw new Error(RECEIPT_IMAGE_MISSING);
+          if (!RECEIPT_IMAGE_MIME_TYPES.has(blob.type)) {
+            throw new Error("RECEIPT_IMAGE_TYPE_UNSUPPORTED");
+          }
+          totalBytes += blob.size;
+          if (blob.size > RECEIPT_PAGE_MAX_BYTES || totalBytes > RECEIPT_TOTAL_MAX_BYTES) {
+            throw new Error("RECEIPT_IMAGE_TOO_LARGE");
+          }
+          const imageBytes = await blob.arrayBuffer();
+          inspectReceiptImage(imageBytes, blob.type);
+          const providerAttempt = await ctx.runMutation(
+            internal.receipts.beginExtractionProviderAttempt,
+            { importId: args.importId, claimId },
+          );
+          if (!providerAttempt) throw new Error("RECEIPT_EXTRACTION_LEASE_LOST");
+          pages.push(await extractReceiptPageViaGateway({
+            imageBytes,
+            mimeType: blob.type,
+            pageIndex: index,
+            pageCount: ids.length,
+            timeoutMs: pageTimeoutMs,
+          }));
+      }
+      const combined = combineReceiptPages(pages);
+      const result = validateAndParseExtraction(combined, {
+        provider: "ai_gateway",
+        modelId: RECEIPT_VISION_MODEL,
       });
 
-      await ctx.runMutation(internal.receipts.recordExtraction, {
-        importId: args.importId,
-        raw: result.raw,
-        parsed: result.parsed,
-        fieldConfidence: result.fieldConfidence,
-        reconciliation: result.parsed.reconciliation,
-        modelMetadata: result.modelMetadata,
+      const recorded = await persistReceiptTerminalBeforeCleanup({
+        persist: () => ctx.runMutation(internal.receipts.recordExtraction, {
+          importId: args.importId,
+          claimId,
+          raw: result.raw,
+          parsed: result.parsed,
+          fieldConfidence: result.fieldConfidence,
+          reconciliation: result.parsed.reconciliation,
+          modelMetadata: result.modelMetadata,
+        }),
+        deleteSource: (pageId) => ctx.storage.delete(pageId as never),
+        storageIds: ids,
+        markCleanupComplete: () => ctx.runMutation(internal.receipts.recordReceiptCleanupComplete, {
+          importId: args.importId,
+        }),
       });
+      if (!recorded) {
+        return { ok: false, failureCode: "RECEIPT_EXTRACTION_LEASE_LOST" };
+      }
       return { ok: true };
     } catch (error) {
       const failureCode = failureCodeOf(error);
-      await ctx.runMutation(internal.receipts.recordExtractionFailure, {
-        importId: args.importId,
-        failureCode,
+      // Persist first. If persistence throws, the source images deliberately
+      // remain owned and recoverable until the extraction lease expires.
+      const recorded = await persistReceiptTerminalBeforeCleanup({
+        persist: () => ctx.runMutation(internal.receipts.recordExtractionFailure, {
+          importId: args.importId,
+          claimId,
+          failureCode,
+        }),
+        deleteSource: (pageId) => ctx.storage.delete(pageId as never),
+        storageIds: claim.storageIds,
+        markCleanupComplete: () => ctx.runMutation(internal.receipts.recordReceiptCleanupComplete, {
+          importId: args.importId,
+        }),
       });
+      void recorded;
       return { ok: false, failureCode };
     }
   },

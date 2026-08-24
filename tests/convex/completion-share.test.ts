@@ -165,6 +165,17 @@ describe("convex/completionShare — who may mint a share, and for what", () => 
     ).rejects.toThrow(completionShare.BILL_NOT_COMPLETE);
   });
 
+  it("treats a settled recipient-only bill with no payable shares as complete", async () => {
+    const store = world();
+    store.tabs![0]!.status = "settled";
+    store.obligations = [];
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+    const facts = await run(completionShare.completionShareFacts, ctx, {
+      tabId: "tabs:t1",
+    });
+    expect(facts.messageText).toContain("Everyone paid.");
+  });
+
   it("keys the inline result on the bill — the tab at ONE locked revision", async () => {
     const { ctx } = createFakeCtx(world(), identity(DID.andre));
     const facts = await run(completionShare.completionShareFacts, ctx, {

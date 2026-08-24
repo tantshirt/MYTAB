@@ -197,7 +197,13 @@ export async function assertPrivilegedActionAllowed(
   if (!snapshot.memberActive) {
     throw new MembershipError(MEMBERSHIP_FAILURE.NOT_GROUP_MEMBER);
   }
+  if (!snapshot.memberFresh) {
+    throw new MembershipError(MEMBERSHIP_FAILURE.NOT_GROUP_MEMBER);
+  }
   if (!snapshot.botIsAdmin) {
+    throw new MembershipError(MEMBERSHIP_FAILURE.BOT_NOT_ADMIN);
+  }
+  if (!snapshot.botAdminFresh) {
     throw new MembershipError(MEMBERSHIP_FAILURE.BOT_NOT_ADMIN);
   }
 

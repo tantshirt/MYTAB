@@ -177,13 +177,34 @@ export function computeItemShares(rows: readonly ItemClaimRow[]): PersistedShare
  * Counts items that still need an owner.
  * Quantity-mode shortfall (claimed < n) is unassigned — lock refuses UNASSIGNED_ITEMS (D-29).
  */
+export function itemMonetaryShortfallMinor(row: ItemClaimRow): FiatMinor {
+  if (row.mode === "quantity") {
+    const missing = quantityShortfall(row.itemQuantity, claimedQuantitySum(row.claims));
+    if (missing === 0) return fiatMinorFromInteger(0);
+    return fiatMinorFromInteger(Number(
+      (BigInt(row.lineTotalMinor) * BigInt(missing) + BigInt(row.itemQuantity) - 1n) /
+        BigInt(row.itemQuantity),
+    ));
+  }
+  if (row.mode === "percentage") {
+    const assignedBps = row.claims.reduce((sum, claim) => sum + (claim.percentageBps ?? 0), 0);
+    const missingBps = Math.max(0, 10_000 - assignedBps);
+    return fiatMinorFromInteger(Number(
+      (BigInt(row.lineTotalMinor) * BigInt(missingBps) + 9_999n) / 10_000n,
+    ));
+  }
+  if (row.mode === "fixed") {
+    const assigned = row.claims.reduce(
+      (sum, claim) => sum + Number(claim.fixedMinor ?? 0),
+      0,
+    );
+    return fiatMinorFromInteger(Math.max(0, row.lineTotalMinor - assigned));
+  }
+  return row.claims.length === 0 ? row.lineTotalMinor : fiatMinorFromInteger(0);
+}
+
 export function countUnassignedItems(rows: readonly ItemClaimRow[]): number {
-  return rows.filter((row) => {
-    if (row.mode === "quantity") {
-      return quantityShortfall(row.itemQuantity, claimedQuantitySum(row.claims)) > 0;
-    }
-    return row.claims.length === 0;
-  }).length;
+  return rows.filter((row) => itemMonetaryShortfallMinor(row) > 0).length;
 }
 
 /** Builds participant breakdowns for footer and bill review. */
@@ -330,4 +351,3 @@ export async function persistComputedAllocations(
 
   return totals;
 }
-

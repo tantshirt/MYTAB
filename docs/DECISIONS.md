@@ -615,6 +615,47 @@ Also fixed in the same window, and worth knowing about: a hardcoded 32 THB/USD l
 
 ---
 
+## D-33 · Repayment is fiat-canonical, receive-asset-selectable, and has no standalone tips
+
+**Originally:** The locked debt and every display helper were THB-specific; every
+obligation settled to cluster-pinned USDC; `/tip`, `/tips/new`, tip intents and the
+payment-sheet round-up were separate money-moving products.
+
+**Now:** A tab freezes an explicit supported ISO-4217 currency and its minor-unit
+precision. The locked fiat debt remains canonical. At lock, the organizer's
+server-verified receive mint and proven decimals are frozen with the recipient
+address; payment-time pricing converts the debt to that asset, and DFlow may use
+any independently verified payer token. Existing rows with none of the new
+version fields retain the THB-to-USDC v1 interpretation. Standalone tips and
+payment round-ups do not ship. A gratuity printed on a receipt remains an
+ordinary bill adjustment and is allocated with the rest of the bill.
+
+**Why it changed:** THB and USDC were launch defaults accidentally encoded as
+the data model. That prevented a receipt in a 0- or 3-decimal currency and made
+the recipient's chosen asset impossible to represent. Standalone tipping added
+an unrelated settlement target, command, route and group event to a product
+whose user goal is repayment; it also created a second amount alongside the
+locked obligation. The receipt's gratuity is different: it is part of the
+restaurant total the group is reconciling.
+
+**Consequences:**
+- Currency, minor digits, receive mint, receive decimals, recipient address and
+  policy version are frozen at lock. None comes from a payment request.
+- Money helpers refuse unlike-currency arithmetic and parse decimal strings
+  directly to integers. Legacy THB helpers remain compatibility wrappers.
+- A routed confirmation may contain the same ALTs resolved during validation;
+  finalized loaded addresses and actual input/output deltas must be proven and
+  persisted before the ledger moves.
+- `/tip`, `/tips/new`, public tip mutations, tip cards and round-up inputs are
+  removed from shipped surfaces. Legacy rows and in-flight v1 intents remain
+  readable/finishable under their stamped policy.
+
+**Status:** binding · supersedes the USDC-only scope of D-03/D-05 and the
+standalone/round-up tip portions of the original product artifacts. It does not
+weaken D-02, D-04, D-08, D-09 or AD-10/AD-11.
+
+---
+
 ## Unresolved
 
 Listed rather than invented. Do not resolve one of these silently.

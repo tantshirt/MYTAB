@@ -9,7 +9,6 @@ import {
   ADD_TO_GROUP_BUTTON_LABEL,
   OPEN_MY_TAB_BUTTON_LABEL,
   OPEN_TAB_BUTTON_LABEL,
-  SEND_TIP_BUTTON_LABEL,
   START_TAB_BUTTON_LABEL,
   WHAT_I_OWE_BUTTON_LABEL,
   type PrivateButtonKind,
@@ -65,8 +64,6 @@ export function resolvePrivateButton(
           ? input.buildDeepLink(input.openTabToken)
           : input.miniAppLink,
       };
-    case "send_tip":
-      return miniAppDoor(SEND_TIP_BUTTON_LABEL, input, "/tips/new");
     case "open_my_tab":
       return miniAppDoor(OPEN_MY_TAB_BUTTON_LABEL, input, "/");
   }

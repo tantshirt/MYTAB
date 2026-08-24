@@ -181,7 +181,7 @@ describe("balances.forViewer — authorization", () => {
     ).rejects.toMatchObject({ code: "NOT_GROUP_MEMBER" });
   });
 
-  it("rejects a viewer whose membership is no longer active", async () => {
+  it("rejects a departed viewer's guessed group scope but retains roster-tab scope", async () => {
     store.groupMembers![0]!.membershipStatus = "left";
     const { ctx } = createFakeCtx(store, identity(DID.andre));
 
@@ -190,7 +190,8 @@ describe("balances.forViewer — authorization", () => {
     ).rejects.toMatchObject({ code: "NOT_GROUP_MEMBER" });
 
     const scoped = await run(balances.forViewer, ctx);
-    expect(scoped.groups).toHaveLength(0);
+    expect(scoped.groups.map((group: any) => group.groupId)).toEqual(["groups:g1"]);
+    expect(scoped.components.every((component: any) => component.tabId === "tabs:t1")).toBe(true);
   });
 
   it("discloses nothing to an unauthenticated caller", async () => {
@@ -317,6 +318,78 @@ describe("balances.listOpenTabsForViewer", () => {
 
   beforeEach(() => {
     store = world();
+  });
+
+  it("includes only personal tabs authorized by tab participation", async () => {
+    store.groups!.push({
+      _id: "groups:personal",
+      telegramChatId: "2",
+      displayName: "Maya personal",
+      botIsAdmin: false,
+      kind: "personal",
+      createdAt: 1,
+      updatedAt: 30,
+    });
+    store.tabs!.push(
+      {
+        _id: "tabs:personal-joined",
+        groupId: "groups:personal",
+        organizerTelegramUserId: "2",
+        name: "Invite dinner",
+        origin: "personal",
+        status: "draft",
+        defaultCurrency: "THB",
+        revision: 0,
+        createdAt: 20,
+        updatedAt: 30,
+      },
+      {
+        _id: "tabs:personal-private",
+        groupId: "groups:personal",
+        organizerTelegramUserId: "2",
+        name: "Organizer only",
+        origin: "personal",
+        status: "draft",
+        defaultCurrency: "THB",
+        revision: 0,
+        createdAt: 21,
+        updatedAt: 31,
+      },
+    );
+    store.tabParticipants!.push({
+      _id: "tabParticipants:personal-andre",
+      tabId: "tabs:personal-joined",
+      userId: "users:andre",
+      telegramUserId: "1",
+      joinedAt: 20,
+      origin: "personal",
+    });
+    store.activityEvents!.push(
+      {
+        _id: "activityEvents:personal-visible",
+        groupId: "groups:personal",
+        tabId: "tabs:personal-joined",
+        type: "claim",
+        payload: { summary: "Andre joined" },
+        createdAt: 300,
+      },
+      {
+        _id: "activityEvents:personal-hidden",
+        groupId: "groups:personal",
+        tabId: "tabs:personal-private",
+        type: "claim",
+        payload: { summary: "Private organizer event" },
+        createdAt: 301,
+      },
+    );
+
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+    const cards = await run(balances.listOpenTabsForViewer, ctx);
+    expect(cards.map((card: { tabId: string }) => card.tabId)).toContain("tabs:personal-joined");
+    expect(cards.map((card: { tabId: string }) => card.tabId)).not.toContain("tabs:personal-private");
+    const events = await run(activity.listForViewer, ctx);
+    expect(events.map((event: { _id: string }) => event._id)).toContain("activityEvents:personal-visible");
+    expect(events.map((event: { _id: string }) => event._id)).not.toContain("activityEvents:personal-hidden");
   });
 
   it("counts confirmed money only and reports submitted separately", async () => {
@@ -495,6 +568,16 @@ describe("obligations reads — authorization", () => {
     expect(result).toMatchObject({ totalCount: 2, settledCount: 1, complete: false });
   });
 
+  it("treats a settled tab with zero obligations as complete", async () => {
+    store.tabs![0]!.status = "settled";
+    store.obligations = store.obligations!.filter((row) => row.tabId !== "tabs:t1");
+    const { ctx } = createFakeCtx(store, identity(DID.andre));
+
+    const result = await run(obligations.forTab, ctx, { tabId: "tabs:t1" });
+
+    expect(result).toMatchObject({ totalCount: 0, settledCount: 0, complete: true });
+  });
+
   it("listForViewer returns only obligations the viewer owes", async () => {
     const { ctx } = createFakeCtx(store, identity(DID.maya));
     const rows = await run(obligations.listForViewer, ctx);
@@ -531,6 +614,12 @@ describe("off-chain offsets — authorization and money", () => {
     const result = await run(balances.forViewer, viewer.ctx);
     expect(result.netAtomic).toBe(0n);
     expect(result.isAllSquare).toBe(true);
+    expect(store.tabs![0]).toMatchObject({ status: "settled" });
+    expect(creditor.scheduled).toHaveLength(1);
+    expect(store.telegramStatusMessages?.at(-1)).toMatchObject({
+      tabId: "tabs:t1",
+      event: "bill_completed",
+    });
   });
 
   it("refuses an offset while a settlement is in flight", async () => {
@@ -580,9 +669,25 @@ describe("off-chain offsets — authorization and money", () => {
       }),
     ).resolves.toMatchObject({ ok: true });
 
+    const ledgerCount = store.obligationLedgerEvents!.length;
+    const activityCount = store.activityEvents!.length;
+    await expect(
+      run(activity.acknowledgeCashSettlement, creditor.ctx, {
+        proposalId: proposal.proposalId,
+      }),
+    ).resolves.toMatchObject({ ok: true, replayed: true });
+    expect(store.obligationLedgerEvents).toHaveLength(ledgerCount);
+    expect(store.activityEvents).toHaveLength(activityCount);
+
     const settled = await run(balances.forViewer, debtor.ctx);
     expect(settled.netAtomic).toBe(0n);
     expect(settled.isAllSquare).toBe(true);
+    expect(store.tabs![0]).toMatchObject({ status: "settled" });
+    expect(creditor.scheduled).toHaveLength(1);
+    expect(store.telegramStatusMessages?.at(-1)).toMatchObject({
+      tabId: "tabs:t1",
+      event: "bill_completed",
+    });
   });
 
   it("the offset amount comes off the obligation, not the caller", async () => {
@@ -598,6 +703,111 @@ describe("off-chain offsets — authorization and money", () => {
       debtorUserId: "users:andre",
       creditorUserId: "users:maya",
       confirmed: true,
+    });
+  });
+
+  it("replays a completed waiver without duplicating ledger or activity", async () => {
+    const creditor = createFakeCtx(store, identity(DID.maya));
+    await expect(
+      run(activity.waiveObligation, creditor.ctx, { obligationId: "obligations:o1" }),
+    ).resolves.toMatchObject({ ok: true, replayed: false });
+
+    const ledgerCount = store.obligationLedgerEvents!.length;
+    const activityCount = store.activityEvents!.length;
+    await expect(
+      run(activity.waiveObligation, creditor.ctx, { obligationId: "obligations:o1" }),
+    ).resolves.toMatchObject({ ok: true, replayed: true });
+    expect(store.obligationLedgerEvents).toHaveLength(ledgerCount);
+    expect(store.activityEvents).toHaveLength(activityCount);
+  });
+
+  it("uses v2 JPY money for offset comparisons, rows, and activity copy", async () => {
+    Object.assign(store.obligations![0]!, {
+      displayAmountThbMinor: 1n,
+      displayAmountMinor: 1_840n,
+      displayCurrency: "JPY",
+      displayCurrencyMinorDigits: 0,
+    });
+
+    // A legacy-field-sized offset must not make the v2 JPY obligation look paid.
+    store.obligationLedgerEvents!.push({
+      _id: "obligationLedgerEvents:legacy-sized",
+      groupId: "groups:g1",
+      tabId: "tabs:t1",
+      obligationId: "obligations:o1",
+      billId: "tabs:t1#1",
+      debtorUserId: "users:andre",
+      creditorUserId: "users:maya",
+      amountMinor: 1n,
+      eventKind: "cash_offset",
+      confirmed: true,
+      createdAt: 1,
+    });
+
+    const { ctx } = createFakeCtx(store, identity(DID.maya));
+    await expect(
+      run(activity.waiveObligation, ctx, { obligationId: "obligations:o1" }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(store.obligationLedgerEvents!.at(-1)).toMatchObject({
+      amountMinor: 1_840n,
+      displayCurrency: "JPY",
+      displayCurrencyMinorDigits: 0,
+    });
+    expect(store.activityEvents!.at(-1)?.payload).toMatchObject({
+      amountMinor: "1840",
+      currency: "JPY",
+      amountLabel: "¥1,840 waived",
+    });
+  });
+
+  it("keeps KWD cash proposal and acknowledgement amounts exact", async () => {
+    Object.assign(store.obligations![0]!, {
+      displayAmountMinor: 12_345n,
+      displayCurrency: "KWD",
+      displayCurrencyMinorDigits: 3,
+    });
+
+    const debtor = createFakeCtx(store, identity(DID.andre));
+    const proposal = await run(activity.proposeCashSettlement, debtor.ctx, {
+      obligationId: "obligations:o1",
+    });
+    expect(store.obligationLedgerEvents!.at(-1)).toMatchObject({
+      amountMinor: 12_345n,
+      displayCurrency: "KWD",
+      displayCurrencyMinorDigits: 3,
+    });
+    expect(store.activityEvents!.at(-1)?.payload).toMatchObject({
+      currency: "KWD",
+      amountLabel: "KD 12.345 pending acknowledgement",
+    });
+
+    const creditor = createFakeCtx(store, identity(DID.maya));
+    await run(activity.acknowledgeCashSettlement, creditor.ctx, {
+      proposalId: proposal.proposalId,
+    });
+    expect(store.obligationLedgerEvents!.at(-1)).toMatchObject({
+      amountMinor: 12_345n,
+      displayCurrency: "KWD",
+    });
+    expect(store.activityEvents!.at(-1)?.payload).toMatchObject({
+      amountMinor: "12345",
+      currency: "KWD",
+      amountLabel: "KD 12.345",
+    });
+  });
+
+  it("preserves legacy THB fallback for old obligations", async () => {
+    const { ctx } = createFakeCtx(store, identity(DID.maya));
+    await run(activity.waiveObligation, ctx, { obligationId: "obligations:o1" });
+    expect(store.obligationLedgerEvents!.at(-1)).toMatchObject({
+      amountMinor: 29_174n,
+      displayCurrency: "THB",
+      displayCurrencyMinorDigits: 2,
+    });
+    expect(store.activityEvents!.at(-1)?.payload).toMatchObject({
+      currency: "THB",
+      amountLabel: "฿291.74 waived",
     });
   });
 });
@@ -656,7 +866,7 @@ describe("receipts.latestImportForTab", () => {
     const { ctx } = createFakeCtx(store, identity(DID.bob));
     await expect(
       run(receipts.latestImportForTab, ctx, { tabId: "tabs:t1" }),
-    ).rejects.toMatchObject({ code: "NOT_GROUP_MEMBER" });
+    ).rejects.toMatchObject({ code: "NOT_TAB_PARTICIPANT" });
   });
 });
 

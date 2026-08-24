@@ -152,15 +152,6 @@ export function ClaimIcon(props: IconProps) {
   );
 }
 
-/** TIP. The one warm event in the system. */
-export function TipIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M12 20.5L5 13.5a5 5 0 0 1 7-6 5 5 0 0 1 7 6z" />
-    </Icon>
-  );
-}
-
 /** WAIVER. A share written off — the ring with the line through it, not a cross. */
 export function WaiverIcon(props: IconProps) {
   return (
@@ -271,7 +262,6 @@ export const ACTIVITY_ICON: Record<ActivityEventType, (props: IconProps) => Reac
   [ACTIVITY_EVENT_TYPE.CLAIM_RELEASE]: ClaimIcon,
   [ACTIVITY_EVENT_TYPE.ITEM_EDIT]: EditIcon,
   [ACTIVITY_EVENT_TYPE.TAB_LOCK]: LockIcon,
-  [ACTIVITY_EVENT_TYPE.TIP]: TipIcon,
   [ACTIVITY_EVENT_TYPE.PAYMENT]: PaymentSentIcon,
   [ACTIVITY_EVENT_TYPE.WAIVER]: WaiverIcon,
   [ACTIVITY_EVENT_TYPE.CASH_PROPOSED]: CashIcon,

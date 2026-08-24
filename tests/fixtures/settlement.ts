@@ -13,6 +13,7 @@ import type { SettleSheetData } from "../../features/settlement/types";
 export const FIXTURE_SETTLE_SHEET: SettleSheetData = {
   status: "ready",
   intentId: "intent_fixture",
+  activeInputMint: "sol",
   billAmountLabel: "your share of Sukhumvit Dinner",
   billAmount: "฿291.74",
   recipientName: "Maya",
@@ -24,9 +25,11 @@ export const FIXTURE_SETTLE_SHEET: SettleSheetData = {
   rateLabel: "฿35.36 per USDC",
   quoteRemainingMs: 42_000,
   quoteExpired: false,
+  recoveryRequired: false,
   quoteResolving: false,
   staleRevision: false,
   held: false,
+  payable: false,
   roundUpLabel: "Round up to ฿300",
   roundUpAmountLabel: "+฿8.26",
   tokens: [

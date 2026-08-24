@@ -67,9 +67,9 @@ function seedGroup(options: { botIsAdmin?: boolean; membershipStatus?: string; v
   return createFakeCtx(store);
 }
 
-describe("Story 2.5 — the four commands", () => {
-  it("registers /tab, /splitbill, /tip and /balance", () => {
-    expect(BOT_COMMANDS).toEqual(["tab", "splitbill", "tip", "balance"]);
+describe("Story 2.5 — repayment commands", () => {
+  it("registers /tab, /splitbill and /balance without /tip", () => {
+    expect(BOT_COMMANDS).toEqual(["tab", "splitbill", "balance"]);
   });
 
   it("routes /splitbill through the same handler as /tab", async () => {
@@ -199,6 +199,98 @@ describe("binding decision 2 — membership is authoritative", () => {
       botAdminFresh: false,
       chatId: "-1001234567890",
     });
+  });
+
+  it("the final transactional gate refuses active/admin facts once stale", async () => {
+    const { ctx, store } = seedGroup({ verifiedAt: NOW - MEMBERSHIP_CACHE_TTL_MS });
+    await expect(startTabForGroup(ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      now: NOW,
+    })).rejects.toMatchObject({ code: NOT_GROUP_MEMBER });
+    expect(store.tabs).toHaveLength(0);
+  });
+
+  it("defaults an omitted title but refuses explicit blank and overlong titles", async () => {
+    const omitted = seedGroup();
+    await startTabForGroup(omitted.ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      now: NOW,
+    });
+    expect(omitted.store.tabs![0]!.name).toBe("New tab");
+
+    for (const tabName of ["   ", "x".repeat(121)]) {
+      const seeded = seedGroup();
+      await expect(startTabForGroup(seeded.ctx, {
+        groupId: GROUP_ID,
+        chatId: "-1001234567890",
+        organizerTelegramUserId: "42",
+        tabName,
+        now: NOW,
+      })).rejects.toMatchObject({ code: "INVALID_TITLE" });
+      expect(seeded.store.tabs).toHaveLength(0);
+    }
+  });
+
+  it("deduplicates only an exact still-draft group-create configuration", async () => {
+    const { ctx, store } = seedGroup();
+    const first = await startTabForGroup(ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      tabName: "Dinner",
+      merchantName: "One",
+      displayCurrency: "THB",
+      payerUserId: "users:ada" as never,
+      recipientUserId: "users:ada" as never,
+      receiveMint: "mint:usdc",
+      now: NOW,
+    });
+    const duplicate = await startTabForGroup(ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      tabName: "Dinner",
+      merchantName: "One",
+      displayCurrency: "THB",
+      payerUserId: "users:ada" as never,
+      recipientUserId: "users:ada" as never,
+      receiveMint: "mint:usdc",
+      now: NOW + 1,
+    });
+    expect(duplicate).toMatchObject({ tabId: first.tabId, duplicate: true, token: first.token });
+
+    await startTabForGroup(ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      tabName: "Dinner",
+      merchantName: "Two",
+      displayCurrency: "THB",
+      payerUserId: "users:ada" as never,
+      recipientUserId: "users:ada" as never,
+      receiveMint: "mint:usdc",
+      now: NOW + 2,
+    });
+    expect(store.tabs).toHaveLength(2);
+
+    store.tabs![1]!.status = "locked";
+    await startTabForGroup(ctx, {
+      groupId: GROUP_ID,
+      chatId: "-1001234567890",
+      organizerTelegramUserId: "42",
+      tabName: "Dinner",
+      merchantName: "Two",
+      displayCurrency: "THB",
+      payerUserId: "users:ada" as never,
+      recipientUserId: "users:ada" as never,
+      receiveMint: "mint:usdc",
+      now: NOW + 3,
+    });
+    expect(store.tabs).toHaveLength(3);
   });
 
   it("maps every getChatMember status onto a membership decision", () => {

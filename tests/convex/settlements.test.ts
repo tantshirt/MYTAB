@@ -108,6 +108,8 @@ describe("confirmation parser fixture (Story 3.6 AC2–AC3)", () => {
     messageHash: fixtureMessageHash(),
     recipientAddress: "Recip1111111111111111111111111111111111111",
     outputMint: USDC_MINT,
+    inputMint: USDC_MINT,
+    routingKind: "exact_usdc" as const,
     minimumOutputAtomic: 1_000_000n,
     maximumInputAtomic: 1_000_000n,
     reservedSponsorLamports: 3_000_000n,

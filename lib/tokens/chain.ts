@@ -58,6 +58,44 @@ export type ChainDecimalsReader = {
   read: SolanaRpcClient["read"];
 };
 
+export type ProvenMintEvidence = {
+  decimals: number;
+  tokenProgramId: string;
+};
+
+/** Reads both decimals and the owning token program from the same account proof. */
+export async function readMintEvidence(
+  mints: readonly string[],
+  client: ChainDecimalsReader,
+): Promise<Map<string, ProvenMintEvidence | null>> {
+  const proven = new Map<string, ProvenMintEvidence | null>();
+  const unique = [...new Set(mints)].filter(isPlausibleMint);
+
+  for (let i = 0; i < unique.length; i += MAX_ACCOUNTS_PER_REQUEST) {
+    const chunk = unique.slice(i, i + MAX_ACCOUNTS_PER_REQUEST);
+    const result = await client.read("getMultipleAccounts", [
+      chunk,
+      { encoding: "base64", commitment: "confirmed" },
+    ]);
+    const accounts = parseMultipleAccounts(result, chunk.length);
+    chunk.forEach((mint, index) => {
+      const account = accounts[index];
+      if (!account) {
+        proven.set(mint, null);
+        return;
+      }
+      const decoded = decodeMintAccount(account);
+      proven.set(
+        mint,
+        decoded?.isInitialized
+          ? { decimals: decoded.decimals, tokenProgramId: account.owner }
+          : null,
+      );
+    });
+  }
+  return proven;
+}
+
 /**
  * Reads decimals for a set of mints.
  *
@@ -71,27 +109,10 @@ export async function readMintDecimals(
   mints: readonly string[],
   client: ChainDecimalsReader,
 ): Promise<Map<string, number | null>> {
+  const evidence = await readMintEvidence(mints, client);
   const proven = new Map<string, number | null>();
-  const unique = [...new Set(mints)].filter(isPlausibleMint);
-
-  for (let i = 0; i < unique.length; i += MAX_ACCOUNTS_PER_REQUEST) {
-    const chunk = unique.slice(i, i + MAX_ACCOUNTS_PER_REQUEST);
-    const result = await client.read("getMultipleAccounts", [
-      chunk,
-      { encoding: "base64", commitment: "confirmed" },
-    ]);
-    const accounts = parseMultipleAccounts(result, chunk.length);
-
-    chunk.forEach((mint, index) => {
-      const account = accounts[index];
-      if (!account) {
-        proven.set(mint, null);
-        return;
-      }
-      const decoded = decodeMintAccount(account);
-      proven.set(mint, decoded && decoded.isInitialized ? decoded.decimals : null);
-    });
+  for (const [mint, row] of evidence) {
+    proven.set(mint, row?.decimals ?? null);
   }
-
   return proven;
 }

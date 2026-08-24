@@ -14,6 +14,7 @@ export type ClaimBoardData = {
 /** Real geometry, no fabricated money. Used for first paint and for errors. */
 export const EMPTY_CLAIM_BOARD: ClaimBoardProps = {
   tabName: "",
+  displayCurrency: "THB",
   revision: 0,
   isLocked: false,
   isOrganizer: false,
@@ -69,6 +70,7 @@ export function useClaimBoardData(
 
     return {
       tabName: view.tab.name,
+      displayCurrency: view.tab.displayCurrency,
       revision: view.tab.revision,
       isLocked: view.isLocked,
       isOrganizer: view.isOrganizer,
@@ -88,10 +90,12 @@ export function useClaimBoardData(
         allocationMode: item.allocationMode,
         lineTotalMinor: item.lineTotalMinor,
         claimantIds: item.claimantIds,
+        claimantQuantities: item.claimantQuantities,
         viewerOwns: item.viewerOwns,
         unassigned: item.unassigned,
         claimedCount: item.claimedCount,
         shortfall: item.shortfall,
+        monetaryShortfallMinor: item.monetaryShortfallMinor,
         viewerClaimedQuantity: item.viewerClaimedQuantity,
       })),
       unassignedCount: view.unassignedCount,

@@ -19,6 +19,7 @@ import {
   providerDateToAsOfMs,
   resolveFreshnessWindowMs,
   thbMinorToUsdcAtomic,
+  usdFiatRateTextToRational,
   usdThbRateTextToRational,
 } from "@/lib/domain/fx";
 import { MANUAL_FX_RATIONAL } from "@/lib/domain/fxFixture";
@@ -40,6 +41,17 @@ describe("FX rational construction", () => {
       denominatorMinor: 2n,
     });
     expect(MANUAL_FX_RATIONAL).toEqual({ numeratorAtomic: 625n, denominatorMinor: 2n });
+  });
+
+  it("derives exact stable-reference rationals for zero- and three-digit ISO scales", () => {
+    expect(usdFiatRateTextToRational("147.2", 0)).toEqual({
+      numeratorAtomic: 156_250n,
+      denominatorMinor: 23n,
+    });
+    expect(usdFiatRateTextToRational("0.30675", 3)).toEqual({
+      numeratorAtomic: 4_000_000n,
+      denominatorMinor: 1_227n,
+    });
   });
 
   it("never routes the provider decimal through a JavaScript number", () => {

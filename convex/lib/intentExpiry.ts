@@ -6,6 +6,7 @@ import {
   assertSettlementTransition,
 } from "./settlementState";
 import { releaseSponsorReservation } from "./sponsorReservation";
+import { releaseDflowLease } from "./providerBudget";
 
 export const EXPIRABLE_STATUSES: ReadonlySet<SettlementStatus> = new Set([
   SETTLEMENT_STATUS.CREATED,
@@ -37,6 +38,7 @@ export async function expireIntentIfPastDue(
 
   assertSettlementTransition(intent.status as SettlementStatus, SETTLEMENT_STATUS.EXPIRED);
   await releaseSponsorReservation(ctx, intent._id, now);
+  await releaseDflowLease(ctx, intent._id, now);
 
   await ctx.db.patch(intent._id, {
     status: SETTLEMENT_STATUS.EXPIRED,

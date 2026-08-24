@@ -9,8 +9,8 @@ import { BillEmptyState } from "@/features/bills/BillEmptyState";
 import { InvitePanel } from "@/features/invite/InvitePanel";
 import { WhoHasThisSheet } from "./WhoHasThisSheet";
 import { useHaptics } from "@/features/telegram/useHaptics";
-import { formatThbMinorForA11y } from "@/lib/domain/a11yAmount";
-import { formatFiatMinorThb, thbMinorFromInteger } from "@/lib/domain";
+import { formatCurrencyMinorForA11y } from "@/lib/domain/a11yAmount";
+import { fiatMinorFromInteger, formatCurrencyMinor } from "@/lib/domain";
 import { LockIcon } from "@/components/icons";
 import {
   avatarTintsForGroup,
@@ -31,15 +31,30 @@ export type ClaimBoardItem = {
   allocationMode?: "full" | "equal" | "quantity" | "percentage" | "fixed";
   lineTotalMinor: number;
   claimantIds: string[];
+  claimantQuantities?: Array<{ userId: string; quantity: number }>;
   viewerOwns: boolean;
   unassigned: boolean;
   claimedCount?: number;
   shortfall?: number;
+  monetaryShortfallMinor?: number;
   viewerClaimedQuantity?: number;
+};
+
+export type OrganizerResolutionRequest = {
+  operation:
+    | "assign_remaining"
+    | "share_with_everyone"
+    | "remove_claimant"
+    | "reassign_claimant"
+    | "organizer_covers_remainder";
+  targetUserIds?: string[];
+  sourceUserId?: string;
+  targetUserId?: string;
 };
 
 export type ClaimBoardProps = {
   tabName: string;
+  displayCurrency?: string;
   /**
    * The draft revision. Internal machinery — it drives staleness checks and is never
    * rendered. "Revision 3" on a dinner bill is a debugging affordance (§1.6).
@@ -66,6 +81,7 @@ export type ClaimBoardProps = {
   onSetClaimQuantity?: (itemId: string, quantity: number) => void;
   /** Organizer override — hand an item to someone else (FR-C4). */
   onAssignItem?: (itemId: string, userId: string) => void;
+  onResolveItem?: (itemId: string, request: OrganizerResolutionRequest) => void;
   onOpenBillReview?: () => void;
   /** Locked only. Opens the Payment Sheet for the viewer's own share. */
   onSettleUp?: () => void;
@@ -82,8 +98,6 @@ export type ClaimBoardProps = {
 const PRESENCE_MAX = 3;
 /** The sticky footer is two lines tall; the last row must clear it (artboard). */
 const SCROLL_CLEARANCE_PX = 200;
-
-const baht = (minor: number) => formatFiatMinorThb(thbMinorFromInteger(minor));
 
 /** "1 item needs an owner" / "3 items need an owner" — the verb agrees too (§1.6). */
 export function unassignedPhrase(count: number): string {
@@ -150,6 +164,8 @@ const ADD_ITEM_ACTION_STYLE = {
 } as const;
 
 export function ClaimBoard(props: ClaimBoardProps) {
+  const displayCurrency = props.displayCurrency ?? "THB";
+  const money = (minor: number) => formatCurrencyMinor(fiatMinorFromInteger(minor), displayCurrency);
   const reducedMotion = useReducedMotion();
   const haptics = useHaptics();
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -419,6 +435,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
                   name={item.name}
                   quantity={item.quantity}
                   lineTotalMinor={item.lineTotalMinor}
+                  displayCurrency={displayCurrency}
                   claimants={claimantsFor(item)}
                   viewerUserId={props.viewerUserId}
                   viewerOwns={item.viewerOwns}
@@ -486,6 +503,40 @@ export function ClaimBoard(props: ClaimBoardProps) {
                 ) : null}
               </div>
             ) : null}
+
+            {props.isOrganizer && !props.isLocked ? (
+              <section
+                data-testid="prelock-resolution-summary"
+                aria-label="Before locking"
+                style={{
+                  marginTop: 18,
+                  padding: 14,
+                  border: `1px solid ${props.unassignedCount > 0 ? MYTAB_COLORS.warning : MYTAB_COLORS.border}`,
+                  borderRadius: MYTAB_RADIUS.md,
+                  background: MYTAB_COLORS.surface,
+                }}
+              >
+                <h2 className="mytab-type-micro-label" style={{ margin: "0 0 8px" }}>
+                  Before locking
+                </h2>
+                {props.unassignedCount === 0 ? (
+                  <p className="mytab-type-meta" style={{ margin: 0 }}>
+                    Every item is fully assigned. Review the bill, then lock it.
+                  </p>
+                ) : (
+                  <ul className="mytab-type-meta" style={{ margin: 0, paddingLeft: 18 }}>
+                    {props.items.filter((item) => item.unassigned).map((item) => {
+                      const remaining = item.shortfall ?? 1;
+                      return (
+                        <li key={item.id}>
+                          {item.name}: {remaining} {remaining === 1 ? "portion remains" : "portions remain"}. Open its people list to resolve it.
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            ) : null}
           </>
         )}
       </div>
@@ -501,7 +552,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
             data-testid="claim-board-reconciliation"
           >
             <span className="mytab-tabular">
-              {baht(assignedMinor)} of {baht(itemsTotalMinor)} assigned
+              {money(assignedMinor)} of {money(itemsTotalMinor)} assigned
             </span>
             <span
               style={{
@@ -531,7 +582,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
             <p
               className="mytab-tabular"
               data-mytab-amount
-              aria-label={`Your share, ${formatThbMinorForA11y(thbMinorFromInteger(props.viewerSubtotalMinor))}`}
+              aria-label={`Your share, ${formatCurrencyMinorForA11y(fiatMinorFromInteger(props.viewerSubtotalMinor), displayCurrency)}`}
               style={{
                 margin: 0,
                 whiteSpace: "nowrap",
@@ -540,7 +591,7 @@ export function ClaimBoard(props: ClaimBoardProps) {
                 letterSpacing: MYTAB_TYPOGRAPHY.amountMd.tracking,
               }}
             >
-              {baht(props.viewerSubtotalMinor)}
+              {money(props.viewerSubtotalMinor)}
             </p>
             {props.isLocked ? (
               <button
@@ -571,10 +622,13 @@ export function ClaimBoard(props: ClaimBoardProps) {
         <WhoHasThisSheet
           itemName={openItem.name}
           lineTotalMinor={openItem.lineTotalMinor}
+          displayCurrency={displayCurrency}
           quantity={openItem.quantity}
           claimedCount={openItem.claimedCount}
+          monetaryShortfallMinor={openItem.monetaryShortfallMinor}
           allocationMode={openItem.allocationMode}
           claimants={claimantsFor(openItem)}
+          claimantQuantities={openItem.claimantQuantities}
           assignable={props.participants.filter(
             (one) => !openItem.claimantIds.includes(one.userId),
           )}
@@ -582,12 +636,48 @@ export function ClaimBoard(props: ClaimBoardProps) {
           isOrganizer={props.isOrganizer}
           locked={props.isLocked}
           tints={tints}
+          organizerUserId={props.isOrganizer ? props.viewerUserId : undefined}
           onAssign={
             props.onAssignItem
               ? (userId) => {
                   props.onAssignItem?.(openItem.id, userId);
                   setOpenItemId(null);
                 }
+              : undefined
+          }
+          onAssignRemaining={
+            props.onResolveItem
+              ? (userIds) => props.onResolveItem?.(openItem.id, {
+                  operation: "assign_remaining",
+                  targetUserIds: userIds,
+                })
+              : undefined
+          }
+          onShareEveryone={
+            props.onResolveItem
+              ? () => props.onResolveItem?.(openItem.id, { operation: "share_with_everyone" })
+              : undefined
+          }
+          onOrganizerCoversRemainder={
+            props.onResolveItem
+              ? () => props.onResolveItem?.(openItem.id, { operation: "organizer_covers_remainder" })
+              : undefined
+          }
+          onRemoveClaimant={
+            props.onResolveItem
+              ? (sourceUserId) => props.onResolveItem?.(openItem.id, {
+                  operation: "remove_claimant",
+                  sourceUserId,
+                })
+              : undefined
+          }
+          onReassignClaimant={
+            props.onResolveItem
+              ? (sourceUserId, targetUserId) => props.onResolveItem?.(openItem.id, {
+                  operation: "reassign_claimant",
+                  sourceUserId,
+                  targetUserId,
+                })
               : undefined
           }
           onClose={() => setOpenItemId(null)}

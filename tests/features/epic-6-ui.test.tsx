@@ -2,7 +2,6 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PaymentTokenSelector } from "@/components/settlement-sheet/PaymentTokenSelector";
-import { RoundUpControl } from "@/components/settlement-sheet/RoundUpControl";
 import { PaymentSheet } from "@/components/settlement-sheet/PaymentSheet";
 import { SettlementProgress } from "@/components/settlement-progress";
 import {
@@ -116,40 +115,5 @@ describe("Story 6.8 — payment confirmed group message", () => {
       // already says "is all square"; repeating it in prose was the stub's
       // copy, and it is still the same group fact either way (NFR-7).
     ).toBe("All 5 shares settled.");
-  });
-});
-
-describe("Story 6.9 — round-up control", () => {
-  it("shows the amount whether it is on or off, and clears the 44px floor", () => {
-    for (const enabled of [true, false]) {
-      const html = renderToStaticMarkup(
-        <RoundUpControl
-          label="Round up for the organizer"
-          amountLabel="0.50 USDC"
-          enabled={enabled}
-          onToggle={() => undefined}
-        />,
-      );
-
-      expect(html).toContain("Round up for the organizer");
-      // A person cannot weigh an offer they cannot see.
-      expect(html).toContain("0.50 USDC");
-      expect(html).toContain("min-height:44px");
-      expect(html).toContain(`aria-checked="${enabled}"`);
-    }
-  });
-
-  it("carries the tip colour, never the action colour", () => {
-    const html = renderToStaticMarkup(
-      <RoundUpControl
-        label="Round up to ฿300"
-        amountLabel="+฿8.26"
-        enabled
-        onToggle={() => undefined}
-      />,
-    );
-
-    expect(html).toContain("#A85F2E");
-    expect(html).not.toContain("#1E51D2");
   });
 });

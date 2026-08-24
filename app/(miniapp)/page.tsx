@@ -7,6 +7,8 @@ import { useTelegramRuntime } from "@/features/telegram/TelegramRuntimeProvider"
 import { useStartParamRoute } from "@/features/telegram/useStartParamRoute";
 import { TabsHomeSurface } from "@/features/balances";
 import { useTabsHomeData } from "@/features/balances/useTabsHomeData";
+import { useRouter } from "next/navigation";
+import { useQrScanner } from "@/features/telegram/useQrScanner";
 
 /**
  * Prop wiring only. Every state the surface can be in is passed from here:
@@ -22,6 +24,8 @@ function TabsHome() {
   const data = useTabsHomeData();
   const offline = useOffline();
   const { isTelegramWebApp } = useTelegramRuntime();
+  const router = useRouter();
+  const scanner = useQrScanner(router.push);
 
   return (
     <AppShell>
@@ -33,6 +37,8 @@ function TabsHome() {
         onRetry={data.retry}
         offline={offline}
         inTelegram={isTelegramWebApp}
+        onScanInvite={scanner.available ? scanner.scan : undefined}
+        scanInviteError={scanner.error}
       />
     </AppShell>
   );

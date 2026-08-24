@@ -8,7 +8,11 @@ import {
   DFLOW_SOLVER_DEADLINE_MS,
   DFLOW_SOLVER_MAX_REQUESTS,
 } from "../../lib/dflow/constants";
-import { reserveDflowBudget, settleDflowBudget } from "../../convex/lib/providerBudget";
+import {
+  reserveDflowBudget,
+  settleDflowBudget,
+  withDflowBudgetSettlement,
+} from "../../convex/lib/providerBudget";
 
 /**
  * There is no ExactOut on `/order` — it takes an INPUT amount only — so the
@@ -193,8 +197,28 @@ describe("spec-6-3 — bounded solver brackets input against the ENFORCED output
   });
 });
 
+describe("DFlow budget lease finalization", () => {
+  it("settles on an early successful return", async () => {
+    let settlements = 0;
+    await expect(withDflowBudgetSettlement(
+      async () => ({ ok: false as const, failureCode: "EARLY_EXIT" }),
+      async () => { settlements += 1; },
+    )).resolves.toEqual({ ok: false, failureCode: "EARLY_EXIT" });
+    expect(settlements).toBe(1);
+  });
+
+  it("settles on a thrown provider error and preserves the error", async () => {
+    let settlements = 0;
+    await expect(withDflowBudgetSettlement(
+      async () => { throw new Error("provider down"); },
+      async () => { settlements += 1; },
+    )).rejects.toThrow("provider down");
+    expect(settlements).toBe(1);
+  });
+});
+
 describe("Story 6.3 — provider budget reservation", () => {
-  it("reserves four attempts and releases unused tokens on settle", async () => {
+  it("reserves the four solver attempts plus one output-pricing attempt", async () => {
     const buckets: Array<Record<string, unknown>> = [];
     const leases: Array<Record<string, unknown>> = [];
     let nextId = 1;
@@ -255,7 +279,20 @@ describe("Story 6.3 — provider budget reservation", () => {
 
     expect(reserved.ok).toBe(true);
     if (reserved.ok) {
-      expect(reserved.reservedAttempts).toBe(4);
+      expect(reserved.reservedAttempts).toBe(5);
+      await expect(reserveDflowBudget(ctx as never, {
+        userId: "users:1" as never,
+        groupId: "groups:1" as never,
+        intentId: "settlementIntents:1" as never,
+      })).resolves.toMatchObject({ ok: false, failureCode: "PROVIDER_LEASE_ACTIVE" });
+      await settleDflowBudget(ctx as never, {
+        intentId: "settlementIntents:1" as never,
+        userId: "users:1" as never,
+        groupId: "groups:1" as never,
+        windowKey: reserved.windowKey,
+        reservedAttempts: reserved.reservedAttempts,
+        usedAttempts: 2,
+      });
       await settleDflowBudget(ctx as never, {
         intentId: "settlementIntents:1" as never,
         userId: "users:1" as never,

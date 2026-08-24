@@ -9,6 +9,7 @@ import {
 import {
   computeTabBreakdowns,
   countUnassignedItems,
+  itemMonetaryShortfallMinor,
   loadItemClaimRows,
 } from "./allocationSync";
 import { isOrganizer, requireTabParticipant, tabRevision } from "./tabAuth";
@@ -23,9 +24,11 @@ export type ClaimItemProjection = {
   quantity: number;
   allocationMode: ReturnType<typeof resolveItemAllocationMode>;
   claimantIds: string[];
+  claimantQuantities: Array<{ userId: string; quantity: number }>;
   claimantCount: number;
   claimedCount: number;
   shortfall: number;
+  monetaryShortfallMinor: number;
   viewerOwns: boolean;
   viewerClaimedQuantity: number;
   unassigned: boolean;
@@ -59,9 +62,22 @@ export function projectClaimItemView(args: {
     quantity: args.quantity,
     allocationMode,
     claimantIds,
+    claimantQuantities: args.claims.map((claim) => ({
+      userId: claim.userId,
+      quantity: claimUnitCount(claim),
+    })),
     claimantCount: claimantIds.length,
     claimedCount,
     shortfall,
+    monetaryShortfallMinor:
+      allocationMode === "quantity"
+        ? Number(
+            (BigInt(args.lineTotalMinor) * BigInt(shortfall) + BigInt(args.quantity) - 1n) /
+              BigInt(args.quantity),
+          )
+        : shortfall > 0
+          ? args.lineTotalMinor
+          : 0,
     viewerOwns: Boolean(own),
     viewerClaimedQuantity: own ? claimUnitCount(own) : 0,
     unassigned: shortfall > 0,
@@ -113,7 +129,7 @@ export async function buildClaimBoardView(ctx: QueryCtx, tabId: Id<"tabs">) {
         .query("allocations")
         .withIndex("by_item_id", (q) => q.eq("itemId", item._id))
         .collect();
-      return projectClaimItemView({
+      const projected = projectClaimItemView({
         itemId: item._id,
         name: item.name,
         lineTotalMinor: item.lineTotalMinor,
@@ -125,6 +141,13 @@ export async function buildClaimBoardView(ctx: QueryCtx, tabId: Id<"tabs">) {
         })),
         viewerUserId: user._id,
       });
+      const itemRow = itemRows.find((row) => row.itemId === item._id);
+      return {
+        ...projected,
+        monetaryShortfallMinor: itemRow
+          ? itemMonetaryShortfallMinor(itemRow)
+          : item.lineTotalMinor,
+      };
     }),
   );
 
@@ -136,6 +159,8 @@ export async function buildClaimBoardView(ctx: QueryCtx, tabId: Id<"tabs">) {
       revision: tabRevision(tab),
       lockedAt: tab.lockedAt ?? null,
       organizerTelegramUserId: tab.organizerTelegramUserId,
+      displayCurrency: tab.defaultCurrency ?? "THB",
+      displayCurrencyMinorDigits: tab.defaultCurrencyMinorDigits ?? 2,
       origin: tabOrigin(tab),
       seatsRemaining: seatsRemaining(tab, participants.length),
     },

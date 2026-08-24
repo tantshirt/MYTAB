@@ -20,7 +20,6 @@ import {
 import { HELD_PAYMENT_MESSAGE } from "@/lib/domain/paymentState";
 import { PRICE_PROTECTION_LABEL } from "@/lib/settlement/obligationQuote";
 import { PaymentTokenSelector, type PaymentTokenOption } from "./PaymentTokenSelector";
-import { RoundUpControl } from "./RoundUpControl";
 
 /** The one sanctioned stale-bill string (EXPERIENCE, "Settlement Status, in Human Terms"). */
 export const STALE_REVISION_MESSAGE = "This bill changed. Refresh to see your new amount.";
@@ -172,10 +171,6 @@ export type PaymentSheetProps = {
   maximumSpend: string;
   /** The disclosed rate, e.g. "฿35.36 per USDC". */
   rateLabel?: string;
-  roundUpLabel?: string;
-  roundUpAmountLabel?: string;
-  roundUpEnabled?: boolean;
-  onToggleRoundUp?: (enabled: boolean) => void;
   quoteRemainingMs: number;
   quoteExpired?: boolean;
   /** `created` / `quoting`: contents still resolving, action disabled. */
@@ -214,10 +209,6 @@ export function PaymentSheet({
   minimumReceiveAmount,
   maximumSpend,
   rateLabel,
-  roundUpLabel,
-  roundUpAmountLabel,
-  roundUpEnabled = false,
-  onToggleRoundUp,
   quoteRemainingMs,
   quoteExpired = false,
   quoteResolving = false,
@@ -397,19 +388,7 @@ export function PaymentSheet({
           />
         </div>
 
-        {/* 5 — the tip. */}
-        {onToggleRoundUp && roundUpLabel && roundUpAmountLabel ? (
-          <div style={{ marginTop: "18px" }}>
-            <RoundUpControl
-              label={roundUpLabel}
-              amountLabel={roundUpAmountLabel}
-              enabled={roundUpEnabled}
-              onToggle={onToggleRoundUp}
-            />
-          </div>
-        ) : null}
-
-        {/* 6 — everything a swap UI would have put on the face, behind one collapsed row.
+        {/* Everything a swap UI would have put on the face, behind one collapsed row.
             The negative gutter lets the hairlines run to the sheet's edges while the
             row's own label still lines up with the content column. */}
         <div

@@ -80,6 +80,12 @@ export type TelegramWebApp = {
    * optional callback receives a plain boolean.
    */
   shareMessage?: (msgId: string, callback?: (sent: boolean) => void) => void;
+  /** Bot API 6.4 — native camera QR scanner. */
+  showScanQrPopup?: (
+    params: { text?: string },
+    callback: (data: string) => boolean | void,
+  ) => void;
+  closeScanQrPopup?: () => void;
   MainButton?: TelegramBottomButton;
   /** Bot API 7.10. */
   SecondaryButton?: TelegramBottomButton;

@@ -45,6 +45,7 @@ export type TokenCacheRow = {
   existsOnChain?: boolean;
   fetchedAt: number;
   decimalsVerifiedAt?: number;
+  tokenProgramId?: string;
   updatedAt: number;
 };
 
@@ -300,6 +301,8 @@ export type BuildRowsInput = {
    * a mint; absent means it was not read.
    */
   chainDecimals: ReadonlyMap<string, number | null>;
+  /** Owning token program proven by the same mint-account read. */
+  chainTokenPrograms?: ReadonlyMap<string, string>;
   cluster: SolanaCluster;
   now: number;
 };
@@ -337,6 +340,7 @@ export function buildTokenRows(input: BuildRowsInput): TokenCacheRow[] {
       existsOnChain: chainWasRead ? proven !== null : undefined,
       fetchedAt: input.now,
       decimalsVerifiedAt: provenDecimals === undefined ? undefined : input.now,
+      tokenProgramId: input.chainTokenPrograms?.get(mint),
       updatedAt: input.now,
     };
 

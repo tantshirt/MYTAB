@@ -42,13 +42,14 @@ import {
   fetchJupiterTokensChunked,
   jupiterSupportsCluster,
 } from "../lib/tokens/jupiter";
-import { readMintDecimals } from "../lib/tokens/chain";
+import { readMintEvidence } from "../lib/tokens/chain";
 import {
   assertSnapshotAgreesWithCanonical,
   reconcileWithCanonical,
 } from "../lib/tokens/canonical";
 import {
   buildTokenRows,
+  metadataFromRow,
   reconcileEntriesWithChain,
   resolveFromCache,
   type TokenCacheRow,
@@ -58,8 +59,11 @@ import {
   TokenMetadataError,
   isPlausibleMint,
   type RawTokenListEntry,
+  type TokenLookupResult,
 } from "../lib/tokens/types";
 import { TOKEN_METADATA_FRESH_MS } from "../lib/tokens/policy";
+import { TOKEN_PROGRAM_ID, USDC_MINT } from "../lib/solana/constants";
+import { assertTransactable } from "../lib/tokens/policy";
 
 /**
  * Hard cap on a single request.
@@ -101,6 +105,7 @@ function toCacheRow(doc: Doc<"tokenMetadata">): TokenCacheRow {
     existsOnChain: doc.existsOnChain,
     fetchedAt: doc.fetchedAt,
     decimalsVerifiedAt: doc.decimalsVerifiedAt,
+    tokenProgramId: doc.tokenProgramId,
     updatedAt: doc.updatedAt,
   };
 }
@@ -198,6 +203,35 @@ export const getTokenMetadata = query({
   },
 });
 
+/** Named, fresh, legacy-SPL receive assets for the organizer setup picker. */
+export const listVerifiedReceiveAssets = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+    const cluster = activeCluster();
+    const now = Date.now();
+    const docs = await ctx.db
+      .query("tokenMetadata")
+      .withIndex("by_cluster_and_fetched", (q) => q.eq("cluster", cluster))
+      .order("desc")
+      .take(MAX_MINTS_PER_QUERY);
+    const assets = [{ mint: USDC_MINT, symbol: "USDC", name: "USD Coin" }];
+    for (const doc of docs) {
+      if (doc.mint === USDC_MINT || doc.tokenProgramId !== TOKEN_PROGRAM_ID) {
+        continue;
+      }
+      const metadata = metadataFromRow(toCacheRow(doc));
+      try {
+        assertTransactable(metadata, { now, cluster });
+      } catch {
+        continue;
+      }
+      assets.push({ mint: doc.mint, symbol: metadata!.symbol, name: metadata!.name });
+    }
+    return assets;
+  },
+});
+
 /** Internal: the same resolution, for server-side callers with no identity. */
 export const readCached = internalQuery({
   args: { mints: v.array(v.string()) },
@@ -248,6 +282,7 @@ const rowValidator = v.object({
   existsOnChain: v.optional(v.boolean()),
   fetchedAt: v.number(),
   decimalsVerifiedAt: v.optional(v.number()),
+  tokenProgramId: v.optional(v.string()),
 });
 
 /**
@@ -300,6 +335,9 @@ export const commitRows = internalMutation({
         existsOnChain: row.existsOnChain ?? existing?.existsOnChain,
         fetchedAt: row.fetchedAt,
         decimalsVerifiedAt: proofStillApplies ? decimalsVerifiedAt : undefined,
+        tokenProgramId:
+          row.tokenProgramId ??
+          (proofStillApplies ? existing?.tokenProgramId : undefined),
         updatedAt: now,
       };
 
@@ -438,9 +476,18 @@ export const refreshMints = internalAction({
     // prove decimals and cache a usable negative row; if the RPC is down we can
     // still cache labels, which display fine and stay off the transact path.
     let chainDecimals = new Map<string, number | null>();
+    let chainTokenPrograms = new Map<string, string>();
     try {
       const client = createSolanaRpcClient();
-      chainDecimals = await readMintDecimals(mints, client);
+      const evidence = await readMintEvidence(mints, client);
+      chainDecimals = new Map(
+        [...evidence].map(([mint, row]) => [mint, row?.decimals ?? null]),
+      );
+      chainTokenPrograms = new Map(
+        [...evidence]
+          .filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null)
+          .map(([mint, row]) => [mint, row.tokenProgramId]),
+      );
     } catch {
       // RPC unconfigured or unreachable. No proof this round; rows keep any
       // proof they already had, and unproven mints stay unpayable.
@@ -453,6 +500,7 @@ export const refreshMints = internalAction({
       requested: mints,
       entries: reconciled.entries,
       chainDecimals,
+      chainTokenPrograms,
       cluster,
       now: Date.now(),
     });
@@ -492,6 +540,47 @@ export const ensureTokenMetadata = action({
       throw new AuthError(UNAUTHORIZED);
     }
     return await ctx.runAction(internal.tokens.refreshMints, { mints: args.mints });
+  },
+});
+
+/**
+ * Explicit bounded import path for organizer receive assets.
+ *
+ * This is deliberately mint-scoped: Jupiter does not provide a trustworthy
+ * finite "all verified tokens" list, while `/search` can prove an exact mint.
+ * Setup tooling can import a reviewed mint here and the named picker then reads
+ * it from the cache; discovery never relies on a payer opening an unrelated
+ * payment sheet first.
+ */
+export type ImportVerifiedReceiveAssetsResult = {
+  assets: Array<{ mint: string; symbol: string; name: string }>;
+  attribution: typeof JUPITER_ATTRIBUTION;
+};
+
+export const importVerifiedReceiveAssets = action({
+  args: { mints: v.array(v.string()) },
+  handler: async (ctx, args): Promise<ImportVerifiedReceiveAssetsResult> => {
+    if (!(await ctx.auth.getUserIdentity())) {
+      throw new AuthError(UNAUTHORIZED);
+    }
+    const mints = normalizeMints(args.mints).filter((mint) => mint !== USDC_MINT);
+    await ctx.runAction(internal.tokens.refreshMints, { mints });
+    const resolved = await ctx.runQuery(internal.tokens.readCached, { mints }) as {
+      results: TokenLookupResult[];
+    };
+    const cluster = activeCluster();
+    const now = Date.now();
+    const assets: ImportVerifiedReceiveAssetsResult["assets"] = resolved.results.flatMap((result) => {
+      if (result.status !== "ok" || result.metadata.mint === USDC_MINT) return [];
+      try {
+        assertTransactable(result.metadata, { now, cluster });
+      } catch {
+        return [];
+      }
+      const row = result.metadata;
+      return [{ mint: row.mint, symbol: row.symbol, name: row.name }];
+    });
+    return { assets, attribution: JUPITER_ATTRIBUTION };
   },
 });
 

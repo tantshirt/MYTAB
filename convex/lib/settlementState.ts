@@ -26,7 +26,7 @@ const TERMINAL: ReadonlySet<SettlementStatus> = new Set([
 const ALLOWED = new Map<SettlementStatus, ReadonlySet<SettlementStatus>>([
     [
       SETTLEMENT_STATUS.CREATED,
-      new Set([SETTLEMENT_STATUS.QUOTING]),
+      new Set([SETTLEMENT_STATUS.QUOTING, SETTLEMENT_STATUS.SUPERSEDED]),
     ],
     [
       SETTLEMENT_STATUS.QUOTING,

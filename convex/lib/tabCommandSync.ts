@@ -5,7 +5,12 @@ import {
   renderNotAMemberMessage,
   renderRateLimitedMessage,
 } from "../../lib/telegram/messages";
-import { ensureOrganizerParticipant, mintSessionToken, persistLiveInviteToken } from "./sessionTokenOps";
+import {
+  ensureOrganizerParticipant,
+  mintSessionToken,
+  persistLiveInviteToken,
+  reuseLiveTabSession,
+} from "./sessionTokenOps";
 import { publishTabOpenedCard } from "./telegramBot";
 import {
   MEMBERSHIP_FAILURE,
@@ -13,6 +18,7 @@ import {
   assertPrivilegedActionAllowed,
 } from "./telegramMembership";
 import { utcDayKey } from "./sessionTokenSync";
+import { currencyMinorDigits } from "../../lib/domain/currency";
 
 export const TAB_CREATION_DEDUP_MS = 60_000;
 export const MAX_OPEN_TABS_PER_GROUP = 10;
@@ -23,12 +29,14 @@ export const TAB_RATE_LIMITED = "TAB_RATE_LIMITED";
 export const NOT_GROUP_MEMBER = "NOT_GROUP_MEMBER";
 export const BOT_NOT_ADMIN = "BOT_NOT_ADMIN";
 export const GROUP_NOT_FOUND = "GROUP_NOT_FOUND";
+export const INVALID_TITLE = "INVALID_TITLE";
 
 export type TabCommandFailureCode =
   | typeof TAB_RATE_LIMITED
   | typeof NOT_GROUP_MEMBER
   | typeof BOT_NOT_ADMIN
-  | typeof GROUP_NOT_FOUND;
+  | typeof GROUP_NOT_FOUND
+  | typeof INVALID_TITLE;
 
 export class TabCommandError extends Error {
   constructor(public readonly code: TabCommandFailureCode) {
@@ -54,6 +62,7 @@ export function repairMessageForFailure(code: TabCommandFailureCode): string | n
     case TAB_RATE_LIMITED:
       return renderRateLimitedMessage();
     case GROUP_NOT_FOUND:
+    case INVALID_TITLE:
       return null;
   }
 }
@@ -177,6 +186,14 @@ async function findRecentDuplicateTab(
   groupId: Id<"groups">,
   telegramUserId: string,
   now: number,
+  expected: {
+    name: string;
+    merchantName?: string;
+    displayCurrency: string;
+    payerUserId?: Id<"users">;
+    recipientUserId?: Id<"users">;
+    receiveMint?: string;
+  },
 ) {
   const recent = await ctx.db
     .query("tabs")
@@ -189,10 +206,50 @@ async function findRecentDuplicateTab(
   if (!latest) {
     return null;
   }
-  if (now - latest.createdAt > TAB_CREATION_DEDUP_MS) {
+  if (
+    now - latest.createdAt > TAB_CREATION_DEDUP_MS ||
+    latest.status !== "draft" ||
+    latest.name !== expected.name ||
+    (latest.merchantName ?? "") !== (expected.merchantName ?? "") ||
+    (latest.defaultCurrency ?? "THB") !== expected.displayCurrency ||
+    latest.payerUserId !== expected.payerUserId ||
+    latest.recipientUserId !== expected.recipientUserId ||
+    latest.receiveMint !== expected.receiveMint
+  ) {
     return null;
   }
   return latest;
+}
+
+/** Freezes each configured party onto the tab roster from server-owned rows. */
+async function ensureConfiguredPartyParticipants(
+  ctx: MutationCtx,
+  input: {
+    tabId: Id<"tabs">;
+    groupId: Id<"groups">;
+    userIds: Array<Id<"users"> | undefined>;
+    now: number;
+  },
+): Promise<void> {
+  for (const userId of new Set(input.userIds.filter((id): id is Id<"users"> => Boolean(id)))) {
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new TabCommandError(NOT_GROUP_MEMBER);
+    }
+    await assertActiveMember(ctx, input.groupId, user.telegramUserId, input.now);
+    const existing = await ctx.db
+      .query("tabParticipants")
+      .withIndex("by_tab_and_user", (q) => q.eq("tabId", input.tabId).eq("userId", userId))
+      .unique();
+    if (!existing) {
+      await ctx.db.insert("tabParticipants", {
+        tabId: input.tabId,
+        userId,
+        telegramUserId: user.telegramUserId,
+        joinedAt: input.now,
+      });
+    }
+  }
 }
 
 export type StartTabResult = {
@@ -209,34 +266,91 @@ export async function startTabForGroup(
     chatId: string;
     organizerTelegramUserId: string;
     tabName?: string;
+    merchantName?: string;
+    displayCurrency?: string;
+    payerUserId?: Id<"users">;
+    recipientUserId?: Id<"users">;
+    recipientAsset?: string;
+    receiveMint?: string;
+    receiveDecimals?: number;
+    receiveTokenProgramId?: string;
+    receiveVerifiedAt?: number;
+    fxSnapshotId?: Id<"fxSnapshots">;
+    creationIdempotencyKey?: string;
     now?: number;
   },
 ): Promise<StartTabResult> {
   const now = input.now ?? Date.now();
   await assertActiveMember(ctx, input.groupId, input.organizerTelegramUserId, now);
 
+  const tabName = input.tabName === undefined ? "New tab" : input.tabName.trim();
+  if (tabName.length < 1 || tabName.length > 120) {
+    throw new TabCommandError(INVALID_TITLE);
+  }
+  const merchantName = input.merchantName?.trim() || undefined;
+  const displayCurrency = input.displayCurrency ?? "THB";
   const duplicateTab = await findRecentDuplicateTab(
     ctx,
     input.groupId,
     input.organizerTelegramUserId,
     now,
+    {
+      name: tabName,
+      merchantName,
+      displayCurrency,
+      payerUserId: input.payerUserId,
+      recipientUserId: input.recipientUserId,
+      receiveMint: input.receiveMint,
+    },
   );
   if (duplicateTab) {
-    return { tabId: duplicateTab._id, token: "", duplicate: true };
+    await ensureConfiguredPartyParticipants(ctx, {
+      tabId: duplicateTab._id,
+      groupId: input.groupId,
+      userIds: [input.payerUserId, input.recipientUserId],
+      now,
+    });
+    let invite = await reuseLiveTabSession(ctx, duplicateTab, now);
+    if (!invite) {
+      const minted = await mintSessionToken(ctx, {
+        tokenType: "tab_session",
+        subjectKind: "tab",
+        subjectId: duplicateTab._id,
+        groupId: duplicateTab.groupId,
+        now,
+      });
+      await persistLiveInviteToken(ctx, duplicateTab._id, minted.token);
+      invite = minted;
+    }
+    return {
+      tabId: duplicateTab._id,
+      token: invite.token,
+      duplicate: true,
+    };
   }
 
   await assertTabCreationAllowed(ctx, input.groupId, input.organizerTelegramUserId, now);
 
-  const tabName = input.tabName?.trim() || "New tab";
   const tabId = await ctx.db.insert("tabs", {
     groupId: input.groupId,
     organizerTelegramUserId: input.organizerTelegramUserId,
+    creationIdempotencyKey: input.creationIdempotencyKey,
     name: tabName,
+    merchantName,
     status: "draft",
     origin: "chat",
     seatPolicy: { kind: "chat" },
-    defaultCurrency: "THB",
-    recipientAsset: "USDC",
+    defaultCurrency: displayCurrency,
+    defaultCurrencyMinorDigits: currencyMinorDigits(displayCurrency),
+    moneyPolicyVersion: "fiat-receive-v2",
+    recipientAsset: input.recipientAsset ?? "USDC",
+    receiveMint: input.receiveMint,
+    receiveDecimals: input.receiveDecimals,
+    receiveTokenProgramId: input.receiveTokenProgramId,
+    receiveVerifiedAt: input.receiveVerifiedAt,
+    payerUserId: input.payerUserId,
+    recipientUserId: input.recipientUserId,
+    fxSnapshotId: input.fxSnapshotId,
     revision: 0,
     createdAt: now,
     updatedAt: now,
@@ -245,6 +359,12 @@ export async function startTabForGroup(
   await ensureOrganizerParticipant(ctx, {
     tabId,
     organizerTelegramUserId: input.organizerTelegramUserId,
+    now,
+  });
+  await ensureConfiguredPartyParticipants(ctx, {
+    tabId,
+    groupId: input.groupId,
+    userIds: [input.payerUserId, input.recipientUserId],
     now,
   });
 
@@ -272,49 +392,6 @@ export async function startTabForGroup(
   return { tabId, token, duplicate: false };
 }
 
-/** Handles /tip — mints scoped tip session token and posts card (Story 2.5 AC2). */
-export async function startTipSessionForGroup(
-  ctx: MutationCtx,
-  input: {
-    groupId: Id<"groups">;
-    chatId: string;
-    senderTelegramUserId: string;
-    now?: number;
-  },
-): Promise<{ token: string }> {
-  const now = input.now ?? Date.now();
-  await assertActiveMember(ctx, input.groupId, input.senderTelegramUserId, now);
-
-  const tipTabId = await ctx.db.insert("tabs", {
-    groupId: input.groupId,
-    organizerTelegramUserId: input.senderTelegramUserId,
-    name: "Tip",
-    status: "open",
-    defaultCurrency: "THB",
-    recipientAsset: "USDC",
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  const { token } = await mintSessionToken(ctx, {
-    tokenType: "action_token",
-    subjectKind: "tip",
-    subjectId: tipTabId,
-    groupId: input.groupId,
-    now,
-  });
-
-  await publishTabOpenedCard(ctx, {
-    tabId: tipTabId,
-    chatId: input.chatId,
-    tabName: "Tip",
-    opaqueToken: token,
-    now,
-  });
-
-  return { token };
-}
-
 /** Handles /balance — scoped session, no group message (Story 2.5 AC3). */
 export async function startBalanceSessionForGroup(
   ctx: MutationCtx,
@@ -339,7 +416,7 @@ export async function startBalanceSessionForGroup(
   return { token };
 }
 
-export const BOT_COMMANDS = ["tab", "splitbill", "tip", "balance"] as const;
+export const BOT_COMMANDS = ["tab", "splitbill", "balance"] as const;
 export type BotCommand = (typeof BOT_COMMANDS)[number];
 
 export function normalizeBotCommand(command: string | null): BotCommand | null {
@@ -378,14 +455,6 @@ export async function routeBotCommand(
         now,
       });
       return { handled: true, command: input.command };
-    case "tip":
-      await startTipSessionForGroup(ctx, {
-        groupId: input.groupId,
-        chatId: input.chatId,
-        senderTelegramUserId: input.fromId,
-        now,
-      });
-      return { handled: true, command: "tip" };
     case "balance":
       await startBalanceSessionForGroup(ctx, {
         groupId: input.groupId,
